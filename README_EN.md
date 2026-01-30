@@ -72,12 +72,15 @@ LandPPT is an intelligent presentation generation platform powered by Large Lang
 
 - **One-Click Generation**: From topic to complete PPT, fully automated AI processing
 - **Smart Image Matching**: AI automatically matches the most suitable images with multi-source support and reference image generation
+- **TODO Task Board**: New interactive task management UI to track generation progress with rich animations
 - **Deep Research**: Integrated multiple search engines for latest and comprehensive information
+- **Parallel Generation**: Parallel slide generation with enhanced AI service for a major speedup
 - **Speech Script Generation**: Intelligent generation of accompanying speech scripts with multiple export formats
 - **Visual Reference**: AI editing assistant supports image upload and visual content analysis
 - **Multiple File Upload**: Support uploading multiple files simultaneously for efficient batch processing
-- **Batch Generation**: Support batch PPT page generation for significantly improved speed
 - **Custom Model Selection**: Customize model selection by function module for precise cost control
+- **Config Center**: Visual configuration for AI providers & models, one-click test, model list fetch, and role-based provider/model assignment
+- **Free Master Template**: AI-generated project-specific master template, responsive 16:9 edge-to-edge rendering, suitable for title/agenda/content/ending slides
 - **Notes Export**: Support exporting speech scripts to PPT notes
 - **Image Export**: Support exporting PPT in image format
 - **Responsive Design**: Perfect adaptation to various devices and screen sizes
@@ -86,10 +89,10 @@ LandPPT is an intelligent presentation generation platform powered by Large Lang
 ##  Key Features
 
 ###  Multi-AI Provider Support
-- **OpenAI GPT Series**: GPT-4o, GPT-4o-mini and other latest models
-- **Anthropic Claude**: Claude-3.5 Sonnet, Claude-3 Haiku series models
-- **Google Gemini**: Gemini-1.5 Flash, Gemini-1.5 Pro series models with custom endpoint support
-- **Azure OpenAI**: Enterprise-grade AI services with custom deployments
+- **OpenAI**: GPT-4o, GPT-4o-mini and other latest models
+- **OpenAI-Compatible**: DeepSeek / Kimi / MiniMax / 302.AI (via Base URL + API Key)
+- **Anthropic Claude**: Claude-4 series models
+- **Google Gemini**: Gemini-2.5 series models with custom endpoint support
 - **Ollama**: Locally deployed open-source models supporting Llama, Mistral, etc.
 
 ###  Powerful File Processing
@@ -234,10 +237,10 @@ password:
 
 ### 2. Configure AI Providers
 Configure your AI API keys in the settings page:
-- OpenAI API Key
+- OpenAI API Key (also supports OpenAI-compatible providers via Base URL, e.g. DeepSeek / Kimi / MiniMax / 302.AI)
 - Anthropic API Key
 - Google API Key
-- 302.AI API Key
+- 302.AI API Key (OpenAI-compatible)
 - Or configure local Ollama service
 
 ### 3. Create PPT Projects
@@ -263,11 +266,40 @@ Main configuration items (see `.env.example` for details):
 
 ```bash
 # AI Provider Configuration
-DEFAULT_AI_PROVIDER=openai
+DEFAULT_AI_PROVIDER=openai  # openai / deepseek / kimi / minimax / anthropic / google / ollama / 302ai
+
+# OpenAI
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o
+
+# OpenAI-Compatible providers (via Base URL + API Key)
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-chat
+
+KIMI_API_KEY=
+KIMI_BASE_URL=https://api.moonshot.cn/v1
+KIMI_MODEL=kimi-k2.5
+
+MINIMAX_API_KEY=
+MINIMAX_BASE_URL=https://api.minimaxi.com/v1
+MINIMAX_MODEL=MiniMax-M2.1
+
+# 302.AI (OpenAI-Compatible)
+302AI_API_KEY=
+302AI_BASE_URL=https://api.302.ai/v1
+302AI_MODEL=gpt-4o
+
+# Anthropic
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+
+# Google Gemini
 GOOGLE_API_KEY=your_google_api_key_here
 GOOGLE_BASE_URL=https://generativelanguage.googleapis.com  # Custom Gemini endpoint
+GOOGLE_MODEL=gemini-2.5-flash
 
 # Server Configuration
 HOST=0.0.0.0
@@ -312,6 +344,7 @@ After starting the service, visit:
 
 ### AI Integration
 - **OpenAI**: GPT-4o, GPT-4o-mini and other latest models
+- **OpenAI-Compatible**: DeepSeek / Kimi / MiniMax / 302.AI (via OpenAI SDK Base URL)
 - **Anthropic**: Claude-4.5 series models
 - **Google AI**: Gemini-2.5 series models
 - **LangChain**: AI application development framework and toolchain
@@ -357,7 +390,7 @@ If you find bugs or have feature suggestions, please create a new issue on the [
 ##  FAQ
 
 ### Q: Which AI models are supported?
-A: Supports OpenAI GPT, Anthropic Claude, Google Gemini, Azure OpenAI, and Ollama local models. You can switch between different AI providers in the configuration page.
+A: Supports OpenAI, Anthropic Claude, Google Gemini, Ollama, and OpenAI-compatible providers (DeepSeek / Kimi / MiniMax / 302.AI). You can switch providers in the configuration page.
 
 ### Q: How to configure image functionality?
 A: Configure the corresponding API keys in the `.env` file:

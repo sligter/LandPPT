@@ -115,17 +115,17 @@
                             <div class="custom-radio">
                                 <input type="radio" name="default_provider" value="{{ provider }}"
                                     id="provider_{{ provider }}" {% if current_provider==provider %}checked{% endif %}
-                                    onchange="setDefaultProvider('{{ provider }}')">
-                                <label for="provider_{{ provider }}" class="radio-label">默认</label>
+                                    onchange="setDefaultProvider('{{ provider }}')" onclick="event.stopPropagation();">
+                                <label for="provider_{{ provider }}" class="radio-label" onclick="event.stopPropagation();">默认</label>
                             </div>
 
                             <button type="button" class="provider-accordion__icon-btn" data-no-toggle="true"
-                                title="测试" onclick="testProvider('{{ provider }}')" aria-label="测试">
+                                title="测试" onclick="event.stopPropagation(); testProvider('{{ provider }}')" aria-label="测试">
                                 <span class="provider-accordion__icon provider-accordion__icon--test" aria-hidden="true"></span>
                             </button>
 
                             <button type="button" class="btn btn-primary provider-accordion__save-btn" data-no-toggle="true"
-                                onclick="saveProviderConfig('{{ provider }}')">
+                                onclick="event.stopPropagation(); saveProviderConfig('{{ provider }}')">
                                 保存
                             </button>
                         </div>
@@ -303,10 +303,19 @@
                                 <select name="{{ role.provider_field }}" class="model-role-provider model-role-select"
                                     data-model-field="{{ role.model_field }}">
                                     <option value="">使用默认提供者</option>
-                                    {% for provider in available_providers %}
-                                    <option value="{{ provider }}" {% if
-                                        current_config.get(role.provider_field)==provider %}selected{% endif %}>{{
-                                        provider }}</option>
+                                    {% for provider in supported_providers if provider_status.get(provider, False) %}
+                                    <option value="{{ provider }}" {% if current_config.get(role.provider_field)==provider %}selected{% endif %}>
+                                        {% if provider == "openai" %}OpenAI
+                                        {% elif provider == "deepseek" %}DeepSeek
+                                        {% elif provider == "kimi" %}Kimi
+                                        {% elif provider == "minimax" %}MiniMax
+                                        {% elif provider == "anthropic" %}Anthropic Claude
+                                        {% elif provider == "google" %}Google Gemini
+                                        {% elif provider == "ollama" %}Ollama (本地)
+                                        {% elif provider == "302ai" %}302.AI
+                                        {% else %}{{ provider }}
+                                        {% endif %}
+                                    </option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -2987,8 +2996,6 @@
     document.addEventListener('DOMContentLoaded', function () {
         // 初始化搜索选择框
         initSearchableSelects();
-        // 初始化提供者折叠面板交互（避免点击右侧按钮时折叠/展开）
-        initProviderAccordionActions();
         // 加载初始配置
         loadAllConfigs();
         // 检查图片服务状态
@@ -2997,27 +3004,7 @@
         initModelRoleProviderListeners();
     });
 
-    function initProviderAccordionActions() {
-        document.querySelectorAll('.provider-accordion__summary').forEach(summary => {
-            summary.addEventListener('click', function (event) {
-                const rightArea = event.target.closest('.provider-accordion__summary-right');
-                if (!rightArea) return;
-
-                // 阻止 details 默认折叠/展开行为
-                event.preventDefault();
-
-                // 如果点击的是“默认”单选框区域，手动触发选中与change
-                const radioContainer = event.target.closest('.custom-radio');
-                if (radioContainer) {
-                    const radio = radioContainer.querySelector('input[type="radio"]');
-                    if (radio && !radio.checked) {
-                        radio.checked = true;
-                        radio.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                }
-            });
-        });
-    }
+    // provider accordion actions are handled via stopPropagation on buttons/radios
 
     // 初始化搜索选择框
     function initSearchableSelects() {
@@ -4138,7 +4125,11 @@
             if (response.ok) {
                 const result = await response.json();
                 if (result.success) {
-                    showNotification(`默认提供者已设置为 ${provider}，配置已实时生效`, 'success');
+                    if (result.config_applied === false) {
+                        showNotification(`默认提供者已提交为 ${provider}，但后端未确认生效（current_provider=${result.current_provider}）`, 'warning');
+                    } else {
+                        showNotification(`默认提供者已设置为 ${provider}，配置已实时生效`, 'success');
+                    }
 
                     // 更新页面显示的当前提供者
                     updateCurrentProviderDisplay(provider);
@@ -4151,7 +4142,14 @@
                     showNotification('设置默认提供者失败: ' + (result.message || '未知错误'), 'error');
                 }
             } else {
-                showNotification('设置默认提供者失败', 'error');
+                let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData.detail) errorMsg = errorData.detail;
+                    else if (errorData.message) errorMsg = errorData.message;
+                    else if (errorData.error) errorMsg = errorData.error;
+                } catch (_) { }
+                showNotification('设置默认提供者失败: ' + errorMsg, 'error');
             }
 
             closeTestModal();

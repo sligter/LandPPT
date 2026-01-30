@@ -93,6 +93,8 @@ LandPPT 是一个基于大语言模型（LLM）的智能演示文稿生成平台
 - **视觉参考**：AI编辑助手支持图像上传和视觉内容分析
 - **多文件上传**：支持同时上传多个文件，批量处理更高效
 - **模型自定义**：按功能自定义模型选择，精准控制成本
+- **配置中心**：可视化配置AI提供商与模型，支持一键测试、模型列表获取，并支持按任务角色指定不同提供商/模型
+- **自由模板**：AI自动生成项目专属母版模板，支持响应式16:9铺满展示，并适配标题/目录/内容/结尾等页面类型
 - **备注导出**：支持将演讲稿导出至PPT备注栏
 - **图片导出**：支持以图片格式导出PPT页面
 - **企业级安全**：支持本地部署，数据安全可控
@@ -101,9 +103,11 @@ LandPPT 是一个基于大语言模型（LLM）的智能演示文稿生成平台
 
 ###  多AI提供商支持
 - **OpenAI GPT系列**：GPT-4o、GPT-4o-mini 等模型
+- **OpenAI兼容提供商**：DeepSeek、Kimi、MiniMax 等（通过 Base URL + API Key 接入）
 - **Anthropic Claude**：Claude-4 Sonnet、Claude-4 Haiku 系列模型
 - **Google Gemini**：Gemini-2.5 Flash、Gemini-2.5 Pro 系列模型，支持自定义端点配置
 - **Ollama**：本地部署的开源模型，支持 Llama、Mistral 等
+- **302.AI**：OpenAI兼容接口
 
 ###  强大的文件处理能力
 - **多格式支持**：PDF、Word、Markdown、TXT、Excel 等多种格式
@@ -273,11 +277,40 @@ docker logs -f landppt
 
 ```bash
 # AI提供商配置
-DEFAULT_AI_PROVIDER=openai
+DEFAULT_AI_PROVIDER=openai  # openai / deepseek / kimi / minimax / anthropic / google / ollama / 302ai
+
+# OpenAI
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o
+
+# OpenAI兼容提供商（通过 Base URL + API Key 接入）
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-chat
+
+KIMI_API_KEY=
+KIMI_BASE_URL=https://api.moonshot.cn/v1
+KIMI_MODEL=kimi-k2.5
+
+MINIMAX_API_KEY=
+MINIMAX_BASE_URL=https://api.minimaxi.com/v1
+MINIMAX_MODEL=MiniMax-M2.1
+
+# 302.AI（OpenAI兼容）
+302AI_API_KEY=
+302AI_BASE_URL=https://api.302.ai/v1
+302AI_MODEL=gpt-4o
+
+# Anthropic
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+
+# Google Gemini
 GOOGLE_API_KEY=your_google_api_key_here
 GOOGLE_BASE_URL=https://generativelanguage.googleapis.com  # 自定义Gemini端点
+GOOGLE_MODEL=gemini-2.5-flash
 
 # 服务器配置
 HOST=0.0.0.0
@@ -322,6 +355,7 @@ TEMPERATURE=0.7
 
 ### AI集成
 - **OpenAI**: GPT-4o、GPT-4o-mini 等最新模型
+- **OpenAI-Compatible**: DeepSeek / Kimi / MiniMax / 302.AI（通过 OpenAI SDK 的 Base URL 接入）
 - **Anthropic**: Claude-4.5 系列模型
 - **Google AI**: Gemini-2.5 系列模型
 - **LangChain**: AI应用开发框架和工具链
@@ -366,7 +400,7 @@ TEMPERATURE=0.7
 ##  常见问题
 
 ### Q: 支持哪些AI模型？
-A: 支持 OpenAI GPT(兼容)、Anthropic Claude、Google Gemini、Azure OpenAI 和 Ollama 本地模型。可以在配置页面切换不同的AI提供商。
+A: 支持 OpenAI、Anthropic Claude、Google Gemini、Ollama，以及 OpenAI 兼容提供商（DeepSeek / Kimi / MiniMax / 302.AI）。可以在配置页面切换不同的AI提供商。
 
 ### Q: 如何配置图像功能？
 A: 在 `.env` 文件中配置相应的API密钥：
@@ -417,7 +451,7 @@ A: 大多数AI提供商支持并发请求，但可能有不同的限制。建议
 - **讨论区**: https://github.com/sligter/LandPPT/discussions
 - **交流群**: https://t.me/+EaOfoceoNwdhNDVlsh
 
-![LandPPT](https://img.pub/p/57e3ca538b6ea62592f6.png)
+![LandPPT](https://img.pub/p/c21f6cff6274f121fd37.jpg)
 ---
 
 <div align="center">

@@ -9754,7 +9754,7 @@
         }
 
         // 使用全局母版生成幻灯片HTML内容
-        async function generateSlideWithGlobalTemplate(template, title, content) {
+        async function generateSlideWithGlobalTemplate(template, title, content, slideType = 'content') {
             try {
                 let htmlTemplate = template.html_template;
 
@@ -9762,6 +9762,7 @@
                 htmlTemplate = htmlTemplate.replace(/\{\{\s*page_title\s*\}\}/g, title);
                 htmlTemplate = htmlTemplate.replace(/\{\{\s*main_heading\s*\}\}/g, title);
                 htmlTemplate = htmlTemplate.replace(/\{\{\s*page_content\s*\}\}/g, content);
+                htmlTemplate = htmlTemplate.replace(/\{\{\s*slide_type\s*\}\}/g, slideType || 'content');
                 htmlTemplate = htmlTemplate.replace(/\{\{\s*current_page_number\s*\}\}/g, '1');
                 htmlTemplate = htmlTemplate.replace(/\{\{\s*total_page_count\s*\}\}/g, slidesData.length.toString());
 
@@ -12141,7 +12142,8 @@
                     newSlide.html_content = await generateSlideWithGlobalTemplate(
                         globalTemplate,
                         newSlide.title,
-                        '复制的幻灯片内容'
+                        '复制的幻灯片内容',
+                        (copiedSlideData && (copiedSlideData.slide_type || copiedSlideData.type)) ? (copiedSlideData.slide_type || copiedSlideData.type) : 'content'
                     );
                 }
 
@@ -12197,7 +12199,8 @@
                     htmlContent = await generateSlideWithGlobalTemplate(
                         globalTemplate,
                         slideTitle,
-                        '新建幻灯片，请编辑内容'
+                        '新建幻灯片，请编辑内容',
+                        'content'
                     );
                 }
 
@@ -12255,7 +12258,8 @@
                         duplicatedSlide.html_content = await generateSlideWithGlobalTemplate(
                             globalTemplate,
                             duplicatedSlide.title,
-                            '复制的幻灯片内容'
+                            '复制的幻灯片内容',
+                            (originalSlide && (originalSlide.slide_type || originalSlide.type)) ? (originalSlide.slide_type || originalSlide.type) : 'content'
                         );
                     }
 
