@@ -154,12 +154,12 @@
                                 <input type="hidden" name="302ai_base_url" value="https://api.302.ai/v1">
                                 <input type="text" value="https://api.302.ai/v1" disabled>
                                 {% else %}
-                                {% if (not provider_api_key) and provider == 'minimax' and (not provider_base_url or provider_base_url == 'https://api.minimax.chat/v1') %}
-                                    {% set provider_base_url = 'https://api.minimaxi.com/v1' %}
+                                {% if (not provider_api_key) and provider == 'minimax' and (not provider_base_url or provider_base_url in ['https://api.minimax.chat/v1', 'https://api.minimaxi.com/v1']) %}
+                                    {% set provider_base_url = 'https://api.minimax.io/v1' %}
                                 {% endif %}
                                 <input type="text" name="{{ provider }}_base_url"
                                     value="{{ provider_base_url }}"
-                                    placeholder="{% if provider == 'openai' %}https://api.openai.com/v1{% elif provider == 'deepseek' %}https://api.deepseek.com/v1{% elif provider == 'kimi' %}https://api.moonshot.cn/v1{% elif provider == 'minimax' %}https://api.minimaxi.com/v1{% else %}https://api.openai.com/v1{% endif %}">
+                                    placeholder="{% if provider == 'openai' %}https://api.openai.com/v1{% elif provider == 'deepseek' %}https://api.deepseek.com/v1{% elif provider == 'kimi' %}https://api.moonshot.cn/v1{% elif provider == 'minimax' %}https://api.minimax.io/v1{% else %}https://api.openai.com/v1{% endif %}">
                                 {% endif %}
                             </div>
 
@@ -177,13 +177,13 @@
                                     {% if not provider_api_key %}
                                         {% if provider == 'kimi' and (not provider_model or provider_model == 'moonshot-v1-8k') %}
                                             {% set provider_model = 'kimi-k2.5' %}
-                                        {% elif provider == 'minimax' and (not provider_model or provider_model == 'MiniMax-Text-01') %}
-                                            {% set provider_model = 'MiniMax-M2.1' %}
+                                        {% elif provider == 'minimax' and (not provider_model or provider_model in ['MiniMax-Text-01', 'MiniMax-M2.1']) %}
+                                            {% set provider_model = 'MiniMax-M2.7' %}
                                         {% endif %}
                                     {% endif %}
                                     <input type="text" name="{{ provider }}_model" id="{{ provider }}_model_input" class="model-input"
                                         value="{{ provider_model }}"
-                                        placeholder="{% if provider == 'openai' %}gpt-4o{% elif provider == 'deepseek' %}deepseek-chat{% elif provider == 'kimi' %}kimi-k2.5{% elif provider == 'minimax' %}MiniMax-M2.1{% elif provider == '302ai' %}gpt-4o{% else %}model{% endif %}">
+                                        placeholder="{% if provider == 'openai' %}gpt-4o{% elif provider == 'deepseek' %}deepseek-chat{% elif provider == 'kimi' %}kimi-k2.5{% elif provider == 'minimax' %}MiniMax-M2.7{% elif provider == '302ai' %}gpt-4o{% else %}model{% endif %}">
                                     {% if provider == "302ai" %}
                                     <button type="button" onclick="fetch302AIModels()" id="{{ provider }}_model_fetch_btn"
                                         class="model-fetch-btn" title="获取可用模型列表">
@@ -3337,13 +3337,13 @@
                 openai: 'https://api.openai.com/v1',
                 deepseek: 'https://api.deepseek.com/v1',
                 kimi: 'https://api.moonshot.cn/v1',
-                minimax: 'https://api.minimaxi.com/v1'
+                minimax: 'https://api.minimax.io/v1'
             };
             const defaultModels = {
                 openai: 'gpt-4o',
                 deepseek: 'deepseek-chat',
                 kimi: 'kimi-k2.5',
-                minimax: 'MiniMax-M2.1'
+                minimax: 'MiniMax-M2.7'
             };
 
             // 获取配置 - 使用前端页面填写的信息
@@ -4086,7 +4086,7 @@
                     openai: 'https://api.openai.com/v1',
                     deepseek: 'https://api.deepseek.com/v1',
                     kimi: 'https://api.moonshot.cn/v1',
-                    minimax: 'https://api.minimaxi.com/v1'
+                    minimax: 'https://api.minimax.io/v1'
                 };
 
                 const apiKeyInput = providerCard.querySelector(`input[name="${provider}_api_key"]`);
@@ -5082,7 +5082,7 @@
             openai: 'https://api.openai.com/v1',
             deepseek: 'https://api.deepseek.com/v1',
             kimi: 'https://api.moonshot.cn/v1',
-            minimax: 'https://api.minimaxi.com/v1'
+            minimax: 'https://api.minimax.io/v1'
         };
 
         try {

@@ -51,8 +51,8 @@ class AIConfig(BaseSettings):
     kimi_model: str = Field(default="kimi-k2.5", env="KIMI_MODEL")
 
     minimax_api_key: Optional[str] = Field(default=None, env="MINIMAX_API_KEY")
-    minimax_base_url: str = Field(default="https://api.minimaxi.com/v1", env="MINIMAX_BASE_URL")
-    minimax_model: str = Field(default="MiniMax-M2.1", env="MINIMAX_MODEL")
+    minimax_base_url: str = Field(default="https://api.minimax.io/v1", env="MINIMAX_BASE_URL")
+    minimax_model: str = Field(default="MiniMax-M2.7", env="MINIMAX_MODEL")
     
     # Anthropic Configuration
     anthropic_api_key: Optional[str] = Field(default=None, env="ANTHROPIC_API_KEY")
@@ -287,7 +287,7 @@ class AIConfig(BaseSettings):
                 "base_url": self.minimax_base_url,
                 "model": self.minimax_model,
                 "max_tokens": self.max_tokens,
-                "temperature": self.temperature,
+                "temperature": min(self.temperature, 1.0),
                 "top_p": self.top_p,
             },
             "anthropic": {
@@ -431,6 +431,15 @@ def reload_ai_config():
     ai_config.ai_302ai_api_key = os.environ.get('302AI_API_KEY', ai_config.ai_302ai_api_key)
     ai_config.ai_302ai_base_url = os.environ.get('302AI_BASE_URL', ai_config.ai_302ai_base_url)
     ai_config.ai_302ai_model = os.environ.get('302AI_MODEL', ai_config.ai_302ai_model)
+    ai_config.minimax_api_key = os.environ.get('MINIMAX_API_KEY', ai_config.minimax_api_key)
+    ai_config.minimax_base_url = os.environ.get('MINIMAX_BASE_URL', ai_config.minimax_base_url)
+    ai_config.minimax_model = os.environ.get('MINIMAX_MODEL', ai_config.minimax_model)
+    ai_config.deepseek_api_key = os.environ.get('DEEPSEEK_API_KEY', ai_config.deepseek_api_key)
+    ai_config.deepseek_base_url = os.environ.get('DEEPSEEK_BASE_URL', ai_config.deepseek_base_url)
+    ai_config.deepseek_model = os.environ.get('DEEPSEEK_MODEL', ai_config.deepseek_model)
+    ai_config.kimi_api_key = os.environ.get('KIMI_API_KEY', ai_config.kimi_api_key)
+    ai_config.kimi_base_url = os.environ.get('KIMI_BASE_URL', ai_config.kimi_base_url)
+    ai_config.kimi_model = os.environ.get('KIMI_MODEL', ai_config.kimi_model)
     ai_config.default_ai_provider = os.environ.get('DEFAULT_AI_PROVIDER', ai_config.default_ai_provider)
     model_provider_env = os.environ.get('DEFAULT_MODEL_PROVIDER')
     ai_config.default_model_provider = (ai_config._normalize_optional_str(model_provider_env)

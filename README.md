@@ -103,7 +103,7 @@ LandPPT 是一个基于大语言模型（LLM）的智能演示文稿生成平台
 
 ###  多AI提供商支持
 - **OpenAI GPT系列**：GPT-4o、GPT-4o-mini 等模型，支持官方 Responses API 与 reasoning effort 推理程度参数
-- **OpenAI兼容提供商**：DeepSeek、Kimi、MiniMax 等（通过 Base URL + API Key 接入）
+- **OpenAI兼容提供商**：DeepSeek、Kimi、MiniMax（M2.7 / M2.5）等（通过 Base URL + API Key 接入）
 - **Anthropic Claude**：Claude-4 Sonnet、Claude-4 Haiku 系列模型
 - **Google Gemini**：Gemini-2.5 Flash、Gemini-2.5 Pro 系列模型，支持自定义端点配置
 - **Ollama**：本地部署的开源模型，支持 Llama、Mistral 等
@@ -297,8 +297,8 @@ KIMI_BASE_URL=https://api.moonshot.cn/v1
 KIMI_MODEL=kimi-k2.5
 
 MINIMAX_API_KEY=
-MINIMAX_BASE_URL=https://api.minimaxi.com/v1
-MINIMAX_MODEL=MiniMax-M2.1
+MINIMAX_BASE_URL=https://api.minimax.io/v1
+MINIMAX_MODEL=MiniMax-M2.7
 
 # 302.AI（OpenAI兼容）
 302AI_API_KEY=

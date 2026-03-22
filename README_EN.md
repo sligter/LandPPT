@@ -93,7 +93,7 @@ LandPPT is an intelligent presentation generation platform powered by Large Lang
 
 ###  Multi-AI Provider Support
 - **OpenAI**: GPT-4o, GPT-4o-mini and other latest models, with support for the official Responses API and reasoning effort parameters
-- **OpenAI-Compatible**: DeepSeek / Kimi / MiniMax / 302.AI (via Base URL + API Key)
+- **OpenAI-Compatible**: DeepSeek / Kimi / MiniMax (M2.7 / M2.5) / 302.AI (via Base URL + API Key)
 - **Anthropic Claude**: Claude-4 series models
 - **Google Gemini**: Gemini-2.5 series models with custom endpoint support
 - **Ollama**: Locally deployed open-source models supporting Llama, Mistral, etc.
@@ -289,8 +289,8 @@ KIMI_BASE_URL=https://api.moonshot.cn/v1
 KIMI_MODEL=kimi-k2.5
 
 MINIMAX_API_KEY=
-MINIMAX_BASE_URL=https://api.minimaxi.com/v1
-MINIMAX_MODEL=MiniMax-M2.1
+MINIMAX_BASE_URL=https://api.minimax.io/v1
+MINIMAX_MODEL=MiniMax-M2.7
 
 # 302.AI (OpenAI-Compatible)
 302AI_API_KEY=

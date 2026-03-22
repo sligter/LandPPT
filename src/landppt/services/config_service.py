@@ -64,8 +64,8 @@ class ConfigService:
             "kimi_model": {"type": "text", "category": "ai_providers", "default": "kimi-k2.5"},
 
             "minimax_api_key": {"type": "password", "category": "ai_providers"},
-            "minimax_base_url": {"type": "url", "category": "ai_providers", "default": "https://api.minimaxi.com/v1"},
-            "minimax_model": {"type": "text", "category": "ai_providers", "default": "MiniMax-M2.1"},
+            "minimax_base_url": {"type": "url", "category": "ai_providers", "default": "https://api.minimax.io/v1"},
+            "minimax_model": {"type": "text", "category": "ai_providers", "default": "MiniMax-M2.7"},
             
             "anthropic_api_key": {"type": "password", "category": "ai_providers"},
             "anthropic_base_url": {"type": "url", "category": "ai_providers", "default": "https://api.anthropic.com"},
@@ -259,13 +259,15 @@ class ConfigService:
 
         # MiniMax: legacy base URL / model -> new defaults (only when API key not configured)
         if _is_empty_env("MINIMAX_API_KEY"):
-            if (os.getenv("MINIMAX_BASE_URL") or "").strip() == "https://api.minimax.chat/v1":
-                set_key(self.env_file, "MINIMAX_BASE_URL", "https://api.minimaxi.com/v1", quote_mode="never")
-                os.environ["MINIMAX_BASE_URL"] = "https://api.minimaxi.com/v1"
+            minimax_url = (os.getenv("MINIMAX_BASE_URL") or "").strip()
+            if minimax_url in ("https://api.minimax.chat/v1", "https://api.minimaxi.com/v1"):
+                set_key(self.env_file, "MINIMAX_BASE_URL", "https://api.minimax.io/v1", quote_mode="never")
+                os.environ["MINIMAX_BASE_URL"] = "https://api.minimax.io/v1"
                 updated = True
-            if (os.getenv("MINIMAX_MODEL") or "").strip() == "MiniMax-Text-01":
-                set_key(self.env_file, "MINIMAX_MODEL", "MiniMax-M2.1", quote_mode="never")
-                os.environ["MINIMAX_MODEL"] = "MiniMax-M2.1"
+            minimax_model = (os.getenv("MINIMAX_MODEL") or "").strip()
+            if minimax_model in ("MiniMax-Text-01", "MiniMax-M2.1"):
+                set_key(self.env_file, "MINIMAX_MODEL", "MiniMax-M2.7", quote_mode="never")
+                os.environ["MINIMAX_MODEL"] = "MiniMax-M2.7"
                 updated = True
 
         if updated:
@@ -300,13 +302,13 @@ class ConfigService:
                 config["kimi_model"] = "kimi-k2.5"
 
         if not (str(config.get("minimax_api_key") or "").strip()):
-            if (str(config.get("minimax_base_url") or "").strip()) in {"", "https://api.minimax.chat/v1"}:
-                config["minimax_base_url"] = "https://api.minimaxi.com/v1"
-            if (str(config.get("minimax_model") or "").strip()) in {"", "MiniMax-Text-01"}:
-                config["minimax_model"] = "MiniMax-M2.1"
+            if (str(config.get("minimax_base_url") or "").strip()) in {"", "https://api.minimax.chat/v1", "https://api.minimaxi.com/v1"}:
+                config["minimax_base_url"] = "https://api.minimax.io/v1"
+            if (str(config.get("minimax_model") or "").strip()) in {"", "MiniMax-Text-01", "MiniMax-M2.1"}:
+                config["minimax_model"] = "MiniMax-M2.7"
 
         return config
-    
+
     def get_config_by_category(self, category: str) -> Dict[str, Any]:
         """Get configuration values by category"""
         self._ensure_runtime_schema_extensions()
@@ -333,10 +335,10 @@ class ConfigService:
                     config["kimi_model"] = "kimi-k2.5"
 
             if not (str(config.get("minimax_api_key") or "").strip()):
-                if (str(config.get("minimax_base_url") or "").strip()) in {"", "https://api.minimax.chat/v1"}:
-                    config["minimax_base_url"] = "https://api.minimaxi.com/v1"
-                if (str(config.get("minimax_model") or "").strip()) in {"", "MiniMax-Text-01"}:
-                    config["minimax_model"] = "MiniMax-M2.1"
+                if (str(config.get("minimax_base_url") or "").strip()) in {"", "https://api.minimax.chat/v1", "https://api.minimaxi.com/v1"}:
+                    config["minimax_base_url"] = "https://api.minimax.io/v1"
+                if (str(config.get("minimax_model") or "").strip()) in {"", "MiniMax-Text-01", "MiniMax-M2.1"}:
+                    config["minimax_model"] = "MiniMax-M2.7"
         
         return config
     
