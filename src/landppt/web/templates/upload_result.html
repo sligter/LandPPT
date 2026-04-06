@@ -45,7 +45,7 @@
     <h3 style="color: #2c3e50; margin-bottom: 20px;">📄 提取的内容预览</h3>
     <div style="background: #f8f9fa; padding: 25px; border-radius: 10px; border-left: 4px solid #3498db;">
         <div style="max-height: 400px; overflow-y: auto; font-family: 'Courier New', monospace; line-height: 1.6; color: #2c3e50;">
-            {{ processed_content | replace('\n', '<br>') | safe }}
+            {{ processed_content }}
         </div>
         {% if processed_content | length > 500 %}
         <p style="margin-top: 15px; color: #7f8c8d; font-style: italic;">
