@@ -8439,10 +8439,10 @@
       document.querySelectorAll("#".concat(tabEleId, " ").concat(part, " tr")).forEach(function (row) {
         var arrObjTabCells = [];
         Array.from(row.cells).forEach(function (cell) {
+          var cellStyle = getNodeWindow(cell).getComputedStyle(cell);
           // A: Get RGB text/bkgd colors
-          var arrRGB1 = window.getComputedStyle(cell).getPropertyValue('color').replace(/\s+/gi, '').replace('rgba(', '').replace('rgb(', '').replace(')', '').split(',');
-          var arrRGB2 = window
-            .getComputedStyle(cell)
+          var arrRGB1 = cellStyle.getPropertyValue('color').replace(/\s+/gi, '').replace('rgba(', '').replace('rgb(', '').replace(')', '').split(',');
+          var arrRGB2 = cellStyle
             .getPropertyValue('background-color')
             .replace(/\s+/gi, '')
             .replace('rgba(', '')
@@ -8451,58 +8451,56 @@
             .split(',');
           if (
             // NOTE: (ISSUE#57): Default for unstyled tables is black bkgd, so use white instead
-            window.getComputedStyle(cell).getPropertyValue('background-color') === 'rgba(0, 0, 0, 0)' ||
-            window.getComputedStyle(cell).getPropertyValue('transparent')) {
+            cellStyle.getPropertyValue('background-color') === 'rgba(0, 0, 0, 0)' ||
+            cellStyle.getPropertyValue('transparent')) {
             arrRGB2 = ['255', '255', '255'];
           }
           // B: Create option object
           var cellOpts = {
             align: null,
-            bold: !!(window.getComputedStyle(cell).getPropertyValue('font-weight') === 'bold' ||
-              Number(window.getComputedStyle(cell).getPropertyValue('font-weight')) >= 500),
+            bold: !!(cellStyle.getPropertyValue('font-weight') === 'bold' ||
+              Number(cellStyle.getPropertyValue('font-weight')) >= 500),
             border: null,
             color: rgbToHex(Number(arrRGB1[0]), Number(arrRGB1[1]), Number(arrRGB1[2])),
             fill: { color: rgbToHex(Number(arrRGB2[0]), Number(arrRGB2[1]), Number(arrRGB2[2])) },
-            fontFace: (window.getComputedStyle(cell).getPropertyValue('font-family') || '').split(',')[0].replace(/"/g, '').replace('inherit', '').replace('initial', '') ||
+            fontFace: resolveExportFontFace(cellStyle.getPropertyValue('font-family'), cell) ||
               null,
-            fontSize: Number(window.getComputedStyle(cell).getPropertyValue('font-size').replace(/[a-z]/gi, '')),
+            fontSize: Number(cellStyle.getPropertyValue('font-size').replace(/[a-z]/gi, '')),
             margin: null,
             colspan: Number(cell.getAttribute('colspan')) || null,
             rowspan: Number(cell.getAttribute('rowspan')) || null,
             valign: null,
           };
-          if (['left', 'center', 'right', 'start', 'end'].includes(window.getComputedStyle(cell).getPropertyValue('text-align'))) {
-            var align = window.getComputedStyle(cell).getPropertyValue('text-align').replace('start', 'left').replace('end', 'right');
+          if (['left', 'center', 'right', 'start', 'end'].includes(cellStyle.getPropertyValue('text-align'))) {
+            var align = cellStyle.getPropertyValue('text-align').replace('start', 'left').replace('end', 'right');
             cellOpts.align = align === 'center' ? 'center' : align === 'left' ? 'left' : align === 'right' ? 'right' : null;
           }
-          if (['top', 'middle', 'bottom'].includes(window.getComputedStyle(cell).getPropertyValue('vertical-align'))) {
-            var valign = window.getComputedStyle(cell).getPropertyValue('vertical-align');
+          if (['top', 'middle', 'bottom'].includes(cellStyle.getPropertyValue('vertical-align'))) {
+            var valign = cellStyle.getPropertyValue('vertical-align');
             cellOpts.valign = valign === 'top' ? 'top' : valign === 'middle' ? 'middle' : valign === 'bottom' ? 'bottom' : null;
           }
           // C: Add padding [margin] (if any)
           // NOTE: Margins translate: px->pt 1:1 (e.g.: a 20px padded cell looks the same in PPTX as 20pt Text Inset/Padding)
-          if (window.getComputedStyle(cell).getPropertyValue('padding-left')) {
+          if (cellStyle.getPropertyValue('padding-left')) {
             cellOpts.margin = [0, 0, 0, 0];
             var sidesPad = ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'];
             sidesPad.forEach(function (val, idxs) {
-              cellOpts.margin[idxs] = Math.round(Number(window.getComputedStyle(cell).getPropertyValue(val).replace(/\D/gi, '')));
+              cellOpts.margin[idxs] = Math.round(Number(cellStyle.getPropertyValue(val).replace(/\D/gi, '')));
             });
           }
           // D: Add border (if any)
-          if (window.getComputedStyle(cell).getPropertyValue('border-top-width') ||
-            window.getComputedStyle(cell).getPropertyValue('border-right-width') ||
-            window.getComputedStyle(cell).getPropertyValue('border-bottom-width') ||
-            window.getComputedStyle(cell).getPropertyValue('border-left-width')) {
+          if (cellStyle.getPropertyValue('border-top-width') ||
+            cellStyle.getPropertyValue('border-right-width') ||
+            cellStyle.getPropertyValue('border-bottom-width') ||
+            cellStyle.getPropertyValue('border-left-width')) {
             cellOpts.border = [null, null, null, null];
             var sidesBor = ['top', 'right', 'bottom', 'left'];
             sidesBor.forEach(function (val, idxb) {
-              var intBorderW = Math.round(Number(window
-                .getComputedStyle(cell)
+              var intBorderW = Math.round(Number(cellStyle
                 .getPropertyValue('border-' + val + '-width')
                 .replace('px', '')));
               var arrRGB = [];
-              arrRGB = window
-                .getComputedStyle(cell)
+              arrRGB = cellStyle
                 .getPropertyValue('border-' + val + '-color')
                 .replace(/\s+/gi, '')
                 .replace('rgba(', '')
@@ -12932,7 +12930,7 @@
         runProps += "<a:effectLst>".concat(createGlowElement(opts.glow, DEF_TEXT_GLOW), "</a:effectLst>");
       if (opts.fontFace) {
         // NOTE: 'cs' = Complex Script, 'ea' = East Asian (use "-120" instead of "0" - per Issue #174); ea must come first (Issue #174)
-        runProps += "<a:latin typeface=\"".concat(opts.fontFace, "\" pitchFamily=\"34\" charset=\"0\"/><a:ea typeface=\"").concat(opts.fontFace, "\" pitchFamily=\"34\" charset=\"-122\"/><a:cs typeface=\"").concat(opts.fontFace, "\" pitchFamily=\"34\" charset=\"-120\"/>");
+        runProps += "<a:ea typeface=\"".concat(opts.fontFace, "\" pitchFamily=\"34\" charset=\"-122\"/><a:latin typeface=\"").concat(opts.fontFace, "\" pitchFamily=\"34\" charset=\"0\"/><a:cs typeface=\"").concat(opts.fontFace, "\" pitchFamily=\"34\" charset=\"-120\"/>");
       }
     }
     // Hyperlink support
@@ -62605,11 +62603,11 @@
       const cellList = Array.from(tr.children).filter((c) => ['TD', 'TH'].includes(c.tagName));
 
       cellList.forEach((cell) => {
-        const style = window.getComputedStyle(cell);
+        const style = getNodeWindow(cell).getComputedStyle(cell);
         const cellText = cell.innerText.replace(/[\n\r\t]+/g, ' ').trim();
 
         // A. Text Style
-        const textStyle = getTextStyle(style, scale);
+        const textStyle = getTextStyle(style, scale, cell);
 
         // B. Cell Background
         const bg = parseColor(style.backgroundColor);
@@ -63104,7 +63102,254 @@
     return raw;
   }
 
-  function getTextStyle(style, scale) {
+  const GENERIC_CSS_FONT_FAMILIES = new Set([
+    'inherit',
+    'initial',
+    'unset',
+    'revert',
+    'revert-layer',
+    'default',
+    'auto',
+    'system-ui',
+    'ui-serif',
+    'ui-sans-serif',
+    'ui-monospace',
+    'ui-rounded',
+    '-apple-system',
+    'blinkmacsystemfont',
+    'sans-serif',
+    'serif',
+    'monospace',
+    'cursive',
+    'fantasy',
+    'emoji',
+    'math',
+    'fangsong'
+  ]);
+  const GENERIC_FONT_FALLBACK_CANDIDATES = {
+    'sans-serif': ['Microsoft YaHei', 'DengXian', 'Segoe UI', 'Arial', 'Helvetica'],
+    'serif': ['SimSun', 'NSimSun', 'Songti SC', 'Georgia', 'Times New Roman'],
+    'monospace': ['Consolas', 'Courier New', 'Monaco', 'Menlo'],
+    'cursive': ['KaiTi', 'STKaiti', 'Segoe Script'],
+    'fantasy': ['Impact', 'Papyrus'],
+  };
+  const EXPORT_FONT_AVAILABILITY_CACHE = new WeakMap();
+  const EXPORT_FONT_MEASURE_CACHE = new WeakMap();
+
+  function parseFontFamilyList(fontFamilyValue) {
+    const raw = String(fontFamilyValue || '').trim();
+    if (!raw) return [];
+    const families = [];
+    let current = '';
+    let quoteChar = null;
+
+    const pushCurrent = () => {
+      const normalized = String(current || '')
+        .trim()
+        .replace(/^['"]+|['"]+$/g, '')
+        .trim();
+      if (normalized) {
+        families.push(normalized);
+      }
+      current = '';
+    };
+
+    for (let i = 0; i < raw.length; i++) {
+      const char = raw[i];
+      if (char === '"' || char === "'") {
+        if (quoteChar === char) {
+          quoteChar = null;
+        } else if (!quoteChar) {
+          quoteChar = char;
+        }
+        current += char;
+        continue;
+      }
+      if (char === ',' && !quoteChar) {
+        pushCurrent();
+        continue;
+      }
+      current += char;
+    }
+    pushCurrent();
+    return families;
+  }
+
+  function isGenericCssFontFamily(fontFamilyName) {
+    const normalized = String(fontFamilyName || '').trim().toLowerCase();
+    return !normalized || GENERIC_CSS_FONT_FAMILIES.has(normalized);
+  }
+
+  function getGenericFontCategory(fontFamilyName) {
+    const normalized = String(fontFamilyName || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'system-ui' || normalized === 'ui-sans-serif' || normalized === '-apple-system' || normalized === 'blinkmacsystemfont') {
+      return 'sans-serif';
+    }
+    if (normalized === 'ui-serif' || normalized === 'fangsong' || normalized === 'math') {
+      return 'serif';
+    }
+    if (normalized === 'ui-monospace') {
+      return 'monospace';
+    }
+    if (GENERIC_FONT_FALLBACK_CANDIDATES[normalized]) {
+      return normalized;
+    }
+    return null;
+  }
+
+  function collectExportFontFamilies(fontFamilyValue) {
+    const exportedFamilies = [];
+    const seen = new Set();
+    for (const family of parseFontFamilyList(fontFamilyValue)) {
+      const normalized = family.trim();
+      const familyKey = normalized.toLowerCase();
+      if (!normalized || isGenericCssFontFamily(normalized) || seen.has(familyKey)) {
+        continue;
+      }
+      seen.add(familyKey);
+      exportedFamilies.push(normalized);
+    }
+    return exportedFamilies;
+  }
+
+  function getFontContextDocument(fontContext) {
+    if (fontContext && fontContext.nodeType === 9) return fontContext;
+    if (fontContext && fontContext.ownerDocument) return fontContext.ownerDocument;
+    if (typeof document !== 'undefined') return document;
+    return null;
+  }
+
+  function getFontMeasureContext(doc) {
+    const safeDoc = getFontContextDocument(doc);
+    if (!safeDoc) return null;
+    let cached = EXPORT_FONT_MEASURE_CACHE.get(safeDoc);
+    if (cached) return cached;
+
+    const canvas = safeDoc.createElement('canvas');
+    const context = canvas && typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+    if (!context) return null;
+
+    cached = {
+      context,
+      sampleText: 'mmmmmmmmmmlli中文测试12345',
+      baseWidths: null,
+    };
+    EXPORT_FONT_MEASURE_CACHE.set(safeDoc, cached);
+    return cached;
+  }
+
+  function getBaseFontWidths(doc) {
+    const measure = getFontMeasureContext(doc);
+    if (!measure) return null;
+    if (measure.baseWidths) return measure.baseWidths;
+
+    const baseWidths = {};
+    ['monospace', 'sans-serif', 'serif'].forEach((baseFont) => {
+      measure.context.font = `72px ${baseFont}`;
+      baseWidths[baseFont] = measure.context.measureText(measure.sampleText).width;
+    });
+    measure.baseWidths = baseWidths;
+    return baseWidths;
+  }
+
+  function isFontFamilyLikelyAvailable(fontFamilyName, fontContext) {
+    const normalized = String(fontFamilyName || '').trim();
+    if (!normalized || isGenericCssFontFamily(normalized)) return false;
+
+    const doc = getFontContextDocument(fontContext);
+    if (!doc) return true;
+
+    let docCache = EXPORT_FONT_AVAILABILITY_CACHE.get(doc);
+    if (!docCache) {
+      docCache = new Map();
+      EXPORT_FONT_AVAILABILITY_CACHE.set(doc, docCache);
+    }
+
+    const cacheKey = normalized.toLowerCase();
+    if (docCache.has(cacheKey)) {
+      return docCache.get(cacheKey);
+    }
+
+    const measure = getFontMeasureContext(doc);
+    const baseWidths = getBaseFontWidths(doc);
+    if (!measure || !baseWidths) {
+      docCache.set(cacheKey, true);
+      return true;
+    }
+
+    let isAvailable = false;
+    for (const baseFont of ['monospace', 'sans-serif', 'serif']) {
+      measure.context.font = `72px "${normalized}", ${baseFont}`;
+      const width = measure.context.measureText(measure.sampleText).width;
+      if (Math.abs(width - baseWidths[baseFont]) > 0.1) {
+        isAvailable = true;
+        break;
+      }
+    }
+
+    docCache.set(cacheKey, isAvailable);
+    return isAvailable;
+  }
+
+  function measureFontWidth(fontFamilyName, genericCategory, fontContext) {
+    const doc = getFontContextDocument(fontContext);
+    const measure = getFontMeasureContext(doc);
+    if (!measure) return Number.POSITIVE_INFINITY;
+    measure.context.font = `72px "${fontFamilyName}", ${genericCategory}`;
+    return measure.context.measureText(measure.sampleText).width;
+  }
+
+  function findBestGenericFontFallback(fontFamilyValue, fontContext) {
+    const rawFamilies = parseFontFamilyList(fontFamilyValue);
+    const genericFamilies = rawFamilies
+      .map((family) => getGenericFontCategory(family))
+      .filter(Boolean);
+
+    for (const genericCategory of genericFamilies) {
+      const candidates = GENERIC_FONT_FALLBACK_CANDIDATES[genericCategory] || [];
+      const baseWidths = getBaseFontWidths(fontContext);
+      const targetWidth = baseWidths ? baseWidths[genericCategory] : null;
+      let bestCandidate = null;
+      let bestDelta = Number.POSITIVE_INFINITY;
+
+      for (const candidate of candidates) {
+        if (!isFontFamilyLikelyAvailable(candidate, fontContext)) continue;
+        if (!Number.isFinite(targetWidth)) {
+          return candidate;
+        }
+        const delta = Math.abs(measureFontWidth(candidate, genericCategory, fontContext) - targetWidth);
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          bestCandidate = candidate;
+        }
+      }
+
+      if (bestCandidate) {
+        return bestCandidate;
+      }
+    }
+
+    return null;
+  }
+
+  function resolveExportFontFace(fontFamilyValue, fontContext = null) {
+    const exportedFamilies = collectExportFontFamilies(fontFamilyValue);
+    if (exportedFamilies.length === 0) return null;
+    for (const family of exportedFamilies) {
+      if (isFontFamilyLikelyAvailable(family, fontContext)) {
+        return family;
+      }
+    }
+    return findBestGenericFontFallback(fontFamilyValue, fontContext) || exportedFamilies[0];
+  }
+
+  function getNodeWindow(node) {
+    const ownerDocument = node && node.ownerDocument ? node.ownerDocument : null;
+    return (ownerDocument && ownerDocument.defaultView) || window;
+  }
+
+  function getTextStyle(style, scale, fontContext = null) {
     let colorObj = parseColor(style.color);
 
     const bgClip = style.webkitBackgroundClip || style.backgroundClip;
@@ -63112,6 +63357,8 @@
       const fallback = getGradientFallbackColor(style.backgroundImage);
       if (fallback) colorObj = parseColor(fallback);
     }
+
+    const isEffectivelyHiddenText = !colorObj.hex && colorObj.opacity <= 0.001;
 
     let lineSpacing = null;
     const fontSizePx = parseFloat(style.fontSize);
@@ -63148,15 +63395,19 @@
       ? Math.max(0, Math.min(1, colorObj.opacity))
       : 1;
     const textTransparency = (1 - colorOpacity) * 100;
+    const exportFontFace = resolveExportFontFace(style.fontFamily, fontContext);
+    const fontWeight = String(style.fontWeight || '').trim().toLowerCase();
+    const fontStyle = String(style.fontStyle || '').trim().toLowerCase();
+    const textDecoration = String(style.textDecoration || style.textDecorationLine || '').toLowerCase();
 
     return {
-      color: colorObj.hex || '000000',
+      ...(isEffectivelyHiddenText ? { hidden: true } : { color: colorObj.hex || '000000' }),
       ...(textTransparency > 0.1 ? { transparency: textTransparency } : {}),
-      fontFace: style.fontFamily.split(',')[0].replace(/['"]/g, ''),
+      ...(exportFontFace ? { fontFace: exportFontFace } : {}),
       fontSize: Math.floor(fontSizePx * 0.75 * scale),
-      bold: parseInt(style.fontWeight) >= 600,
-      italic: style.fontStyle === 'italic',
-      underline: style.textDecoration.includes('underline'),
+      bold: fontWeight === 'bold' || parseInt(fontWeight, 10) >= 600,
+      italic: fontStyle === 'italic' || fontStyle.startsWith('oblique'),
+      underline: textDecoration.includes('underline'),
       // Only add if we have a valid value
       ...(lineSpacing && { lineSpacing }),
       ...(paraSpaceBefore > 0 && { paraSpaceBefore }),
@@ -63190,11 +63441,59 @@
     return textOptions;
   }
 
+  const FORMULA_SELECTOR =
+    '[data-export-formula="true"], mjx-container, .MathJax, .MathJax_Display, .katex, .katex-display, .katex-inline, math, [data-latex], [data-tex], [data-formula], [data-equation], [data-math], [data-mathml], [data-asciimath]';
+
+  function hasFormulaDataAttribute(node) {
+    if (!node || !node.getAttribute) return false;
+    const attrs = [
+      'data-export-formula',
+      'data-latex',
+      'data-tex',
+      'data-formula',
+      'data-equation',
+      'data-math',
+      'data-mathml',
+      'data-asciimath',
+    ];
+    return attrs.some((attr) => {
+      const value = node.getAttribute(attr);
+      if (attr === 'data-export-formula') return value === 'true';
+      return !!String(value || '').trim();
+    });
+  }
+
+  function hasFormulaClassName(className) {
+    return /(^|\s)(MathJax|MathJax_Display|katex|katex-display|katex-inline)(\s|$)/i.test(
+      String(className || '')
+    );
+  }
+
+  function isFormulaElement(node) {
+    if (!node || node.nodeType !== 1 || !node.tagName) return false;
+    if (node.getAttribute && node.getAttribute('data-export-formula') === 'true') return true;
+
+    const tag = String(node.tagName || '').toUpperCase();
+    if (tag === 'MJX-CONTAINER' || tag === 'MATH') return true;
+
+    const className = (node.getAttribute && node.getAttribute('class')) || '';
+    if (hasFormulaClassName(className)) return true;
+    if (hasFormulaDataAttribute(node)) return true;
+
+    if (typeof node.matches === 'function') {
+      try {
+        if (node.matches(FORMULA_SELECTOR)) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
   /**
    * Determines if a given DOM node is primarily a text container.
    * Updated to correctly reject Icon elements so they are rendered as images.
    */
   function isTextContainer(node) {
+    if (isFormulaElement(node)) return false;
     const hasText = node.textContent.trim().length > 0;
     if (!hasText) return false;
 
@@ -63202,6 +63501,7 @@
     if (children.length === 0) return true;
 
     const isSafeInline = (el) => {
+      if (isFormulaElement(el)) return false;
       // 1. Reject Web Components / Custom Elements
       if (el.tagName.includes('-')) return false;
       // 2. Reject Explicit Images/SVGs
@@ -63226,6 +63526,7 @@
 
       const style = window.getComputedStyle(el);
       const display = style.display;
+      if (style.position === 'absolute' || style.position === 'fixed') return false;
 
       // 4. Standard Inline Tag Check
       const isInlineTag = ['SPAN', 'B', 'STRONG', 'EM', 'I', 'A', 'SMALL', 'MARK'].includes(
@@ -63252,13 +63553,19 @@
         (parseFloat(style.paddingRight) || 0) > 0 ||
         (parseFloat(style.paddingTop) || 0) > 0 ||
         (parseFloat(style.paddingBottom) || 0) > 0;
-      const hasVisualBox = hasVisibleBg || hasBorder || hasRadius || hasPadding;
+      const hasContent = el.textContent.trim().length > 0;
+      const backgroundImageValue = String(style.backgroundImage || '').trim().toLowerCase();
+      const hasBackgroundImage =
+        !!backgroundImageValue && backgroundImageValue !== 'none' && !backgroundImageValue.startsWith('initial');
+      const allowInlineTextHighlight =
+        hasContent && hasVisibleBg && !hasBorder && !hasRadius && !hasPadding && !hasBackgroundImage;
+      const hasVisualBox =
+        hasBorder || hasRadius || hasPadding || hasBackgroundImage || (hasVisibleBg && !allowInlineTextHighlight);
 
       // 6. Visual tags/chips should be rendered as elements, not merged into one text run.
       if (hasVisualBox) return false;
 
       // 7. Check for empty shapes (visual objects without text, like dots)
-      const hasContent = el.textContent.trim().length > 0;
       if (!hasContent && (hasVisibleBg || hasBorder)) {
         return false;
       }
@@ -63267,6 +63574,147 @@
     };
 
     return children.every(isSafeInline);
+  }
+
+  function sanitizeTextRunHighlight(textOptions, nodeStyle, stripHighlight) {
+    if (!textOptions || typeof textOptions !== 'object') return textOptions;
+    const runBg = parseColor(nodeStyle && nodeStyle.backgroundColor);
+    const runBgOpacity = Number.isFinite(runBg.opacity) ? runBg.opacity : 0;
+    const textColor = String(textOptions.color || '').toUpperCase();
+    const highlightColor = String(textOptions.highlight || '').toUpperCase();
+    const sameColorAsHighlight =
+      !!textColor && !!highlightColor && textColor === highlightColor;
+
+    if (textOptions.highlight && (stripHighlight || sameColorAsHighlight || runBgOpacity < 0.35)) {
+      delete textOptions.highlight;
+    }
+
+    return textOptions;
+  }
+
+  function finalizeInlineTextParts(textParts) {
+    if (!Array.isArray(textParts) || textParts.length === 0) return [];
+
+    let firstTextPart = null;
+    for (const part of textParts) {
+      if (!part || part.options?.breakLine) continue;
+      if (typeof part.text !== 'string') continue;
+      firstTextPart = part;
+      break;
+    }
+    if (firstTextPart) {
+      firstTextPart.text = firstTextPart.text.trimStart();
+    }
+
+    for (let i = textParts.length - 1; i >= 0; i--) {
+      const part = textParts[i];
+      if (!part || part.options?.breakLine) continue;
+      if (typeof part.text !== 'string') continue;
+      part.text = part.text.trimEnd();
+      break;
+    }
+
+    return textParts.filter((part) => {
+      if (!part) return false;
+      if (part.options?.breakLine) return true;
+      return typeof part.text === 'string' && part.text.length > 0;
+    });
+  }
+
+  function collectInlineTextParts(
+    node,
+    scale,
+    effectiveOpacity,
+    rootContainer,
+    trimState = { trimNextLeading: false, hasRenderableText: false },
+    formulaBoundaryRoot = null
+  ) {
+    const parts = [];
+    if (!node) return parts;
+
+    const effectiveFormulaBoundaryRoot = formulaBoundaryRoot || rootContainer || node;
+
+    if (node.nodeType === 3) {
+      const parent = node.parentElement || rootContainer;
+      if (!parent) return parts;
+
+      let textVal = String(node.nodeValue || '')
+        .replace(/[\n\r\t]+/g, ' ')
+        .replace(/\s{2,}/g, ' ');
+
+      if (!trimState.hasRenderableText || trimState.trimNextLeading) {
+        textVal = textVal.trimStart();
+      }
+
+      const nodeStyle = getNodeWindow(parent).getComputedStyle(parent);
+      if (nodeStyle.textTransform === 'uppercase') textVal = textVal.toUpperCase();
+      if (nodeStyle.textTransform === 'lowercase') textVal = textVal.toLowerCase();
+
+      if (!textVal) return parts;
+
+      const textOptions = applyOpacityToTextStyle(getTextStyle(nodeStyle, scale, parent), effectiveOpacity);
+      if (textOptions.hidden) return parts;
+      delete textOptions.hidden;
+
+      sanitizeTextRunHighlight(textOptions, nodeStyle, parent === rootContainer);
+
+      parts.push({
+        text: textVal,
+        options: textOptions,
+      });
+      trimState.hasRenderableText = true;
+      trimState.trimNextLeading = false;
+      return parts;
+    }
+
+    if (node.nodeType !== 1) return parts;
+
+    const currentStyle = window.getComputedStyle(node);
+
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === 1 && child.tagName === 'BR') {
+        if (parts.length > 0) {
+          const lastPart = parts[parts.length - 1];
+          if (lastPart && typeof lastPart.text === 'string') {
+            lastPart.text = lastPart.text.trimEnd();
+          }
+        }
+
+        parts.push({ text: '', options: { breakLine: true } });
+        trimState.trimNextLeading = true;
+        trimState.hasRenderableText = true;
+        return;
+      }
+
+      if (child.nodeType === 1 && isFormulaElement(child)) {
+        const renderNode = getFormulaRenderNode(child, effectiveFormulaBoundaryRoot);
+        const placeholder = buildFormulaPlaceholderText(
+          renderNode,
+          currentStyle,
+          scale,
+          effectiveOpacity
+        );
+        if (placeholder) {
+          parts.push(placeholder);
+          trimState.hasRenderableText = true;
+          trimState.trimNextLeading = false;
+        }
+        return;
+      }
+
+      parts.push(
+        ...collectInlineTextParts(
+          child,
+          scale,
+          effectiveOpacity,
+          rootContainer,
+          trimState,
+          effectiveFormulaBoundaryRoot
+        )
+      );
+    });
+
+    return parts;
   }
 
   function getRotation(transformStr) {
@@ -63599,11 +64047,10 @@
     function scan(node) {
       if (node.nodeType === 1) {
         // Element
-        const style = window.getComputedStyle(node);
-        const fontList = style.fontFamily.split(',');
-        // The first font in the stack is the primary one
-        const primary = fontList[0].trim().replace(/['"]/g, '');
-        if (primary) families.add(primary);
+        const style = getNodeWindow(node).getComputedStyle(node);
+        for (const family of collectExportFontFamilies(style.fontFamily)) {
+          families.add(family.toLowerCase());
+        }
       }
       for (const child of node.childNodes) {
         scan(child);
@@ -63620,66 +64067,123 @@
     return families;
   }
 
+  function getDocumentsFromRoots(roots) {
+    const documents = [];
+    const seen = new Set();
+    const elements = Array.isArray(roots) ? roots : [roots];
+
+    elements.forEach((el) => {
+      const node = typeof el === 'string' ? document.querySelector(el) : el;
+      const ownerDocument = node && node.ownerDocument ? node.ownerDocument : null;
+      if (ownerDocument && !seen.has(ownerDocument)) {
+        seen.add(ownerDocument);
+        documents.push(ownerDocument);
+      }
+    });
+
+    if (!documents.length && typeof document !== 'undefined') {
+      documents.push(document);
+    }
+    return documents;
+  }
+
+  function getFontResourcePriority(url) {
+    const cleanUrl = String(url || '').split('?')[0].split('#')[0].toLowerCase();
+    if (cleanUrl.endsWith('.ttf')) return 1;
+    if (cleanUrl.endsWith('.otf')) return 2;
+    if (cleanUrl.endsWith('.woff')) return 3;
+    if (cleanUrl.endsWith('.woff2')) return 4;
+    return 99;
+  }
+
+  function resolveFontResourceUrl(urlRaw, sheet, doc) {
+    const cleanUrl = String(urlRaw || '')
+      .trim()
+      .replace(/^['"]+|['"]+$/g, '');
+    if (!cleanUrl || cleanUrl.startsWith('data:')) return null;
+
+    const baseUrl =
+      (sheet && sheet.href) ||
+      (sheet && sheet.ownerNode && sheet.ownerNode.baseURI) ||
+      (doc && doc.baseURI) ||
+      (typeof window !== 'undefined' && window.location ? window.location.href : '');
+
+    try {
+      return new URL(cleanUrl, baseUrl).href;
+    } catch (e) {
+      return cleanUrl;
+    }
+  }
+
+  function extractFontFaceUrl(srcStr, sheet, doc) {
+    const matches = String(srcStr || '').match(/url\((['"]?)(.*?)\1\)/g);
+    if (!matches) return null;
+
+    let chosenUrl = null;
+    let chosenPriority = Number.POSITIVE_INFINITY;
+    for (const match of matches) {
+      const rawUrl = match.replace(/url\((['"]?)(.*?)\1\)/, '$2');
+      const resolvedUrl = resolveFontResourceUrl(rawUrl, sheet, doc);
+      if (!resolvedUrl) continue;
+
+      const priority = getFontResourcePriority(resolvedUrl);
+      if (priority < chosenPriority) {
+        chosenUrl = resolvedUrl;
+        chosenPriority = priority;
+      } else if (!chosenUrl) {
+        chosenUrl = resolvedUrl;
+      }
+    }
+    return chosenUrl;
+  }
+
+  function scanFontFaceRules(rules, sheet, doc, usedFamilies, processedUrls, foundFonts) {
+    if (!rules) return;
+    for (const rule of Array.from(rules)) {
+      if ((rule.constructor && rule.constructor.name === 'CSSFontFaceRule') || rule.type === 5) {
+        const familyName = resolveExportFontFace(rule.style.getPropertyValue('font-family'));
+        const familyKey = familyName ? familyName.toLowerCase() : '';
+        if (!familyKey || !usedFamilies.has(familyKey)) {
+          continue;
+        }
+
+        const src = rule.style.getPropertyValue('src');
+        const url = extractFontFaceUrl(src, sheet, doc);
+        if (url && !processedUrls.has(url)) {
+          processedUrls.add(url);
+          foundFonts.push({ name: familyName, url: url });
+        }
+        continue;
+      }
+
+      if (rule.cssRules && rule.cssRules.length > 0) {
+        scanFontFaceRules(rule.cssRules, sheet, doc, usedFamilies, processedUrls, foundFonts);
+      }
+    }
+  }
+
   /**
    * Scans document.styleSheets to find @font-face URLs for the requested families.
    * Returns an array of { name, url } objects.
    */
-  async function getAutoDetectedFonts(usedFamilies) {
+  async function getAutoDetectedFonts(usedFamilies, docs = [document]) {
     const foundFonts = [];
     const processedUrls = new Set();
+    if (!usedFamilies || usedFamilies.size === 0) return foundFonts;
 
-    // Helper to extract clean URL from CSS src string
-    const extractUrl = (srcStr) => {
-      // Look for url("...") or url('...') or url(...)
-      // Prioritize woff, ttf, otf. Avoid woff2 if possible as handling is harder,
-      // but if it's the only one, take it (convert logic handles it best effort).
-      const matches = srcStr.match(/url\((['"]?)(.*?)\1\)/g);
-      if (!matches) return null;
-
-      // Filter for preferred formats
-      let chosenUrl = null;
-      for (const match of matches) {
-        const urlRaw = match.replace(/url\((['"]?)(.*?)\1\)/, '$2');
-        // Skip data URIs for now (unless you want to support base64 embedding)
-        if (urlRaw.startsWith('data:')) continue;
-
-        if (urlRaw.includes('.ttf') || urlRaw.includes('.otf') || urlRaw.includes('.woff')) {
-          chosenUrl = urlRaw;
-          break; // Found a good one
+    for (const doc of docs) {
+      if (!doc || !doc.styleSheets) continue;
+      for (const sheet of Array.from(doc.styleSheets)) {
+        try {
+          const rules = sheet.cssRules || sheet.rules;
+          if (!rules) continue;
+          scanFontFaceRules(rules, sheet, doc, usedFamilies, processedUrls, foundFonts);
+        } catch (e) {
+          // SecurityError is common for external stylesheets (CORS).
+          // We cannot scan those automatically via CSSOM.
+          console.warn('error:', e);
+          console.warn('Cannot scan stylesheet for fonts (CORS restriction):', sheet.href);
         }
-        // Fallback
-        if (!chosenUrl) chosenUrl = urlRaw;
-      }
-      return chosenUrl;
-    };
-
-    for (const sheet of Array.from(document.styleSheets)) {
-      try {
-        // Accessing cssRules on cross-origin sheets (like Google Fonts) might fail
-        // if CORS headers aren't set. We wrap in try/catch.
-        const rules = sheet.cssRules || sheet.rules;
-        if (!rules) continue;
-
-        for (const rule of Array.from(rules)) {
-          if (rule.constructor.name === 'CSSFontFaceRule' || rule.type === 5) {
-            const familyName = rule.style.getPropertyValue('font-family').replace(/['"]/g, '').trim();
-
-            if (usedFamilies.has(familyName)) {
-              const src = rule.style.getPropertyValue('src');
-              const url = extractUrl(src);
-
-              if (url && !processedUrls.has(url)) {
-                processedUrls.add(url);
-                foundFonts.push({ name: familyName, url: url });
-              }
-            }
-          }
-        }
-      } catch (e) {
-        // SecurityError is common for external stylesheets (CORS).
-        // We cannot scan those automatically via CSSOM.
-        console.warn('error:', e);
-        console.warn('Cannot scan stylesheet for fonts (CORS restriction):', sheet.href);
       }
     }
 
@@ -63880,6 +64384,38 @@
    * @param {(root: HTMLElement, index: number) => (string|Promise<string>)} [options.getSlideNotes] - Callback to provide notes per slide
    * @returns {Promise<Blob>} - Returns the generated PPTX Blob
    */
+  function createExportAbortError(message = 'PPTX export cancelled.') {
+    try {
+      return new DOMException(message, 'AbortError');
+    } catch (e) {
+      const error = new Error(message);
+      error.name = 'AbortError';
+      return error;
+    }
+  }
+
+  function isExportAbortError(error) {
+    return !!(error && error.name === 'AbortError');
+  }
+
+  function throwIfExportAborted(options = {}) {
+    const signal = options && options.signal;
+    if (signal && signal.aborted) {
+      throw signal.reason || createExportAbortError();
+    }
+    if (options && typeof options.shouldCancel === 'function') {
+      let shouldCancel = false;
+      try {
+        shouldCancel = !!options.shouldCancel();
+      } catch (e) {
+        shouldCancel = false;
+      }
+      if (shouldCancel) {
+        throw createExportAbortError();
+      }
+    }
+  }
+
   async function exportToPptx(target, options = {}) {
     const resolvePptxConstructor = (pkg) => {
       if (!pkg) return null;
@@ -63939,12 +64475,14 @@
           return notes[index];
         }
       } catch (e) {
+        if (isExportAbortError(e)) throw e;
         console.warn('Failed to resolve slide notes:', e);
       }
       return null;
     };
     const applySpeakerNotes = async (slide, root, index) => {
       try {
+        throwIfExportAborted(options);
         const notesText = await resolveSlideNotes(root, index);
         if (
           notesText !== null &&
@@ -63955,10 +64493,12 @@
           slide.addNotes(String(notesText));
         }
       } catch (e) {
+        if (isExportAbortError(e)) throw e;
         console.warn('Failed to add speaker notes:', e);
       }
     };
     const processOne = async (el) => {
+      throwIfExportAborted(options);
       const root = typeof el === 'string' ? document.querySelector(el) : el;
       if (!root) {
         console.warn('Element not found, skipping slide:', el);
@@ -63966,11 +64506,13 @@
       }
       const slide = pptx.addSlide();
       await applySpeakerNotes(slide, root, slideIndex);
+      throwIfExportAborted(options);
 
       let renderedAsImage = false;
       if (renderAsImage) {
         try {
           const raster = await rasterizeRootAsImage(root, options);
+          throwIfExportAborted(options);
           if (raster && raster.data) {
             const contentWidthIn = Math.max(0.01, raster.widthPx * PX_TO_INCH);
             const contentHeightIn = Math.max(0.01, raster.heightPx * PX_TO_INCH);
@@ -63987,12 +64529,14 @@
             renderedAsImage = true;
           }
         } catch (e) {
+          if (isExportAbortError(e)) throw e;
           console.warn('Slide rasterization failed, fallback to DOM mode:', e);
         }
       }
 
       if (!renderedAsImage) {
         await processSlide(root, slide, pptx, options);
+        throwIfExportAborted(options);
       }
       if (processedRoots) processedRoots.push(root);
       slideIndex += 1;
@@ -64000,31 +64544,45 @@
 
     if (isAsyncIterable) {
       for await (const el of target) {
+        throwIfExportAborted(options);
         await processOne(el);
       }
     } else {
       for (const el of elements) {
+        throwIfExportAborted(options);
         await processOne(el);
       }
     }
 
     // 3. Font Embedding Logic
     let finalBlob;
-    let fontsToEmbed = options.fonts || [];
+    let fontsToEmbed = Array.isArray(options.fonts) ? options.fonts.slice() : [];
 
     if (options.autoEmbedFonts) {
+      throwIfExportAborted(options);
       // A. Scan DOM for used font families
       const usedFamilies = getUsedFontFamilies(processedRoots || []);
 
       // B. Scan CSS for URLs matches
-      const detectedFonts = await getAutoDetectedFonts(usedFamilies);
+      const detectedFonts = await getAutoDetectedFonts(
+        usedFamilies,
+        getDocumentsFromRoots(processedRoots || [])
+      );
+      throwIfExportAborted(options);
 
       // C. Merge (Avoid duplicates)
-      const explicitNames = new Set(fontsToEmbed.map((f) => f.name));
+      const explicitNames = new Set(
+        fontsToEmbed
+          .map((f) => String((f && f.name) || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
       for (const autoFont of detectedFonts) {
-        if (!explicitNames.has(autoFont.name)) {
-          fontsToEmbed.push(autoFont);
+        const fontKey = String(autoFont.name || '').trim().toLowerCase();
+        if (!fontKey || explicitNames.has(fontKey)) {
+          continue;
         }
+        fontsToEmbed.push(autoFont);
+        explicitNames.add(fontKey);
       }
 
       if (detectedFonts.length > 0) {
@@ -64036,42 +64594,51 @@
     }
 
     if (fontsToEmbed.length > 0) {
+      throwIfExportAborted(options);
       // Generate initial PPTX
       const initialBlob = await pptx.write({ outputType: 'blob' });
+      throwIfExportAborted(options);
 
       // Load into Embedder
       const zip = await JSZip.loadAsync(initialBlob);
       const embedder = new PPTXEmbedFonts();
       await embedder.loadZip(zip);
+      throwIfExportAborted(options);
 
       // Fetch and Embed
       for (const fontCfg of fontsToEmbed) {
         try {
+          throwIfExportAborted(options);
           const response = await fetch(fontCfg.url);
           if (!response.ok) throw new Error(`Failed to fetch ${fontCfg.url}`);
           const buffer = await response.arrayBuffer();
+          throwIfExportAborted(options);
 
           // Infer type
           const ext = fontCfg.url.split('.').pop().split(/[?#]/)[0].toLowerCase();
           let type = 'ttf';
-          if (['woff', 'otf'].includes(ext)) type = ext;
+          if (['woff', 'woff2', 'otf'].includes(ext)) type = ext;
 
           await embedder.addFont(fontCfg.name, buffer, type);
         } catch (e) {
+          if (isExportAbortError(e)) throw e;
           console.warn(`Failed to embed font: ${fontCfg.name} (${fontCfg.url})`, e);
         }
       }
 
       await embedder.updateFiles();
+      throwIfExportAborted(options);
       finalBlob = await embedder.generateBlob();
     } else {
       // No fonts to embed
+      throwIfExportAborted(options);
       finalBlob = await pptx.write({ outputType: 'blob' });
     }
 
     // 4. Output Handling
     // If skipDownload is NOT true, proceed with browser download
     if (!options.skipDownload) {
+      throwIfExportAborted(options);
       const fileName = options.fileName || 'export.pptx';
       const url = URL.createObjectURL(finalBlob);
       const a = document.createElement('a');
@@ -64094,6 +64661,7 @@
    * @param {PptxGenJS} pptx - The main PPTX instance.
    */
   async function processSlide(root, slide, pptx, globalOptions = {}) {
+    throwIfExportAborted(globalOptions);
     const rootRect = root.getBoundingClientRect();
     const PPTX_WIDTH_IN = 10;
     const PPTX_HEIGHT_IN = 5.625;
@@ -64181,13 +64749,15 @@
     // 2. Execute heavy tasks sequentially to avoid peak-memory spikes (OOM on complex slides).
     if (asyncTasks.length > 0) {
       for (const task of asyncTasks) {
+        throwIfExportAborted(globalOptions);
         await task();
+        throwIfExportAborted(globalOptions);
       }
     }
 
     // 3. Cleanup and Sort
     // Remove items that failed to generate data (marked with skip)
-    const finalQueue = renderQueue.filter(
+    let finalQueue = renderQueue.filter(
       (item) => !item.skip && (item.type !== 'image' || item.options.data)
     );
 
@@ -64196,8 +64766,11 @@
       return a.domOrder - b.domOrder;
     });
 
+    finalQueue = dedupeOverlappingTextItems(finalQueue);
+
     // 4. Add to Slide
     for (const item of finalQueue) {
+      throwIfExportAborted(globalOptions);
       if (item.type === 'shape') slide.addShape(item.shapeType, item.options);
       if (item.type === 'image') slide.addImage(item.options);
       if (item.type === 'text') slide.addText(item.textParts, item.options);
@@ -64654,7 +65227,7 @@
    * Optimized html2canvas wrapper
    * Includes fix for cropped icons by adjusting styles in the cloned document.
    */
-  async function elementToCanvasImage(node, widthPx, heightPx) {
+  async function elementToCanvasImage(node, widthPx, heightPx, options = {}) {
     return new Promise((resolve) => {
       const sourceDoc = node.ownerDocument || document;
       const sourceWin = sourceDoc.defaultView || window;
@@ -64682,12 +65255,15 @@
       const style = sourceWin.getComputedStyle(node);
 
       // Add padding to the clone to capture spilling content (like extensive font glyphs)
-      const padding = 10;
+      const paddingRaw = Number(options.padding);
+      const padding = Number.isFinite(paddingRaw) ? Math.max(0, Math.round(paddingRaw)) : 10;
+      const scaleRaw = Number(options.scale);
+      const captureScale = Number.isFinite(scaleRaw) ? Math.max(1, Math.min(scaleRaw, 4)) : 3;
 
       html2canvas(node, {
         backgroundColor: null,
         logging: false,
-        scale: 3, // Higher scale for sharper icons
+        scale: captureScale, // Higher scale for sharper icons
         useCORS: true, // critical for external fonts/images
         width: width + padding * 2, // Capture a larger area
         height: height + padding * 2,
@@ -64802,11 +65378,10 @@
           // We need to draw the CENTER of the source canvas to the destination
           // The source canvas is (width + 2*padding) * scale
           // We want to draw the crop starting at padding*scale
-          const scale = 3;
-          const sX = padding * scale;
-          const sY = padding * scale;
-          const sW = width * scale;
-          const sH = height * scale;
+          const sX = padding * captureScale;
+          const sY = padding * captureScale;
+          const sW = width * captureScale;
+          const sH = height * captureScale;
 
           ctx.drawImage(canvas, sX, sY, sW, sH, 0, 0, width, height);
 
@@ -64853,7 +65428,7 @@
           html2canvas(node, {
             backgroundColor: null,
             logging: false,
-            scale: 2,
+            scale: Math.max(1, captureScale - 1),
             useCORS: true,
             width: width,
             height: height,
@@ -64948,6 +65523,219 @@
     });
     s = s.replace(/\\(["'\\])/g, '$1');
     return s.trim();
+  }
+
+  function isFormulaRootForContainer(node, boundaryRoot) {
+    if (!isFormulaElement(node)) return false;
+    const parentFormula =
+      node.parentElement && node.parentElement.closest ? node.parentElement.closest(FORMULA_SELECTOR) : null;
+    if (!parentFormula) return true;
+    return !boundaryRoot || !boundaryRoot.contains(parentFormula);
+  }
+
+  function hasVisibleFormulaWrapperStyle(style) {
+    if (!style) return false;
+    const bgColor = parseColor(style.backgroundColor);
+    const hasVisibleBg = bgColor.hex && bgColor.opacity > 0;
+    const hasBorder =
+      parseFloat(style.borderWidth) > 0 && parseColor(style.borderColor).opacity > 0;
+    const hasRadius =
+      (parseFloat(style.borderRadius) || 0) > 0 ||
+      (parseFloat(style.borderTopLeftRadius) || 0) > 0 ||
+      (parseFloat(style.borderTopRightRadius) || 0) > 0 ||
+      (parseFloat(style.borderBottomLeftRadius) || 0) > 0 ||
+      (parseFloat(style.borderBottomRightRadius) || 0) > 0;
+    const hasPadding =
+      (parseFloat(style.paddingLeft) || 0) > 0 ||
+      (parseFloat(style.paddingRight) || 0) > 0 ||
+      (parseFloat(style.paddingTop) || 0) > 0 ||
+      (parseFloat(style.paddingBottom) || 0) > 0;
+    return hasVisibleBg || hasBorder || hasRadius || hasPadding;
+  }
+
+  function getFormulaRenderNode(formulaNode, boundaryRoot) {
+    let renderNode = formulaNode;
+    let current = formulaNode && formulaNode.parentElement;
+
+    while (current && current !== boundaryRoot) {
+      const style = window.getComputedStyle(current);
+      const display = String(style.display || '');
+      if (!display.includes('inline')) break;
+      if (!hasVisibleFormulaWrapperStyle(style)) break;
+      renderNode = current;
+      current = current.parentElement;
+    }
+
+    return renderNode || formulaNode;
+  }
+
+  function buildFormulaPlaceholderText(renderNode, styleToUse, scale, effectiveOpacity) {
+    if (!renderNode || !styleToUse) return null;
+    const rect = renderNode.getBoundingClientRect();
+    const widthPx = rect.width || renderNode.offsetWidth || 0;
+    if (widthPx <= 1) return null;
+
+    const fontSizePx = parseFloat(styleToUse.fontSize) || 16;
+    const emCount = Math.max(1, Math.ceil(widthPx / Math.max(fontSizePx, 8)));
+    const placeholderOptions = applyOpacityToTextStyle(
+      getTextStyle(styleToUse, scale, renderNode),
+      effectiveOpacity
+    );
+    if (placeholderOptions.hidden) delete placeholderOptions.hidden;
+    placeholderOptions.transparency = 100;
+    delete placeholderOptions.highlight;
+
+    return {
+      text: '\u2003'.repeat(emCount + 1),
+      options: placeholderOptions,
+    };
+  }
+
+  function buildFormulaRenderArtifacts(root, config, zIndex, domOrder) {
+    const items = [];
+    const jobs = [];
+    if (!root || typeof root.querySelectorAll !== 'function') return { items, jobs };
+
+    const formulaNodes = Array.from(root.querySelectorAll(FORMULA_SELECTOR)).filter((node) =>
+      isFormulaRootForContainer(node, root)
+    );
+
+    formulaNodes.forEach((formulaNode, index) => {
+      const renderNode = getFormulaRenderNode(formulaNode, root);
+      if (!renderNode || renderNode.nodeType !== 1) return;
+
+      const rect = renderNode.getBoundingClientRect();
+      const widthPx = rect.width || renderNode.offsetWidth || 0;
+      const heightPx = rect.height || renderNode.offsetHeight || 0;
+      if (widthPx < 1 || heightPx < 1) return;
+
+      const item = {
+        type: 'image',
+        zIndex: zIndex + 1,
+        domOrder: domOrder + 0.01 + index * 0.001,
+        options: {
+          x: config.offX + (rect.left - config.rootX) * PX_TO_INCH * config.scale,
+          y: config.offY + (rect.top - config.rootY) * PX_TO_INCH * config.scale,
+          w: widthPx * PX_TO_INCH * config.scale,
+          h: heightPx * PX_TO_INCH * config.scale,
+          rotate: getRotation(window.getComputedStyle(renderNode).transform),
+          data: null,
+        },
+      };
+
+      const job = async () => {
+        let rasterData = await elementToCanvasImage(renderNode, widthPx, heightPx, {
+          padding: 16,
+          scale: 3,
+        });
+
+        if (!rasterData && formulaNode.querySelector) {
+          const formulaSvg = formulaNode.querySelector('svg');
+          if (formulaSvg) {
+            rasterData = await svgToPng(formulaSvg);
+          }
+        }
+
+        if (rasterData) item.options.data = rasterData;
+        else item.skip = true;
+      };
+
+      items.push(item);
+      jobs.push(job);
+    });
+
+    return { items, jobs };
+  }
+
+  function getNormalizedTextItemContent(item) {
+    if (!item || item.type !== 'text' || !Array.isArray(item.textParts)) return '';
+    return item.textParts
+      .map((part) => String((part && part.text) || ''))
+      .join('')
+      .replace(/[\u200B\u200C\u200D]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function getTextColorRichnessScore(colorHex) {
+    const hex = String(colorHex || '').replace('#', '').trim();
+    if (!/^[0-9A-Fa-f]{6}$/.test(hex)) return 0;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return Math.max(r, g, b) - Math.min(r, g, b);
+  }
+
+  function getTextItemStylePriority(item) {
+    if (!item || item.type !== 'text' || !Array.isArray(item.textParts)) return 0;
+    let score = 0;
+
+    item.textParts.forEach((part) => {
+      const options = (part && part.options) || {};
+      score += getTextColorRichnessScore(options.color);
+      if (options.highlight) score += 160;
+      if (options.underline) score += 12;
+      if (options.italic) score += 8;
+      if (options.bold) score += 6;
+      if (Number.isFinite(options.fontSize)) score += options.fontSize / 10;
+      if (Number.isFinite(options.transparency)) score -= options.transparency / 2;
+    });
+
+    return score;
+  }
+
+  function hasSameTextItemGeometry(a, b) {
+    const aOptions = (a && a.options) || {};
+    const bOptions = (b && b.options) || {};
+    const numericDiff = (lhs, rhs) => Math.abs((Number(lhs) || 0) - (Number(rhs) || 0));
+    return (
+      numericDiff(aOptions.x, bOptions.x) <= 0.02 &&
+      numericDiff(aOptions.y, bOptions.y) <= 0.02 &&
+      numericDiff(aOptions.w, bOptions.w) <= 0.04 &&
+      numericDiff(aOptions.h, bOptions.h) <= 0.04 &&
+      numericDiff(aOptions.rotate, bOptions.rotate) <= 0.5
+    );
+  }
+
+  function dedupeOverlappingTextItems(items) {
+    const deduped = [];
+
+    items.forEach((item) => {
+      if (!item || item.type !== 'text') {
+        deduped.push(item);
+        return;
+      }
+
+      const normalizedText = getNormalizedTextItemContent(item);
+      if (!normalizedText) {
+        deduped.push(item);
+        return;
+      }
+
+      let duplicateIndex = -1;
+      for (let i = 0; i < deduped.length; i++) {
+        const existing = deduped[i];
+        if (!existing || existing.type !== 'text') continue;
+        if (getNormalizedTextItemContent(existing) !== normalizedText) continue;
+        if (!hasSameTextItemGeometry(existing, item)) continue;
+        duplicateIndex = i;
+        break;
+      }
+
+      if (duplicateIndex < 0) {
+        deduped.push(item);
+        return;
+      }
+
+      const existing = deduped[duplicateIndex];
+      const existingScore = getTextItemStylePriority(existing);
+      const currentScore = getTextItemStylePriority(item);
+      if (currentScore > existingScore + 0.5) {
+        deduped[duplicateIndex] = item;
+      }
+    });
+
+    return deduped;
   }
 
   function collectPseudoDecorationItems(
@@ -65091,7 +65879,7 @@
       const rect = range.getBoundingClientRect();
       range.detach();
 
-      const style = window.getComputedStyle(parent);
+      const style = getNodeWindow(parent).getComputedStyle(parent);
       const widthPx = rect.width;
       const heightPx = rect.height;
       const unrotatedW = widthPx * PX_TO_INCH * config.scale;
@@ -65099,6 +65887,9 @@
 
       const x = config.offX + (rect.left - config.rootX) * PX_TO_INCH * config.scale;
       const y = config.offY + (rect.top - config.rootY) * PX_TO_INCH * config.scale;
+      const textOptions = applyOpacityToTextStyle(getTextStyle(style, config.scale, parent), effectiveOpacity);
+      if (textOptions.hidden) return null;
+      delete textOptions.hidden;
 
       return {
         items: [
@@ -65109,7 +65900,7 @@
             textParts: [
               {
                 text: textContent,
-                options: applyOpacityToTextStyle(getTextStyle(style, config.scale), effectiveOpacity),
+                options: textOptions,
               },
             ],
             options: { x, y, w: unrotatedW, h: unrotatedH, margin: 0, autoFit: false },
@@ -65174,6 +65965,7 @@
 
     if ((node.tagName === 'UL' || node.tagName === 'OL') && !isComplexHierarchy(node)) {
       const listItems = [];
+      const formulaArtifacts = buildFormulaRenderArtifacts(node, config, zIndex, domOrder);
       const liChildren = Array.from(node.children).filter((c) => c.tagName === 'LI');
 
       liChildren.forEach((child, index) => {
@@ -65251,7 +66043,7 @@
         }
 
         // 3. Extract Text Parts
-        const parts = collectListParts(child, liStyle, config.scale, safeOpacity);
+        const parts = collectListParts(child, liStyle, config.scale, safeOpacity, child);
 
         if (parts.length > 0) {
           parts.forEach((p) => {
@@ -65348,7 +66140,20 @@
           },
         });
 
-        return { items, stopRecursion: true };
+        if (formulaArtifacts.items.length > 0) {
+          items.push(...formulaArtifacts.items);
+        }
+
+        const formulaJob =
+          formulaArtifacts.jobs.length > 0
+            ? async () => {
+                for (const job of formulaArtifacts.jobs) {
+                  await job();
+                }
+              }
+            : null;
+
+        return { items, job: formulaJob, stopRecursion: true };
       }
     }
 
@@ -65451,6 +66256,35 @@
           safeOpacity
         );
         if (processed) item.options.data = processed;
+        else item.skip = true;
+      };
+
+      return { items: [item], job, stopRecursion: true };
+    }
+
+    // --- ASYNC JOB: Formula Roots (MathJax / KaTeX / MathML / custom data-formula) ---
+    if (isFormulaElement(node)) {
+      const item = {
+        type: 'image',
+        zIndex,
+        domOrder,
+        options: { x, y, w, h, rotate: rotation, data: null },
+      };
+
+      const job = async () => {
+        let rasterData = await elementToCanvasImage(node, widthPx, heightPx, {
+          padding: 16,
+          scale: 3,
+        });
+
+        if (!rasterData && node.querySelector) {
+          const formulaSvg = node.querySelector('svg');
+          if (formulaSvg) {
+            rasterData = await svgToPng(formulaSvg);
+          }
+        }
+
+        if (rasterData) item.options.data = rasterData;
         else item.skip = true;
       };
 
@@ -65631,65 +66465,9 @@
     const isText = isTextContainer(node);
 
     if (isText) {
-      const textParts = [];
-      let trimNextLeading = false;
-
-      node.childNodes.forEach((child, index) => {
-        // Handle <br> tags
-        if (child.tagName === 'BR') {
-          // 1. Trim trailing space from the *previous* text part to prevent double wrapping
-          if (textParts.length > 0) {
-            const lastPart = textParts[textParts.length - 1];
-            if (lastPart.text && typeof lastPart.text === 'string') {
-              lastPart.text = lastPart.text.trimEnd();
-            }
-          }
-
-          textParts.push({ text: '', options: { breakLine: true } });
-
-          // 2. Signal to trim leading space from the *next* text part
-          trimNextLeading = true;
-          return;
-        }
-
-        let textVal = child.nodeType === 3 ? child.nodeValue : child.textContent;
-        let nodeStyle = child.nodeType === 1 ? window.getComputedStyle(child) : style;
-        textVal = textVal.replace(/[\n\r\t]+/g, ' ').replace(/\s{2,}/g, ' ');
-
-        // Trimming logic
-        if (index === 0) textVal = textVal.trimStart();
-        if (trimNextLeading) {
-          textVal = textVal.trimStart();
-          trimNextLeading = false;
-        }
-
-        if (index === node.childNodes.length - 1) textVal = textVal.trimEnd();
-        if (nodeStyle.textTransform === 'uppercase') textVal = textVal.toUpperCase();
-        if (nodeStyle.textTransform === 'lowercase') textVal = textVal.toLowerCase();
-
-        if (textVal.length > 0) {
-          const textOpts = applyOpacityToTextStyle(getTextStyle(nodeStyle, config.scale), safeOpacity);
-          const runBg = parseColor(nodeStyle.backgroundColor);
-          const runBgOpacity = Number.isFinite(runBg.opacity) ? runBg.opacity : 0;
-          const textColor = String(textOpts.color || '').toUpperCase();
-          const highlightColor = String(textOpts.highlight || '').toUpperCase();
-          const sameColorAsHighlight =
-            !!textColor && !!highlightColor && textColor === highlightColor;
-
-          // BUG FIX: remove problematic text highlight conversion.
-          // If this is a naked Text Node (nodeType 3), it inherits style from the parent container.
-          // The parent container's background is already rendered as the Shape Fill.
-          // We must NOT render it again as a Text Highlight, otherwise it looks like a solid marker on top of the shape.
-          if (
-            textOpts.highlight &&
-            (child.nodeType === 3 || sameColorAsHighlight || runBgOpacity < 0.35)
-          ) {
-            delete textOpts.highlight;
-          }
-
-          textParts.push({ text: textVal, options: textOpts });
-        }
-      });
+      const textParts = finalizeInlineTextParts(
+        collectInlineTextParts(node, config.scale, safeOpacity, node)
+      );
 
       if (textParts.length > 0) {
         let align = style.textAlign || 'left';
@@ -65958,7 +66736,7 @@
     return false;
   }
 
-  function collectListParts(node, parentStyle, scale, effectiveOpacity) {
+  function collectListParts(node, parentStyle, scale, effectiveOpacity, formulaBoundaryRoot = null) {
     const parts = [];
 
     // Check for CSS Content (::before) - often used for icons
@@ -65969,16 +66747,23 @@
         // Strip quotes
         const cleanContent = content.replace(/^['"]|['"]$/g, '');
         if (cleanContent.trim()) {
+          const beforeOptions = applyOpacityToTextStyle(
+            getTextStyle(getNodeWindow(node).getComputedStyle(node), scale, node),
+            effectiveOpacity
+          );
+          if (beforeOptions.hidden) {
+            return parts;
+          }
+          delete beforeOptions.hidden;
           parts.push({
             text: cleanContent + ' ', // Add space after icon
-            options: applyOpacityToTextStyle(
-              getTextStyle(window.getComputedStyle(node), scale),
-              effectiveOpacity
-            ),
+            options: beforeOptions,
           });
         }
       }
     }
+
+    const effectiveFormulaBoundaryRoot = formulaBoundaryRoot || node;
 
     node.childNodes.forEach((child) => {
       if (child.nodeType === 3) {
@@ -65986,16 +66771,35 @@
         const val = child.nodeValue.replace(/[\n\r\t]+/g, ' ').replace(/\s{2,}/g, ' ');
         if (val) {
           // Use parent style if child is text node, otherwise current style
-          const styleToUse = node.nodeType === 1 ? window.getComputedStyle(node) : parentStyle;
+          const styleToUse = node.nodeType === 1 ? getNodeWindow(node).getComputedStyle(node) : parentStyle;
+          const textOptions = applyOpacityToTextStyle(getTextStyle(styleToUse, scale, node), effectiveOpacity);
+          if (textOptions.hidden) {
+            return;
+          }
+          delete textOptions.hidden;
           parts.push({
             text: val,
-            options: applyOpacityToTextStyle(getTextStyle(styleToUse, scale), effectiveOpacity),
+            options: textOptions,
           });
         }
       } else if (child.nodeType === 1) {
+        if (isFormulaElement(child)) {
+          const styleToUse = node.nodeType === 1 ? window.getComputedStyle(node) : parentStyle;
+          const renderNode = getFormulaRenderNode(child, effectiveFormulaBoundaryRoot);
+          const placeholder = buildFormulaPlaceholderText(
+            renderNode,
+            styleToUse,
+            scale,
+            effectiveOpacity
+          );
+          if (placeholder) {
+            parts.push(placeholder);
+          }
+          return;
+        }
         // Element (span, i, b)
         // Recurse
-        parts.push(...collectListParts(child, parentStyle, scale, effectiveOpacity));
+        parts.push(...collectListParts(child, parentStyle, scale, effectiveOpacity, effectiveFormulaBoundaryRoot));
       }
     });
 
@@ -66049,7 +66853,7 @@
     return items;
   }
 
-  var LANDPPT_DOM_TO_PPTX_PATCH_VERSION = '2026-02-14-opacity-chain-v4';
+  var LANDPPT_DOM_TO_PPTX_PATCH_VERSION = '2026-04-05-font-resolve-v3';
   exports.exportToPptx = exportToPptx;
   exports.setIconRules = setIconRules;
   exports.getIconRules = getIconRules;

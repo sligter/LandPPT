@@ -1,0 +1,410 @@
+<div class="project-detail-hero">
+    <h2>{{ project.title }}</h2>
+    <p>项目ID: <code>{{ project.project_id }}</code></p>
+</div>
+
+<div style="max-width: 1400px; margin: 0 auto; padding: var(--spacing-lg);">
+
+    <div class="grid">
+        <!-- Project Information -->
+        <div class="card">
+            <h3 class="section-heading">项目信息</h3>
+
+            <div style="margin-bottom: var(--spacing-xl);">
+                <div class="status-summary">
+                    {% if project.status == 'completed' %}
+                    <div class="status-indicator completed">
+                        <span class="status-indicator__text">完成</span>
+                    </div>
+                    {% elif project.status == 'in_progress' %}
+                    <div class="status-indicator in_progress">
+                        <span class="status-indicator__text">进行</span>
+                    </div>
+                    {% elif project.status == 'draft' %}
+                    <div class="status-indicator draft">
+                        <span class="status-indicator__text">草稿</span>
+                    </div>
+                    {% else %}
+                    <div class="status-indicator error">
+                        <span class="status-indicator__text">异常</span>
+                    </div>
+                    {% endif %}
+
+                    <div class="status-details">
+                        {% if project.status == 'completed' %}
+                        <h4 class="status-title">项目已完成</h4>
+                        <p class="status-meta">所有阶段已完成</p>
+                        {% elif project.status == 'in_progress' %}
+                        {% if todo_board %}
+                        {% set current_stage = todo_board.stages | selectattr('status', 'equalto', 'running') | first %}
+                        {% if current_stage %}
+                        <h4 class="status-title">{{ current_stage.name }}中</h4>
+                        <p class="status-meta">当前正在执行</p>
+                        {% else %}
+                        {% set next_stage = todo_board.stages | selectattr('status', 'equalto', 'pending') | first %}
+                        {% if next_stage %}
+                        <h4 class="status-title">等待{{ next_stage.name }}</h4>
+                        <p class="status-meta">下一个阶段</p>
+                        {% else %}
+                        <h4 class="status-title">项目进行中</h4>
+                        <p class="status-meta">正在处理中</p>
+                        {% endif %}
+                        {% endif %}
+                        {% else %}
+                        <h4 class="status-title">项目进行中</h4>
+                        <p class="status-meta">正在处理中</p>
+                        {% endif %}
+                        {% elif project.status == 'draft' %}
+                        <h4 class="status-title">草稿状态</h4>
+                        <p class="status-meta">等待开始</p>
+                        {% else %}
+                        <h4 class="status-title">{{ project.status | title }}</h4>
+                        <p class="status-meta">当前项目状态</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="project-info-grid">
+                <div class="project-info-item">
+                    <strong>主题</strong>
+                    <p>{{ project.topic }}</p>
+                </div>
+                <div class="project-info-item">
+                    <strong>场景</strong>
+                    <p>{{ project.scenario }}</p>
+                </div>
+                <div class="project-info-item">
+                    <strong>版本</strong>
+                    <p>v{{ project.version }}</p>
+                </div>
+                <div class="project-info-item">
+                    <strong>创建时间</strong>
+                    <p>{{ project.created_at | strftime('%Y-%m-%d %H:%M') }}</p>
+                </div>
+            </div>
+
+            {% if project.requirements %}
+            <div class="card" style="background: var(--surface); border: 1px solid var(--glass-border);">
+                <strong
+                    style="color: var(--text-secondary); display: block; margin-bottom: var(--spacing-md); text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.9rem;">特殊要求</strong>
+                <p style="color: var(--text-primary); margin: 0; line-height: 1.6; font-size: 1.05rem;">{{
+                    project.requirements }}</p>
+            </div>
+            {% endif %}
+
+            <!-- Project Actions -->
+            <div class="action-group">
+                {% if project.status == 'in_progress' and todo_board %}
+                <a href="/projects/{{ project.project_id }}/todo" class="btn btn-primary action-button">
+                    查看 TODO 看板
+                </a>
+                {% endif %}
+
+                {% if project.status == 'completed' and project.slides_html %}
+                <a href="/projects/{{ project.project_id }}/fullscreen" class="btn btn-success action-button"
+                    target="_blank">
+                    预览 PPT
+                </a>
+                {% endif %}
+
+                <button onclick="archiveProject()" class="btn btn-warning action-button">
+                    归档项目
+                </button>
+
+                <button onclick="deleteProject()" class="btn btn-danger action-button">
+                    删除项目
+                </button>
+            </div>
+        </div>
+
+        <!-- TODO Board Progress -->
+        {% if todo_board %}
+        <div class="card">
+            <h3 class="section-heading">进度概览</h3>
+
+            <div style="margin-bottom: 20px;">
+                <div class="progress-track">
+                    <div class="progress-fill" style="width: {{ todo_board.overall_progress }}%"></div>
+                </div>
+                <p class="progress-meta">
+                    总体进度: {{ "%.1f" | format(todo_board.overall_progress) }}%
+                </p>
+            </div>
+
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 10px;">
+                <h4 class="section-subheading">阶段状态</h4>
+                {% for stage in todo_board.stages %}
+                <div class="stage-row">
+                    <div class="stage-icon">
+                        {% if stage.status == 'completed' %}
+                        <span class="status-icon status-icon--completed"><i class="fas fa-check"></i></span>
+                        {% elif stage.status == 'running' %}
+                        <span class="status-icon status-icon--running"><i class="fas fa-spinner"></i></span>
+                        {% elif stage.status == 'failed' %}
+                        <span class="status-icon status-icon--failed"><i class="fas fa-times"></i></span>
+                        {% else %}
+                        <span class="status-icon status-icon--pending"><i class="fas fa-clock"></i></span>
+                        {% endif %}
+                    </div>
+                    <div style="flex: 1;">
+                        <strong class="stage-title">{{ stage.name }}</strong>
+                        <p class="stage-description">{{ stage.description }}</p>
+                        {% if stage.status == 'running' and stage.progress is defined %}
+                        <div class="mini-progress">
+                            <div class="mini-progress__fill" style="width: {{ stage.progress }}%"></div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div style="margin-left: 15px;">
+                        {% if stage.status == 'pending' %}
+                        {% if stage.id == 'requirements_confirmation' %}
+                        <a href="/projects/{{ project.project_id }}/todo" class="btn btn-primary"
+                            style="font-size: 0.8em; padding: 6px 12px;">
+                            开始
+                        </a>
+                        {% elif stage.id == 'outline_generation' %}
+                        <a href="/projects/{{ project.project_id }}/todo" class="btn btn-primary"
+                            style="font-size: 0.8em; padding: 6px 12px;">
+                            生成大纲
+                        </a>
+                        {% elif stage.id == 'ppt_creation' %}
+                        <a href="/projects/{{ project.project_id }}/todo" class="btn btn-primary btn-sm">
+                            生成PPT
+                        </a>
+                        {% else %}
+                        <a href="/projects/{{ project.project_id }}/todo" class="btn btn-primary btn-sm">
+                            开始
+                        </a>
+                        {% endif %}
+                        {% elif stage.status == 'running' %}
+                        <a href="/projects/{{ project.project_id }}/todo" class="btn btn-info btn-sm">
+                            查看进度
+                        </a>
+                        {% elif stage.status == 'completed' %}
+                        <a href="/projects/{{ project.project_id }}/todo" class="btn btn-success btn-sm">
+                            已完成
+                        </a>
+                        {% elif stage.status == 'failed' %}
+                        <a href="/projects/{{ project.project_id }}/todo" class="btn btn-warning btn-sm">
+                            重试
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- PPT Outline Preview -->
+    {% if project.outline and project.outline is not none and project.outline.get('slides') %}
+    <div style="margin-top: 40px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 class="section-heading" style="margin: 0;">PPT 大纲</h3>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="toggleOutlineView()" class="btn btn-info" style="font-size: 0.9em;">
+                    切换视图
+                </button>
+                <button onclick="editOutline()" class="btn btn-primary" style="font-size: 0.9em;">
+                    编辑大纲
+                </button>
+                <button onclick="exportOutlineJSON()" class="btn btn-success" style="font-size: 0.9em;">
+                    导出JSON
+                </button>
+            </div>
+        </div>
+
+        <div style="background: white; border-radius: 15px; padding: 30px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h4 style="color: var(--text-primary); margin-bottom: 10px;">{{ project.outline.get('title',
+                    project.topic or '未命名大纲') }}</h4>
+                <p style="color: var(--text-secondary);">
+                    总共 {{ project.outline.get('slides', [])|length }} 页幻灯片 |
+                    场景: {{ project.outline.get('metadata', {}).get('scenario', project.scenario) }} |
+                    语言: {{ project.outline.get('metadata', {}).get('language', 'zh') }}
+                </p>
+            </div>
+
+            <!-- 简洁视图 -->
+            <div id="compactView" style="display: block;">
+                <div style="background: var(--surface-muted); border-radius: 10px; padding: 20px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
+                        {% for slide in project.outline.get('slides', []) %}
+                        <div style="padding: 15px; background: white; border-radius: 8px; border-left: 4px solid #1f2933; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: relative;"
+                            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)'"
+                            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'">
+
+                            <!-- 操作按钮 -->
+                            <div style="position: absolute; top: 10px; right: 10px; display: flex; gap: 5px;">
+                                <button onclick="editSingleSlide({{ loop.index0 }})" class="btn btn-primary"
+                                    style="font-size: 0.7em; padding: 4px 8px; border-radius: 4px;" title="编辑此页">
+                                    编辑
+                                </button>
+                                <button onclick="viewSlideDetail({{ loop.index0 }})" class="btn btn-info"
+                                    style="font-size: 0.7em; padding: 4px 8px; border-radius: 4px;" title="查看详情">
+                                    详情
+                                </button>
+                            </div>
+
+                            <div onclick="viewSlideDetail({{ loop.index0 }})"
+                                style="cursor: pointer; margin-right: 60px;">
+                                <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                    <span
+                                        style="background: #1f2933; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: bold; margin-right: 10px;">
+                                        {{ slide.get('page_number', loop.index) }}
+                                    </span>
+                                    <strong style="color: var(--text-primary); font-size: 0.9em;">{{ slide.get('title',
+                                        '未命名幻灯片') }}</strong>
+                                </div>
+                                {% if slide.get('subtitle') %}
+                                <p
+                                    style="color: var(--text-secondary); font-size: 0.8em; margin: 5px 0; font-style: italic;">
+                                    {{ slide.get('subtitle') }}</p>
+                                {% endif %}
+                                <div style="color: var(--text-secondary); font-size: 0.8em; line-height: 1.4;">
+                                    {% if slide.get('content_points') and slide.get('content_points')|length > 0 %}
+                                    {{ slide.get('content_points')[0][:80] }}{% if slide.get('content_points')[0]|length
+                                    > 80 %}...{% endif %}
+                                    {% if slide.get('content_points')|length > 1 %}
+                                    <br><span style="color: var(--text-muted);">+{{ slide.get('content_points')|length -
+                                        1 }} 个要点</span>
+                                    {% endif %}
+                                    {% elif slide.get('content') %}
+                                    {{ slide.get('content')[:80] }}{% if slide.get('content')|length > 80 %}...{% endif
+                                    %}
+                                    {% else %}
+                                    <span style="color: var(--text-muted);">暂无内容</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 详细视图 -->
+            <div id="detailView" style="display: none; max-height: 500px; overflow-y: auto;">
+                {% for slide in project.outline.get('slides', []) %}
+                <div
+                    style="padding: 20px; margin-bottom: 15px; background: var(--surface-muted); border-radius: 10px; border-left: 4px solid #1f2933; position: relative;">
+                    <div style="display: flex; align-items: center; margin-bottom: 15px;">
+                        <span
+                            style="background: #1f2933; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-weight: bold; margin-right: 15px;">
+                            {{ slide.get('page_number', loop.index) }}
+                        </span>
+                        <div style="flex: 1;">
+                            <strong class="stage-title">{{ slide.get('title', '未命名幻灯片') }}</strong>
+                            {% if slide.get('subtitle') %}
+                            <br><em style="color: var(--text-secondary); font-size: 0.9em;">{{ slide.get('subtitle')
+                                }}</em>
+                            {% endif %}
+                        </div>
+                        <button onclick="editSingleSlide({{ loop.index0 }})" class="btn btn-primary"
+                            style="font-size: 0.8em; padding: 6px 12px;" title="编辑此页">
+                            编辑
+                        </button>
+                    </div>
+
+                    {% if slide.get('content_points') %}
+                    <div style="margin-top: 10px;">
+                        <h5 style="color: var(--text-secondary); margin-bottom: 8px; font-size: 0.9em;">内容要点：</h5>
+                        <ul style="margin: 0; padding-left: 20px; color: var(--text-secondary); line-height: 1.6;">
+                            {% for point in slide.get('content_points', []) %}
+                            <li style="margin-bottom: 5px;">{{ point }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% elif slide.get('content') %}
+                    <div style="margin-top: 10px;">
+                        <h5 style="color: var(--text-secondary); margin-bottom: 8px; font-size: 0.9em;">内容：</h5>
+                        <div
+                            style="background: white; padding: 15px; border-radius: 6px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap;">
+                            {{ slide.get('content') }}</div>
+                    </div>
+                    {% endif %}
+
+                    {% if slide.get('slide_type') %}
+                    <div style="margin-top: 10px;">
+                        <span
+                            style="background: var(--surface); color: var(--text-primary); padding: 4px 8px; border-radius: 4px; font-size: 0.8em;">
+                            类型: {{ slide.get('slide_type') }}
+                        </span>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% elif project.outline and project.outline is not none %}
+    <!-- Show outline content if it exists but doesn't have slides structure -->
+    <div style="margin-top: 40px;">
+        <h3 class="section-heading" style="text-align: center;">PPT 大纲</h3>
+
+        <div style="background: white; border-radius: 15px; padding: 30px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h4 style="color: var(--text-primary); margin-bottom: 10px;">{{ project.outline.get('title',
+                    project.topic or '未命名大纲') if project.outline else (project.topic or '未命名大纲') }}</h4>
+                <p style="color: #7f8c8d;">大纲内容</p>
+            </div>
+
+            <div
+                style="background: var(--surface-muted); padding: 20px; border-radius: 8px; max-height: 400px; overflow-y: auto;">
+                {% if project.outline and project.outline.get('content') %}
+                <pre
+                    style="white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.4; margin: 0; color: var(--text-secondary);">{{ project.outline.get('content') }}</pre>
+                {% else %}
+                <p style="color: var(--text-muted); text-align: center; margin: 0;">大纲内容正在生成中...</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Version History -->
+    {% if versions %}
+    <div style="margin-top: 40px;">
+        <h3 class="section-heading" style="text-align: center;">版本历史</h3>
+
+        <div style="background: white; border-radius: 15px; padding: 30px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);">
+            {% for version in versions %}
+            <div
+                style="display: flex; align-items: center; padding: 15px; margin-bottom: 10px; background: var(--surface-muted); border-radius: 8px;">
+                <div style="margin-right: 20px;">
+                    <div
+                        style="width: 40px; height: 40px; background: #1f2933; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+                        v{{ version.version }}
+                    </div>
+                </div>
+
+                <div style="flex: 1;">
+                    <strong style="color: var(--text-primary);">{{ version.description }}</strong>
+                    <p style="color: var(--text-secondary); margin: 5px 0 0 0; font-size: 0.9em;">
+                        {{ version.timestamp | strftime('%Y-%m-%d %H:%M:%S') }}
+                    </p>
+                </div>
+
+                <div style="margin-left: 15px;">
+                    <button onclick="restoreVersion({{ version.version }})" class="btn btn-primary"
+                        style="font-size: 0.9em;">
+                        恢复此版本
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Navigation -->
+    <div style="text-align: center; margin-top: 40px;">
+        <a href="/projects" class="btn" style="background: #1f2933; color: white; margin: 0 10px;">
+            返回项目列表
+        </a>
+        <a href="/dashboard" class="btn btn-primary" style="margin: 0 10px;">
+            项目仪表板
+        </a>
+    </div>

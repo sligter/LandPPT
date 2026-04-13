@@ -1,0 +1,827 @@
+{% extends "base.html" %}
+
+{% block title %}本地图床管理 - LandPPT{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── 图床管理 · Admin 风格 ── */
+
+/* 页头 */
+.gallery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.gallery-header h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+}
+
+.gallery-header p {
+    margin: 4px 0 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.gallery-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* 工具栏 */
+.gallery-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: #fff;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    flex-wrap: wrap;
+}
+
+.gallery-search {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+    max-width: 320px;
+}
+
+.gallery-search .search-icon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 0.82rem;
+    pointer-events: none;
+}
+
+.gallery-search input {
+    width: 100%;
+    padding: 9px 36px 9px 14px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px;
+    background: #fff;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    height: 38px;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.gallery-search input:focus {
+    border-color: #111;
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+}
+
+.gallery-controls select {
+    padding: 0 36px 0 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    min-width: 110px;
+    height: 38px;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 12px center;
+    background-repeat: no-repeat;
+    background-size: 16px;
+    outline: none;
+}
+
+.gallery-controls select:focus {
+    border-color: #111;
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+}
+
+.controls-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border-color, #e5e7eb);
+    flex-shrink: 0;
+}
+
+.controls-spacer {
+    flex: 1;
+}
+
+/* 批量操作栏 */
+.batch-toolbar {
+    background: #fff;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.batch-toolbar .batch-info {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.batch-toolbar .batch-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* 按钮 */
+.btn {
+    padding: 9px 16px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    min-height: 36px;
+    background: #fff;
+    color: var(--text-primary);
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.btn-primary { background: #111; border-color: #111; color: #fff; }
+.btn-primary:hover { background: #333; }
+
+.btn-success { background: #16a34a; border-color: #15803d; color: #fff; }
+.btn-success:hover { background: #15803d; }
+
+.btn-secondary { background: #f3f4f6; border-color: var(--border-color, #e5e7eb); color: var(--text-primary); }
+.btn-secondary:hover { background: #e5e7eb; }
+
+.btn-danger { background: #ef4444; border-color: #dc2626; color: #fff; }
+.btn-danger:hover { background: #dc2626; }
+
+.btn-outline { background: #fff; border-color: var(--border-color, #e5e7eb); color: var(--text-primary); }
+.btn-outline:hover { background: #f8fafc; border-color: #94a3b8; }
+
+.btn-sm { padding: 5px 10px; font-size: 0.75rem; border-radius: 8px; min-height: 30px; }
+
+/* 图片网格 */
+.image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.image-item {
+    background: #fff;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    overflow: hidden;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.image-item:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transform: translateY(-2px);
+}
+
+.image-item.selected {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.image-thumbnail {
+    width: 100%;
+    height: 180px;
+    object-fit: cover;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.image-info {
+    padding: 12px 14px;
+}
+
+.image-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.image-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.image-source {
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+}
+
+.image-actions {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+}
+
+.image-actions button {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.15s ease;
+    color: var(--text-secondary);
+}
+
+.image-actions button:hover {
+    background: #f8fafc;
+    color: var(--text-primary);
+    border-color: #94a3b8;
+}
+
+/* 批量选择 */
+.batch-checkbox {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 20px;
+    height: 20px;
+    z-index: 10;
+    accent-color: #111;
+}
+
+/* 上传区域 */
+.upload-area {
+    border: 2px dashed #d1d5db;
+    border-radius: 12px;
+    padding: 32px 20px;
+    text-align: center;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    background: #fafbfc;
+}
+
+.upload-area:hover,
+.upload-area.drag-over {
+    border-color: #111;
+    background: rgba(0,0,0,0.02);
+}
+
+.upload-area .upload-icon {
+    font-size: 2.5rem;
+    color: #94a3b8;
+    margin-bottom: 12px;
+}
+
+/* 进度条 */
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #f1f5f9;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #111;
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 4px;
+}
+
+/* 模态框 */
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.modal-content {
+    background: #fff;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 16px;
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.08);
+    max-width: 600px;
+    width: 100%;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    flex-shrink: 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.modal-body {
+    padding: 24px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.close-btn {
+    background: transparent;
+    border: 1px solid var(--border-color, #e5e7eb);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-btn:hover {
+    background: #f8fafc;
+    color: var(--text-primary);
+}
+
+/* 信息面板 */
+.info-section {
+    margin-bottom: 20px;
+}
+
+.info-section h4 {
+    margin-bottom: 10px;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.info-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 0.875rem;
+}
+
+.info-item label {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    margin: 0;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.info-item span {
+    color: var(--text-primary);
+}
+
+/* 编辑表单 */
+.edit-item {
+    margin-bottom: 14px;
+}
+
+.edit-item label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.form-input,
+.form-textarea,
+.form-select {
+    width: 100%;
+    padding: 9px 14px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px;
+    font-size: 0.875rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background: #fff;
+    color: var(--text-primary);
+    outline: none;
+    box-sizing: border-box;
+}
+
+.form-input:focus,
+.form-textarea:focus,
+.form-select:focus {
+    border-color: #111;
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+}
+
+.form-textarea { resize: vertical; min-height: 60px; }
+
+.form-help {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.edit-actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/* 分页 */
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    align-items: center;
+}
+
+.pagination button {
+    padding: 7px 12px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    background: #fff;
+    cursor: pointer;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    transition: all 0.15s ease;
+}
+
+.pagination button:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: var(--text-primary);
+}
+
+.pagination button.active {
+    background: #111;
+    color: #fff;
+    border-color: #111;
+}
+
+.pagination button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .image-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 12px;
+    }
+
+    .gallery-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .gallery-controls {
+        flex-wrap: wrap;
+    }
+
+    .gallery-search {
+        min-width: 100%;
+        max-width: none;
+    }
+
+    .modal {
+        padding: 10px;
+        align-items: flex-start;
+        padding-top: 20px;
+    }
+
+    .modal-content {
+        width: 100%;
+        max-width: none;
+        max-height: calc(100vh - 40px);
+    }
+
+    .modal-header { padding: 15px; }
+    .modal-body { padding: 15px; }
+}
+
+@media (max-width: 480px) {
+    .image-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+
+    .image-thumbnail { height: 140px; }
+}
+
+/* 滚动条 */
+.modal-content::-webkit-scrollbar { width: 6px; }
+.modal-content::-webkit-scrollbar-track { background: #f8fafc; }
+.modal-content::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.modal-content::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* 上传区域信息输入 */
+.upload-info-section {
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.upload-info-section h4 {
+    margin-bottom: 14px;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 700;
+}
+
+.upload-button-container {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #e5e7eb);
+    text-align: right;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 页头 -->
+<div class="gallery-header">
+    <div>
+        <h2><i class="fas fa-images"></i> 本地图床管理</h2>
+        <p>管理和浏览您的本地图片库</p>
+    </div>
+    <div class="gallery-header-actions">
+        <button class="btn btn-primary" id="upload-trigger"><i class="fas fa-upload"></i> 上传图片</button>
+        <button class="btn btn-outline" id="batch-mode-btn"><i class="fas fa-check-square"></i> 批量选择</button>
+        <button class="btn btn-outline" id="refresh-btn"><i class="fas fa-sync-alt"></i> 刷新</button>
+    </div>
+</div>
+
+<!-- 控制栏 -->
+<div class="gallery-controls">
+    <select id="category-filter">
+        <option value="all">全部分类</option>
+        <option value="ai_generated">AI生成</option>
+        <option value="web_search">网络搜索</option>
+        <option value="local_storage">本地上传</option>
+    </select>
+    <div class="controls-divider"></div>
+    <div class="gallery-search">
+        <input type="text" id="search-input" placeholder="搜索图片...">
+        <span class="search-icon"><i class="fas fa-search"></i></span>
+    </div>
+    <div class="controls-divider"></div>
+    <select id="sort-option">
+        <option value="created_desc">最新创建</option>
+        <option value="created_asc">最早创建</option>
+        <option value="accessed_desc">最近访问</option>
+        <option value="size_desc">文件大小↓</option>
+        <option value="size_asc">文件大小↑</option>
+    </select>
+</div>
+
+<!-- 批量操作工具栏 -->
+<div id="batch-toolbar" class="batch-toolbar" style="display: none;">
+    <div class="batch-info">
+        <span id="selected-count">0</span> 张图片已选择
+    </div>
+    <div class="batch-actions">
+        <button class="btn btn-sm btn-outline" data-action="select-all">全选</button>
+        <button class="btn btn-sm btn-outline" data-action="clear-selection">清除选择</button>
+        <button class="btn btn-sm btn-danger" data-action="batch-delete">删除选中</button>
+        <button class="btn btn-sm btn-success" data-action="batch-download">下载选中</button>
+        <button class="btn btn-sm btn-danger" id="clear-all-btn" style="margin-left: 12px;">清空我的图库</button>
+    </div>
+</div>
+
+<!-- 图片网格 -->
+<div id="image-grid" class="image-grid">
+    <div style="grid-column: 1 / -1; text-align: center; padding: 48px; color: var(--text-secondary);">
+        <div style="font-size: 2rem; margin-bottom: 12px; opacity: 0.5;">⏳</div>
+        <p style="font-weight: 500;">正在加载图片库...</p>
+    </div>
+</div>
+
+<!-- 分页 -->
+<div id="pagination" class="pagination" style="display: none; margin-top: 20px;"></div>
+
+<!-- 上传模态框 -->
+<div id="upload-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>上传图片</h3>
+            <button class="close-btn" id="upload-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="upload-area" id="upload-area" data-drop-zone="true">
+                <div class="upload-content">
+                    <div class="upload-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+                    <p style="margin-bottom: 12px; color: var(--text-primary); font-weight: 500;">拖拽图片到此处或点击选择文件</p>
+                    <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
+                    <button class="btn btn-primary" id="file-trigger">选择文件</button>
+                </div>
+            </div>
+
+            <!-- 图片信息输入 -->
+            <div id="image-info-section" class="upload-info-section" style="display: none;">
+                <h4>图片信息</h4>
+
+                <div class="edit-item">
+                    <label for="image-title">标题</label>
+                    <input type="text" id="image-title" class="form-input" placeholder="请输入图片标题（可选）">
+                </div>
+
+                <div class="edit-item">
+                    <label for="image-description">描述</label>
+                    <textarea id="image-description" class="form-textarea" rows="3" placeholder="请输入图片描述，有助于AI搜索匹配（推荐填写）"></textarea>
+                </div>
+
+                <div class="edit-item">
+                    <label for="image-tags">标签</label>
+                    <input type="text" id="image-tags" class="form-input" placeholder="请输入标签，用逗号分隔">
+                    <small class="form-help">标签有助于AI智能匹配，建议添加相关关键词</small>
+                </div>
+
+                <div class="edit-item">
+                    <label for="image-category">分类</label>
+                    <select id="image-category" class="form-select">
+                        <option value="business">商务</option>
+                        <option value="technology">技术</option>
+                        <option value="education">教育</option>
+                        <option value="design">设计</option>
+                        <option value="nature">自然</option>
+                        <option value="people">人物</option>
+                        <option value="abstract">抽象</option>
+                        <option value="other">其他</option>
+                    </select>
+                </div>
+
+                <div class="upload-button-container">
+                    <button class="btn btn-success" id="start-upload-btn"><i class="fas fa-upload"></i> 开始上传</button>
+                </div>
+            </div>
+
+            <div id="upload-progress" style="display: none; margin-top: 16px;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <p id="upload-status" style="text-align: center; color: var(--text-secondary); font-size: 0.82rem;">准备上传...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 图片详情模态框 -->
+<div id="image-detail-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3 id="image-detail-title">图片详情</h3>
+            <button class="close-btn" id="image-detail-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="display: grid; grid-template-columns: 1fr 280px; gap: 20px;">
+                <div class="image-preview">
+                    <img id="detail-image" style="width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border-color, #e5e7eb);">
+                </div>
+                <div class="image-info">
+                    <!-- 图片信息（显示/编辑模式） -->
+                    <div class="info-section">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h4 style="margin: 0; font-size: 0.875rem; font-weight: 700;">图片信息</h4>
+                            <button id="edit-toggle-btn" class="btn btn-sm btn-outline">
+                                <i class="fas fa-edit"></i> 编辑
+                            </button>
+                        </div>
+
+                        <!-- 显示模式 -->
+                        <div id="info-display-mode">
+                            <div class="info-item"><label>标题:</label><span id="display-title">-</span></div>
+                            <div class="info-item"><label>描述:</label><span id="display-description">-</span></div>
+                            <div class="info-item"><label>标签:</label><span id="display-tags">-</span></div>
+                            <div class="info-item"><label>分类:</label><span id="display-category">-</span></div>
+                        </div>
+
+                        <!-- 编辑模式 -->
+                        <div id="info-edit-mode" style="display: none;">
+                            <div class="edit-item">
+                                <label for="edit-title">标题:</label>
+                                <input type="text" id="edit-title" class="form-input" placeholder="请输入图片标题">
+                            </div>
+                            <div class="edit-item">
+                                <label for="edit-description">描述:</label>
+                                <textarea id="edit-description" class="form-textarea" rows="3" placeholder="请输入图片描述"></textarea>
+                            </div>
+                            <div class="edit-item">
+                                <label for="edit-tags">标签:</label>
+                                <input type="text" id="edit-tags" class="form-input" placeholder="用逗号分隔多个标签">
+                                <small class="form-help">例如: 风景, 自然, 山水</small>
+                            </div>
+                            <div class="edit-item">
+                                <label for="edit-category">分类:</label>
+                                <select id="edit-category" class="form-select">
+                                    <option value="">请选择分类</option>
+                                    <option value="ai_generated">AI生成</option>
+                                    <option value="web_search">网络搜索</option>
+                                    <option value="local_storage">本地上传</option>
+                                </select>
+                            </div>
+                            <div class="edit-actions">
+                                <button class="btn btn-sm btn-success" id="save-image-btn"><i class="fas fa-save"></i> 保存</button>
+                                <button class="btn btn-sm btn-secondary" id="cancel-edit-btn"><i class="fas fa-times"></i> 取消</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="info-section">
+                        <h4>文件信息</h4>
+                        <div class="info-item"><label>文件名:</label><span id="detail-filename">-</span></div>
+                        <div class="info-item"><label>大小:</label><span id="detail-size">-</span></div>
+                        <div class="info-item"><label>尺寸:</label><span id="detail-dimensions">-</span></div>
+                        <div class="info-item"><label>格式:</label><span id="detail-format">-</span></div>
+                        <div class="info-item"><label>来源:</label><span id="detail-source">-</span></div>
+                        <div class="info-item"><label>创建时间:</label><span id="detail-created">-</span></div>
+                        <div class="info-item"><label>访问次数:</label><span id="detail-access-count">-</span></div>
+                    </div>
+
+                    <div class="info-section">
+                        <h4>操作</h4>
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
+                            <button class="btn btn-primary" id="download-image-btn"><i class="fas fa-download"></i> 下载图片</button>
+                            <button class="btn btn-outline" id="copy-image-btn"><i class="fas fa-link"></i> 复制链接</button>
+                            <button class="btn btn-danger" id="delete-image-btn"><i class="fas fa-trash-alt"></i> 删除图片</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script type="module" src="/static/js/pages/image/imageGallery.js"></script>
+{% endblock %}

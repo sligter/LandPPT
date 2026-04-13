@@ -76,7 +76,8 @@ class SearXNGSearchResponse:
 class SearXNGContentProvider:
     """SearXNG content search provider for research functionality"""
     
-    def __init__(self):
+    def __init__(self, user_id: Optional[int] = None):
+        self.user_id = user_id
         self.host = ai_config.searxng_host
         self.max_results = ai_config.searxng_max_results
         self.language = ai_config.searxng_language
@@ -84,10 +85,43 @@ class SearXNGContentProvider:
         self._request_times = []
         self.rate_limit_requests = 60  # requests per minute
         self.rate_limit_window = 60  # seconds
+        self._config_initialized = False
+    
+    async def _ensure_config_initialized(self):
+        """Ensure config is initialized from user database - always read fresh config"""
+        # 每次都从数据库读取最新配置，确保配置更新能被及时应用
+        if self.user_id is not None:
+            try:
+                from ..db_config_service import get_db_config_service
+                db_config_service = get_db_config_service()
+                user_config = await db_config_service.get_all_config(user_id=self.user_id)
+                
+                # 从数据库读取 SearXNG 配置
+                host = user_config.get("searxng_host")
+                if host:
+                    self.host = host
+                    logger.info(f"SearXNGContentProvider: Using host from user database (user_id={self.user_id}): {host}")
+                
+                max_results = user_config.get("searxng_max_results")
+                if max_results:
+                    self.max_results = int(max_results)
+                
+                language = user_config.get("searxng_language")
+                if language:
+                    self.language = language
+                    
+                timeout = user_config.get("searxng_timeout")
+                if timeout:
+                    self.timeout = int(timeout)
+                    
+            except Exception as e:
+                logger.warning(f"Failed to get SearXNG config from database: {e}")
+
         
     def is_available(self) -> bool:
         """Check if SearXNG provider is available"""
         return bool(self.host and self.host.strip())
+
     
     def _check_rate_limit(self) -> bool:
         """Check if we're within rate limits"""
@@ -114,9 +148,13 @@ class SearXNGContentProvider:
         Returns:
             SearXNGSearchResponse object or None if search fails
         """
+        # 确保从数据库加载配置
+        await self._ensure_config_initialized()
+        
         if not self.is_available():
             logger.warning("SearXNG provider not available - host not configured")
             return None
+
             
         if not self._check_rate_limit():
             logger.warning("SearXNG rate limit exceeded, skipping search")

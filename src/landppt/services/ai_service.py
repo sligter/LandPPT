@@ -91,12 +91,14 @@ class AIService:
             ))
 
             # Generate response using AI provider
-            response = await self.ai_provider.chat_completion(
-                messages=ai_messages,
-                max_tokens=request.max_tokens or ai_config.max_tokens,
-                temperature=request.temperature or ai_config.temperature,
-                top_p=request.top_p or ai_config.top_p
-            )
+            request_kwargs: Dict[str, Any] = {
+                "messages": ai_messages,
+                "temperature": request.temperature or ai_config.temperature,
+                "top_p": request.top_p or ai_config.top_p,
+            }
+            if request.max_tokens is not None:
+                request_kwargs["max_output_tokens"] = request.max_tokens
+            response = await self.ai_provider.chat_completion(**request_kwargs)
 
             return response.content
 
@@ -114,12 +116,14 @@ class AIService:
             enhanced_prompt = self._create_ppt_prompt(prompt)
 
             # Generate response using AI provider
-            response = await self.ai_provider.text_completion(
-                prompt=enhanced_prompt,
-                max_tokens=request.max_tokens or ai_config.max_tokens,
-                temperature=request.temperature or ai_config.temperature,
-                top_p=request.top_p or ai_config.top_p
-            )
+            request_kwargs: Dict[str, Any] = {
+                "prompt": enhanced_prompt,
+                "temperature": request.temperature or ai_config.temperature,
+                "top_p": request.top_p or ai_config.top_p,
+            }
+            if request.max_tokens is not None:
+                request_kwargs["max_output_tokens"] = request.max_tokens
+            response = await self.ai_provider.text_completion(**request_kwargs)
 
             return response.content
 
@@ -147,12 +151,14 @@ class AIService:
             ))
 
             # Generate response using AI provider
-            response = await self.ai_provider.chat_completion(
-                messages=ai_messages,
-                max_tokens=request.max_tokens or min(ai_config.max_tokens, 1000),  # Use smaller limit for general chat
-                temperature=request.temperature or ai_config.temperature,
-                top_p=request.top_p or ai_config.top_p
-            )
+            request_kwargs: Dict[str, Any] = {
+                "messages": ai_messages,
+                "temperature": request.temperature or ai_config.temperature,
+                "top_p": request.top_p or ai_config.top_p,
+            }
+            if request.max_tokens is not None:
+                request_kwargs["max_output_tokens"] = request.max_tokens
+            response = await self.ai_provider.chat_completion(**request_kwargs)
 
             return response.content
 
@@ -170,12 +176,14 @@ class AIService:
             enhanced_prompt = self._create_general_prompt(prompt)
 
             # Generate response using AI provider
-            response = await self.ai_provider.text_completion(
-                prompt=enhanced_prompt,
-                max_tokens=request.max_tokens or min(ai_config.max_tokens, 1000),  # Use smaller limit for general completion
-                temperature=request.temperature or ai_config.temperature,
-                top_p=request.top_p or ai_config.top_p
-            )
+            request_kwargs: Dict[str, Any] = {
+                "prompt": enhanced_prompt,
+                "temperature": request.temperature or ai_config.temperature,
+                "top_p": request.top_p or ai_config.top_p,
+            }
+            if request.max_tokens is not None:
+                request_kwargs["max_output_tokens"] = request.max_tokens
+            response = await self.ai_provider.text_completion(**request_kwargs)
 
             return response.content
 

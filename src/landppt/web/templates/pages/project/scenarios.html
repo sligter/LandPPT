@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+
+{% block title %}场景选择 - LandPPT{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── 场景选择页面 · Admin 风格 ── */
+.scenarios-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-md);
+}
+
+/* 页头 */
+.scenarios-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.scenarios-header h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+}
+
+.scenarios-header p {
+    margin: 4px 0 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* 场景卡片网格 */
+.scenarios-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.scenario-card {
+    background: #fff;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    overflow: hidden;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    position: relative;
+}
+
+.scenario-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    transform: translateY(-2px);
+}
+
+.scenario-card-body {
+    text-align: center;
+    padding: 28px 20px 24px;
+}
+
+.scenario-title {
+    color: var(--text-primary);
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    line-height: 1.3;
+}
+
+.scenario-description {
+    color: #64748b;
+    line-height: 1.5;
+    margin: 0 auto 20px;
+    font-size: 0.875rem;
+    max-width: 300px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.scenario-button {
+    background: #111;
+    color: #fff;
+    border: 1px solid #111;
+    padding: 9px 24px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.scenario-button:hover {
+    background: #333;
+    border-color: #333;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+/* ── 模态框 ── */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.modal-overlay[style*="display: block"],
+.modal-overlay[style*="display:block"] {
+    display: flex !important;
+}
+
+.modal-surface {
+    background: #fff;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 16px;
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.08), 0 8px 10px -6px rgba(0,0,0,0.04);
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-surface-header {
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-surface-header h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.modal-surface-body {
+    padding: 24px;
+}
+
+/* 表单 */
+.modal-surface .form-group {
+    margin-bottom: 16px;
+}
+
+.modal-surface .form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.modal-surface .form-group input,
+.modal-surface .form-group textarea,
+.modal-surface .form-group select {
+    width: 100%;
+    padding: 9px 14px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px;
+    background: #fff;
+    font-size: 0.875rem;
+    font-family: inherit;
+    color: var(--text-primary);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.modal-surface .form-group input:focus,
+.modal-surface .form-group textarea:focus,
+.modal-surface .form-group select:focus {
+    border-color: #111;
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+}
+
+.modal-surface .form-group input::placeholder,
+.modal-surface .form-group textarea::placeholder {
+    color: #94a3b8;
+}
+
+.modal-surface .form-group select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 12px center;
+    background-repeat: no-repeat;
+    background-size: 16px;
+    padding-right: 40px;
+}
+
+/* 复选框行 */
+.checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px;
+    background: #f8fafc;
+    cursor: pointer;
+}
+
+.checkbox-row input[type="checkbox"] {
+    margin-top: 2px;
+    width: 18px;
+    height: 18px;
+    accent-color: #111;
+    flex-shrink: 0;
+}
+
+.checkbox-row-label {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.checkbox-row-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+.checkbox-row-hint a {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.checkbox-row-hint a:hover {
+    color: #1d4ed8;
+}
+
+/* 按钮 */
+.btn {
+    padding: 9px 16px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-primary {
+    background: #111;
+    border-color: #111;
+    color: #fff;
+}
+.btn-primary:hover {
+    background: #333;
+    border-color: #333;
+}
+
+.btn-secondary {
+    background: #f3f4f6;
+    border-color: var(--border-color, #e5e7eb);
+    color: var(--text-primary);
+}
+.btn-secondary:hover {
+    background: #e5e7eb;
+}
+
+/* ── 响应式 ── */
+@media (max-width: 768px) {
+    .scenarios-grid {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 12px;
+    }
+
+    .scenario-card-body {
+        padding: 20px 16px;
+    }
+
+    .scenario-title {
+        font-size: 0.95rem;
+    }
+
+    .scenario-description {
+        font-size: 0.82rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .scenarios-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+
+    .scenario-button {
+        font-size: 0.82rem;
+        padding: 8px 18px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scenarios-page">
+    <div class="scenarios-header">
+        <div>
+            <h2><i class="fas fa-th-large"></i> 选择 PPT 场景</h2>
+            <p>选择最适合您需求的场景模板，AI 将根据场景特点生成专业的 PPT</p>
+        </div>
+    </div>
+
+    <div class="scenarios-grid">
+        {% for scenario in scenarios %}
+        <div class="scenario-card" onclick="selectScenario('{{ scenario.id }}', '{{ scenario.name }}')">
+            <div class="scenario-card-body">
+                <h3 class="scenario-title">{{ scenario.name }}</h3>
+                <p class="scenario-description">{{ scenario.description }}</p>
+                <button class="scenario-button" onclick="event.stopPropagation(); selectScenario('{{ scenario.id }}', '{{ scenario.name }}')">
+                    选择此场景
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- PPT 创建表单模态框 -->
+<div id="generationModal" class="modal-overlay" style="display: none;">
+    <div class="modal-surface">
+        <div class="modal-surface-header">
+            <h3>创建 <span id="selectedScenarioName"></span> 项目</h3>
+        </div>
+        <div class="modal-surface-body">
+            <form action="/projects/create" method="post">
+                <input type="hidden" id="scenarioInput" name="scenario" value="">
+
+                <div class="form-group">
+                    <label for="topic">PPT 主题 *</label>
+                    <input type="text" id="topic" name="topic" required placeholder="例如：人工智能技术发展趋势">
+                </div>
+
+                <div class="form-group">
+                    <label for="requirements">具体要求</label>
+                    <textarea id="requirements" name="requirements" rows="4" placeholder="请描述您的具体要求，如重点内容、风格偏好等..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="language">语言</label>
+                    <select id="language" name="language">
+                        <option value="zh">中文</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="network_mode" name="network_mode">
+                        <span>
+                            <span class="checkbox-row-label">启用 Research 联网模式</span>
+                            <span class="checkbox-row-hint">
+                                使用 AI 进行联网深度研究（注: 会增加大纲生成时长）。
+                                未配置研究服务时请先到 <a href="/ai-config">系统配置</a> 填写 Tavily Key / SearXNG 地址。
+                            </span>
+                        </span>
+                    </label>
+                </div>
+
+                <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px;">
+                    <button type="button" onclick="closeModal()" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary">创建项目</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function selectScenario(scenarioId, scenarioName) {
+    document.getElementById('scenarioInput').value = scenarioId;
+    document.getElementById('selectedScenarioName').textContent = scenarioName;
+    document.getElementById('generationModal').style.display = 'block';
+
+    setTimeout(() => {
+        document.getElementById('topic').focus();
+    }, 100);
+}
+
+function closeModal() {
+    document.getElementById('generationModal').style.display = 'none';
+}
+
+document.getElementById('generationModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeModal();
+    }
+});
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeModal();
+    }
+});
+</script>
+{% endblock %}

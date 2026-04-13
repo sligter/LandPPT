@@ -23,6 +23,7 @@ class ImageProvider(str, Enum):
     STABLE_DIFFUSION = "stable_diffusion"
     SILICONFLOW = "siliconflow"
     POLLINATIONS = "pollinations"
+
     GEMINI = "gemini"  # Google Gemini 图片生成
     OPENAI_IMAGE = "openai_image"  # OpenAI 图片生成 (支持自定义端点)
 
@@ -96,6 +97,9 @@ class ImageTag(BaseModel):
 class ImageInfo(BaseModel):
     """图片信息"""
     image_id: str
+    # Data isolation / multi-tenant
+    owner_user_id: Optional[int] = None  # Set for authenticated users; used to isolate gallery + management APIs
+    source_image_id: Optional[str] = None  # Provider/original ID before caching (optional)
     source_type: ImageSourceType
     provider: ImageProvider
     original_url: Optional[str] = None

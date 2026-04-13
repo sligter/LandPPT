@@ -1,0 +1,1008 @@
+    // Global variables
+    let templates = [];
+    let selectedTemplateId = null;
+    let selectedTemplateMode = 'global'; // global | default | free
+    let currentPage = 1;
+    let totalPages = 1;
+    let pageSize = 9;
+    let currentSearch = '';
+    let currentTag = '';
+    let allTags = [];
+
+    // Extract project ID from URL path: /projects/{project_id}/template-selection
+    let pathParts = window.location.pathname.split('/');
+    let projectId = pathParts[2]; // Should be the project ID (pathParts: ['', 'projects', 'project_id', 'template-selection'])
+
+    console.log('URL pathname:', window.location.pathname);
+    console.log('Path parts:', pathParts);
+    console.log('Extracted project ID:', projectId);
+
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('Current URL:', window.location.pathname);
+        console.log('Path parts:', pathParts);
+        console.log('Project ID:', projectId);
+
+        // Validate project ID format
+        if (!projectId || projectId === 'undefined' || projectId === 'projects') {
+            alert('错误：无法获取项目ID。当前路径：' + window.location.pathname + '\n\n请确保URL格式正确：/projects/{项目ID}/template-selection');
+            return;
+        }
+
+        // Additional validation for common invalid project IDs
+        if (['template-selection', 'todo', 'edit', 'preview', 'fullscreen'].includes(projectId)) {
+            alert('错误：项目ID格式无效 (' + projectId + ')。\n\n请从项目列表页面正确访问模板选择页面。');
+            window.location.href = '/projects';
+            return;
+        }
+
+        loadTemplates(1);
+        setupEventListeners();
+        setupSearchListeners();
+    });
+
+    function setupEventListeners() {
+        console.log('Setting up event listeners...');
+
+        // Modal controls
+        const closeBtn = document.getElementById('closePreviewModal');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => closePreviewModal());
+            console.log('Close preview modal listener added');
+        }
+
+        // Action buttons
+        const startBtn = document.getElementById('startGenerationBtn');
+        const skipBtn = document.getElementById('skipSelectionBtn');
+
+        if (startBtn) {
+            startBtn.addEventListener('click', function (e) {
+                console.log('Start generation button clicked');
+                e.preventDefault();
+                startPPTGeneration();
+            });
+            console.log('Start generation button listener added');
+        } else {
+            console.error('Start generation button not found');
+        }
+
+        if (skipBtn) {
+            skipBtn.addEventListener('click', function (e) {
+                console.log('Skip selection button clicked');
+                e.preventDefault();
+                useDefaultTemplate();
+            });
+            console.log('Skip selection button listener added');
+        } else {
+            console.error('Skip selection button not found');
+        }
+
+        // Close modal when clicking outside
+        window.addEventListener('click', function (event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        });
+
+        console.log('Event listeners setup complete');
+    }
+
+    function setupSearchListeners() {
+        const searchInput = document.getElementById('searchInput');
+
+        // Add input event listener for real-time search button visibility
+        searchInput.addEventListener('input', function () {
+            updateClearSearchButton();
+        });
+
+        // Add keyup event listener for Enter key
+        searchInput.addEventListener('keyup', function (event) {
+            if (event.key === 'Enter') {
+                performSearch();
+            }
+        });
+
+        console.log('Search listeners setup complete');
+    }
+
+    async function loadTemplates(page = 1) {
+        showLoading(true);
+        try {
+            // Build query parameters
+            const params = new URLSearchParams({
+                active_only: 'true',
+                page: page.toString(),
+                page_size: pageSize.toString()
+            });
+
+            if (currentSearch) {
+                params.append('search', currentSearch);
+            }
+
+            if (currentTag) {
+                params.append('tags', currentTag);
+            }
+
+            const response = await fetch(`/api/global-master-templates/?${params}`);
+
+            if (!response.ok) {
+                throw new Error('Failed to load templates');
+            }
+
+            const data = await response.json();
+            console.log('API response:', data);
+
+            // 确保我们获取的是模板数组和分页信息
+            if (data && Array.isArray(data.templates) && data.pagination) {
+                templates = data.templates;
+                currentPage = data.pagination.current_page;
+                totalPages = data.pagination.total_pages;
+
+                // Update pagination info
+                updatePaginationInfo(data.pagination);
+            } else if (Array.isArray(data)) {
+                // 如果直接返回数组（向后兼容）
+                templates = data;
+                currentPage = 1;
+                totalPages = 1;
+            } else {
+                console.error('Unexpected API response format:', data);
+                throw new Error('Invalid response format from templates API');
+            }
+
+            console.log('Loaded templates:', templates);
+            renderTemplates(templates);
+
+            // Load all tags for filter dropdown
+            if (page === 1) {
+                await loadAllTags();
+            }
+
+        } catch (error) {
+            console.error('Error loading templates:', error);
+            alert('加载模板失败: ' + error.message);
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    function renderTemplates(templatesToRender) {
+        const grid = document.getElementById('templatesGrid');
+
+        // 确保 templatesToRender 是一个数组
+        if (!Array.isArray(templatesToRender)) {
+            console.error('renderTemplates: templatesToRender is not an array:', templatesToRender);
+            grid.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align: center; padding: var(--spacing-2xl); background: var(--glass-bg); backdrop-filter: blur(15px); border: 1px solid var(--glass-border); border-radius: var(--border-radius-lg); box-shadow: var(--glass-shadow);">
+                <div style="font-size: 4rem; margin-bottom: var(--spacing-lg); opacity: 0.6;">⚠️</div>
+                <h3 style="color: var(--text-primary); font-size: 1.5rem; margin-bottom: var(--spacing-md); font-weight: 600;">数据格式错误</h3>
+                <p style="color: var(--text-secondary); font-size: 1rem; margin-bottom: var(--spacing-lg);">模板数据格式不正确，请刷新页面重试</p>
+                <button class="btn btn-primary" onclick="window.location.reload()" style="margin-top: var(--spacing-md);">
+                    🔄 刷新页面
+                </button>
+            </div>
+        `;
+            return;
+        }
+
+        if (templatesToRender.length === 0) {
+            grid.innerHTML = renderFreeTemplateCard() + `
+            <div style="grid-column: 1 / -1; text-align: center; padding: var(--spacing-2xl); background: var(--glass-bg); backdrop-filter: blur(15px); border: 1px solid var(--glass-border); border-radius: var(--border-radius-lg); box-shadow: var(--glass-shadow);">
+                <div style="font-size: 4rem; margin-bottom: var(--spacing-lg); opacity: 0.6;">🎨</div>
+                <h3 style="color: var(--text-primary); font-size: 1.5rem; margin-bottom: var(--spacing-md); font-weight: 600;">暂无可用模板</h3>
+                <p style="color: var(--text-secondary); font-size: 1rem; margin-bottom: var(--spacing-lg);">系统中还没有可用的PPT模板</p>
+                <button class="btn btn-primary" onclick="window.location.reload()" style="margin-top: var(--spacing-md);">
+                    🔄 刷新页面
+                </button>
+            </div>
+        `;
+            return;
+        }
+
+        grid.innerHTML = renderFreeTemplateCard() + templatesToRender.map(template => `
+        <div class="template-card" data-template-id="${template.id}" onclick="selectTemplate(${template.id})">
+            <div class="template-preview" id="preview-${template.id}">
+                <iframe
+                    class="template-preview-iframe"
+                    id="iframe-${template.id}"
+                    onload="adjustIframeContent(${template.id})"
+                ></iframe>
+                <div class="preview-overlay" onclick="event.stopPropagation(); previewTemplate(${template.id})">
+                    <div class="preview-overlay-text">🔍 点击放大预览</div>
+                </div>
+            </div>
+            <div class="template-info">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                    <h4 style="font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; line-height: 1.3;">${template.template_name}</h4>
+                    ${template.is_default ? '<span class="default-badge">默认</span>' : ''}
+                </div>
+                <p style="color: #666; font-size: 14px; line-height: 1.4; margin: 0 0 12px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${template.description || '这是一个精美的PPT模板，适用于多种场景'}</p>
+                <div style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px;">
+                    ${(template.tags || []).map(tag => `<span class="tag">${tag}</span>`).join('')}
+                </div>
+                <div style="font-size: 12px; color: #999; margin-bottom: 0;">
+                    使用次数: ${template.usage_count} | 创建者: ${template.created_by || '系统'}
+                </div>
+            </div>
+            <div class="template-actions">
+                <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); previewTemplate(${template.id})">
+                    👁️ 预览
+                </button>
+                <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); console.log('Template card button clicked for template:', ${template.id}); selectAndStart(${template.id})">
+                    ✅ 选择并开始
+                </button>
+            </div>
+        </div>
+    `).join('');
+
+        // Load template content into iframes after rendering
+        setTimeout(() => {
+            console.log('Starting to load template previews for', templatesToRender.length, 'templates');
+            templatesToRender.forEach(template => {
+                console.log('Loading preview for template:', template.id, template.template_name);
+                loadTemplatePreview(template.id);
+            });
+        }, 500);
+    }
+
+    function renderFreeTemplateCard() {
+        return `
+        <div class="template-card free-template-card" data-template-mode="free" onclick="selectFreeTemplate()">
+            <div class="template-preview" style="display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(102,126,234,0.12) 0%, rgba(67,233,123,0.12) 100%);">
+                <div style="text-align: center; padding: 18px;">
+                    <div style="font-size: 3rem; line-height: 1; margin-bottom: 10px;">✨</div>
+                    <div style="font-size: 18px; font-weight: 700; color: #2c3e50;">自由模板</div>
+                    <div style="font-size: 13px; color: #666; margin-top: 8px; line-height: 1.4;">
+                        AI 根据大纲自动设计模板<br>
+                        风格 / 配色 / 版式完全由 AI 决定
+                    </div>
+                </div>
+            </div>
+            <div class="template-info">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                    <h4 style="font-size: 16px; font-weight: 600; color: #2c3e50; margin: 0; line-height: 1.3;">自由模板（AI决定）</h4>
+                    <span class="default-badge" style="background: var(--primary-gradient);">NEW</span>
+                </div>
+                <p style="color: #666; font-size: 14px; line-height: 1.4; margin: 0 0 12px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                    不从模板库中选择，AI 将根据你的大纲自动生成专属模板，并用于后续页面生成。
+                </p>
+                <div style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px;">
+                    <span class="tag">AI自动</span>
+                    <span class="tag">按大纲</span>
+                    <span class="tag">专属风格</span>
+                </div>
+                <div style="font-size: 12px; color: #999; margin-bottom: 0;">
+                    适合：想要“AI全自动风格”的场景
+                </div>
+            </div>
+            <div class="template-actions">
+                <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); selectFreeAndStart()">
+                    ✓ 选择并开始
+                </button>
+            </div>
+        </div>
+    `;
+    }
+
+    function selectTemplate(templateId) {
+        // Remove previous selection
+        document.querySelectorAll('.template-card').forEach(card => {
+            card.classList.remove('selected');
+            const indicator = card.querySelector('.selected-indicator');
+            if (indicator) indicator.remove();
+        });
+
+        // Add selection to clicked template
+        const selectedCard = document.querySelector(`[data-template-id="${templateId}"]`);
+        if (!selectedCard) {
+            console.error('Template card not found for ID:', templateId);
+            return;
+        }
+
+        selectedCard.classList.add('selected');
+
+        // Add selected indicator
+        const preview = selectedCard.querySelector('.template-preview');
+        const indicator = document.createElement('span');
+        indicator.className = 'selected-indicator';
+        indicator.textContent = '已选择';
+        preview.appendChild(indicator);
+
+        selectedTemplateId = templateId;
+        selectedTemplateMode = 'global';
+
+        // Update selected template info
+        const template = templates.find(t => t.id === templateId);
+        if (template) {
+            showSelectedTemplateInfo(template);
+        }
+
+        // Enable start button
+        document.getElementById('startGenerationBtn').disabled = false;
+    }
+
+    function selectFreeTemplate() {
+        // Remove previous selection
+        document.querySelectorAll('.template-card').forEach(card => {
+            card.classList.remove('selected');
+            const indicator = card.querySelector('.selected-indicator');
+            if (indicator) indicator.remove();
+        });
+
+        const selectedCard = document.querySelector('[data-template-mode="free"]');
+        if (!selectedCard) {
+            console.error('Free template card not found');
+            return;
+        }
+
+        selectedCard.classList.add('selected');
+
+        // Add selected indicator
+        const preview = selectedCard.querySelector('.template-preview');
+        const indicator = document.createElement('span');
+        indicator.className = 'selected-indicator';
+        indicator.textContent = '已选择';
+        preview.appendChild(indicator);
+
+        selectedTemplateId = null;
+        selectedTemplateMode = 'free';
+
+        showSelectedTemplateInfo({
+            template_name: '自由模板（AI决定）',
+            description: 'AI 将根据你的大纲自动生成模板，并用于后续页面生成。',
+            tags: ['AI自动', '按大纲', '专属风格']
+        });
+
+        document.getElementById('startGenerationBtn').disabled = false;
+    }
+
+    function selectFreeAndStart() {
+        selectFreeTemplate();
+        setTimeout(() => startPPTGeneration(), 100);
+    }
+
+    function showSelectedTemplateInfo(template) {
+        const infoDiv = document.getElementById('selectedTemplateInfo');
+        const detailsDiv = document.getElementById('selectedTemplateDetails');
+
+        const tags = template.tags && template.tags.length > 0 ? template.tags.join(', ') : '无';
+
+        detailsDiv.innerHTML = `
+        <strong>${template.template_name}</strong><br>
+        <span style="color: #666;">${template.description || '暂无描述'}</span><br>
+        <small style="color: #999;">标签: ${tags}</small>
+    `;
+
+        infoDiv.style.display = 'block';
+    }
+
+    async function previewTemplate(templateId) {
+        try {
+            const response = await fetch(`/api/global-master-templates/${templateId}/preview`);
+            if (!response.ok) {
+                throw new Error('Failed to load template preview');
+            }
+
+            const data = await response.json();
+            showPreview(data.html_template, data.template_name);
+        } catch (error) {
+            console.error('Error loading template preview:', error);
+            alert('加载预览失败: ' + error.message);
+        }
+    }
+
+    function showPreview(htmlContent, templateName) {
+        const modal = document.getElementById('previewModal');
+        const frame = document.getElementById('previewFrame');
+        const title = document.getElementById('previewTitle');
+
+        title.textContent = `模板预览 - ${templateName}`;
+
+        // Create blob URL for the HTML content
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+
+        frame.src = url;
+        modal.style.display = 'flex';
+
+        // Clean up the blob URL after a delay
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+        }, 1000);
+    }
+
+    function closePreviewModal() {
+        document.getElementById('previewModal').style.display = 'none';
+    }
+
+    function selectAndStart(templateId) {
+        console.log('selectAndStart called with templateId:', templateId);
+        selectTemplate(templateId);
+        setTimeout(() => {
+            startPPTGeneration();
+        }, 100); // 给选择操作一点时间完成
+    }
+
+    function getPPTGeneratorUrl() {
+        return `/projects/${projectId}/todo-editor?auto_start=true`;
+    }
+
+    async function startPPTGeneration() {
+        console.log('startPPTGeneration called');
+        console.log('selectedTemplateId:', selectedTemplateId);
+        console.log('selectedTemplateMode:', selectedTemplateMode);
+        console.log('projectId:', projectId);
+
+        if (selectedTemplateMode !== 'free' && !selectedTemplateId) {
+            alert('请先选择一个模板');
+            return;
+        }
+
+        if (!projectId || projectId === 'undefined') {
+            alert('错误：项目ID无效');
+            return;
+        }
+
+        try {
+            console.log('Sending request to select template...');
+
+            // Select template for project
+            const response = await fetch(`/api/projects/${projectId}/select-template`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    project_id: projectId,
+                    selected_template_id: selectedTemplateMode === 'free' ? null : selectedTemplateId,
+                    template_mode: selectedTemplateMode
+                })
+            });
+
+            console.log('Response status:', response.status);
+            console.log('Response ok:', response.ok);
+
+            if (!response.ok) {
+                let errorMessage = 'Failed to select template';
+                try {
+                    const error = await response.json();
+                    console.log('Error response:', error);
+                    errorMessage = error.detail || error.message || errorMessage;
+                } catch (e) {
+                    errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                }
+                throw new Error(errorMessage);
+            }
+
+            const result = await response.json();
+            console.log('Template selection result:', result);
+
+            // Redirect to the PPT generator page and auto-start slide generation
+            console.log('Redirecting to PPT generator...');
+            window.location.href = getPPTGeneratorUrl();
+
+        } catch (error) {
+            console.error('Error starting PPT generation:', error);
+            alert('开始生成失败: ' + error.message);
+        }
+    }
+
+    async function useDefaultTemplate() {
+        console.log('useDefaultTemplate called');
+        console.log('projectId:', projectId);
+
+        if (!projectId || projectId === 'undefined') {
+            alert('错误：项目ID无效');
+            return;
+        }
+
+        try {
+            console.log('Sending request to use default template...');
+
+            // Use default template (null template_id)
+            const response = await fetch(`/api/projects/${projectId}/select-template`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    project_id: projectId,
+                    selected_template_id: null,
+                    template_mode: 'default'
+                })
+            });
+
+            console.log('Response status:', response.status);
+            console.log('Response ok:', response.ok);
+
+            if (!response.ok) {
+                let errorMessage = 'Failed to select default template';
+                try {
+                    const error = await response.json();
+                    console.log('Error response:', error);
+                    errorMessage = error.detail || error.message || errorMessage;
+                } catch (e) {
+                    errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                }
+                throw new Error(errorMessage);
+            }
+
+            const result = await response.json();
+            console.log('Default template selection result:', result);
+
+            // Redirect to the PPT generator page and auto-start slide generation
+            console.log('Redirecting to PPT generator...');
+            window.location.href = getPPTGeneratorUrl();
+
+        } catch (error) {
+            console.error('Error using default template:', error);
+            alert('使用默认模板失败: ' + error.message);
+        }
+    }
+
+    function showLoading(show) {
+        document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
+        document.getElementById('templatesGrid').style.display = show ? 'none' : 'grid';
+    }
+
+    async function loadTemplatePreview(templateId) {
+        try {
+            console.log('Loading preview for template', templateId);
+            const response = await fetch('/api/global-master-templates/' + templateId);
+            if (!response.ok) {
+                console.warn('Failed to load template', templateId, 'for preview');
+                showPreviewFallback(templateId);
+                return;
+            }
+
+            const template = await response.json();
+            const iframe = document.getElementById('iframe-' + templateId);
+
+            console.log('Template', templateId, 'loaded:', template.template_name);
+
+            if (iframe && template.html_template && template.html_template.trim()) {
+                console.log('Setting up iframe for template', templateId);
+
+                // 使用实际的模板HTML内容，但添加一些示例数据
+                let previewHtml = template.html_template;
+
+                // 替换模板变量为示例内容
+                previewHtml = previewHtml.replace(/\{\{\s*title\s*\}\}/g, template.template_name);
+                previewHtml = previewHtml.replace(/\{\{\s*content\s*\}\}/g, '这是模板预览内容');
+                previewHtml = previewHtml.replace(/\{\{\s*slide_number\s*\}\}/g, '1');
+                previewHtml = previewHtml.replace(/\{\{\s*total_slides\s*\}\}/g, '1');
+
+                // 确保HTML有基本结构
+                if (!previewHtml.includes('<!DOCTYPE') && !previewHtml.includes('<html')) {
+                    previewHtml = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { width: 1280px; height: 720px; margin: 0; padding: 0; overflow: hidden; }
+    </style>
+</head>
+<body>
+    ${previewHtml}
+</body>
+</html>`;
+                }
+
+                // Create a blob URL for the HTML content
+                const blob = new Blob([previewHtml], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+
+                // Set up load handlers
+                iframe.onload = function () {
+                    console.log('Iframe loaded successfully for template', templateId);
+                    // Remove loading state
+                    const previewContainer = document.getElementById('preview-' + templateId);
+                    if (previewContainer) {
+                        previewContainer.classList.add('loaded');
+                    }
+                    setTimeout(function () {
+                        URL.revokeObjectURL(url);
+                    }, 2000);
+                };
+
+                iframe.onerror = function () {
+                    console.warn('Iframe failed to load for template', templateId);
+                    // Remove loading state and show error
+                    const previewContainer = document.getElementById('preview-' + templateId);
+                    if (previewContainer) {
+                        previewContainer.classList.add('error');
+                        previewContainer.classList.remove('loaded');
+                    }
+                    showPreviewFallback(templateId);
+                    URL.revokeObjectURL(url);
+                };
+
+                // Set the src to trigger loading
+                iframe.src = url;
+
+            } else {
+                console.warn('No HTML template content for template', templateId);
+                // Remove loading state and show fallback
+                const previewContainer = document.getElementById('preview-' + templateId);
+                if (previewContainer) {
+                    previewContainer.classList.add('error');
+                    previewContainer.classList.remove('loaded');
+                }
+                showPreviewFallback(templateId);
+            }
+        } catch (error) {
+            console.error('Error loading preview for template', templateId, ':', error);
+            // Remove loading state and show fallback
+            const previewContainer = document.getElementById('preview-' + templateId);
+            if (previewContainer) {
+                previewContainer.classList.add('error');
+                previewContainer.classList.remove('loaded');
+            }
+            showPreviewFallback(templateId);
+        }
+    }
+
+    function showPreviewFallback(templateId) {
+        const iframe = document.getElementById('iframe-' + templateId);
+        const previewContainer = document.getElementById('preview-' + templateId);
+
+        if (!iframe) return;
+
+        // Remove loading state
+        if (previewContainer) {
+            previewContainer.classList.add('loaded');
+            previewContainer.classList.remove('error');
+        }
+
+        const fallbackHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 1280px;
+                    height: 720px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                    color: #666;
+                    overflow: hidden;
+                }
+                .fallback-content {
+                    text-align: center;
+                    padding: 40px;
+                    border-radius: 12px;
+                    background: rgba(255, 255, 255, 0.9);
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+                }
+                .fallback-icon {
+                    font-size: 48px;
+                    margin-bottom: 16px;
+                    opacity: 0.8;
+                }
+                .fallback-title {
+                    font-size: 24px;
+                    margin-bottom: 8px;
+                    font-weight: 600;
+                }
+                .fallback-subtitle {
+                    font-size: 16px;
+                    opacity: 0.7;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="fallback-content">
+                <div class="fallback-icon">📄</div>
+                <div class="fallback-title">模板预览</div>
+                <div class="fallback-subtitle">暂无预览</div>
+            </div>
+        </body>
+        </html>
+    `;
+
+        const blob = new Blob([fallbackHtml], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+
+        iframe.onload = function () {
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 1000);
+        };
+
+        iframe.src = url;
+    }
+
+    function adjustIframeContent(templateId) {
+        try {
+            console.log('Iframe loaded for template:', templateId);
+            // Remove loading state when iframe loads
+            const previewContainer = document.getElementById('preview-' + templateId);
+            if (previewContainer) {
+                previewContainer.classList.add('loaded');
+                previewContainer.classList.remove('error');
+            }
+            // Additional adjustments can be made here if needed
+        } catch (error) {
+            console.error('Error adjusting iframe content:', error);
+            const previewContainer = document.getElementById('preview-' + templateId);
+            if (previewContainer) {
+                previewContainer.classList.add('error');
+                previewContainer.classList.remove('loaded');
+            }
+            showPreviewFallback(templateId);
+        }
+    }
+
+    // Search and Filter Functions
+    async function performSearch() {
+        const searchInput = document.getElementById('searchInput');
+        const newSearch = searchInput.value.trim();
+
+        if (newSearch !== currentSearch) {
+            currentSearch = newSearch;
+            currentPage = 1; // Reset to first page
+            await loadTemplates(1);
+            updateActiveFilters();
+            updateClearSearchButton();
+        }
+    }
+
+    function clearSearch() {
+        const searchInput = document.getElementById('searchInput');
+        searchInput.value = '';
+        if (currentSearch !== '') {
+            currentSearch = '';
+            currentPage = 1;
+            loadTemplates(1);
+            updateActiveFilters();
+            updateClearSearchButton();
+        }
+    }
+
+    async function filterByTag() {
+        const tagFilter = document.getElementById('tagFilter');
+        const newTag = tagFilter.value;
+
+        if (newTag !== currentTag) {
+            currentTag = newTag;
+            currentPage = 1; // Reset to first page
+            await loadTemplates(1);
+            updateActiveFilters();
+        }
+    }
+
+    function clearAllFilters() {
+        const searchInput = document.getElementById('searchInput');
+        const tagFilter = document.getElementById('tagFilter');
+
+        searchInput.value = '';
+        tagFilter.value = '';
+        currentSearch = '';
+        currentTag = '';
+        currentPage = 1;
+
+        loadTemplates(1);
+        updateActiveFilters();
+        updateClearSearchButton();
+    }
+
+    function updateActiveFilters() {
+        const activeFilters = document.getElementById('activeFilters');
+        const filterTags = document.getElementById('filterTags');
+
+        const filters = [];
+
+        if (currentSearch) {
+            filters.push({
+                type: 'search',
+                label: `搜索: "${currentSearch}"`,
+                value: currentSearch
+            });
+        }
+
+        if (currentTag) {
+            filters.push({
+                type: 'tag',
+                label: `分类: ${currentTag}`,
+                value: currentTag
+            });
+        }
+
+        if (filters.length > 0) {
+            filterTags.innerHTML = filters.map(filter => `
+            <span class="filter-tag">
+                ${filter.label}
+                <button onclick="removeFilter('${filter.type}')">✕</button>
+            </span>
+        `).join('');
+            activeFilters.style.display = 'block';
+        } else {
+            activeFilters.style.display = 'none';
+        }
+    }
+
+    function removeFilter(type) {
+        if (type === 'search') {
+            document.getElementById('searchInput').value = '';
+            currentSearch = '';
+            updateClearSearchButton();
+        } else if (type === 'tag') {
+            document.getElementById('tagFilter').value = '';
+            currentTag = '';
+        }
+
+        currentPage = 1;
+        loadTemplates(1);
+        updateActiveFilters();
+    }
+
+    function updateClearSearchButton() {
+        const clearBtn = document.getElementById('clearSearchBtn');
+        const searchInput = document.getElementById('searchInput');
+
+        if (searchInput.value.trim()) {
+            clearBtn.style.display = 'block';
+        } else {
+            clearBtn.style.display = 'none';
+        }
+    }
+
+    // Pagination Functions
+    async function changePage(page) {
+        if (page < 1 || page > totalPages || page === currentPage) {
+            return;
+        }
+
+        await loadTemplates(page);
+    }
+
+    function updatePaginationInfo(pagination) {
+        const paginationContainer = document.getElementById('paginationContainer');
+        const pageNumbers = document.getElementById('pageNumbers');
+        const pageInfo = document.getElementById('pageInfo');
+        const prevBtn = document.getElementById('prevPageBtn');
+        const nextBtn = document.getElementById('nextPageBtn');
+
+        // Show pagination if there are multiple pages
+        if (pagination.total_pages > 1) {
+            paginationContainer.style.display = 'block';
+
+            // Update page info
+            pageInfo.textContent = `第 ${pagination.current_page} 页，共 ${pagination.total_pages} 页 (总计 ${pagination.total_count} 个模板)`;
+
+            // Update navigation buttons
+            prevBtn.disabled = pagination.current_page <= 1;
+            nextBtn.disabled = pagination.current_page >= pagination.total_pages;
+
+            // Generate page numbers
+            generatePageNumbers(pagination.current_page, pagination.total_pages);
+        } else {
+            paginationContainer.style.display = 'none';
+        }
+    }
+
+    function generatePageNumbers(current, total) {
+        const pageNumbers = document.getElementById('pageNumbers');
+        const maxVisible = 7; // Maximum number of page buttons to show
+
+        let pages = [];
+
+        if (total <= maxVisible) {
+            // Show all pages if total is small
+            for (let i = 1; i <= total; i++) {
+                pages.push(i);
+            }
+        } else {
+            // Smart pagination with ellipsis
+            if (current <= 4) {
+                // Show first pages
+                pages = [1, 2, 3, 4, 5, '...', total];
+            } else if (current >= total - 3) {
+                // Show last pages
+                pages = [1, '...', total - 4, total - 3, total - 2, total - 1, total];
+            } else {
+                // Show middle pages
+                pages = [1, '...', current - 1, current, current + 1, '...', total];
+            }
+        }
+
+        pageNumbers.innerHTML = pages.map(page => {
+            if (page === '...') {
+                return '<span class="page-ellipsis">...</span>';
+            } else {
+                const isActive = page === current;
+                return `
+                <button
+                    class="page-btn ${isActive ? 'active' : ''}"
+                    onclick="changePage(${page})"
+                    ${isActive ? 'disabled' : ''}
+                >
+                    ${page}
+                </button>
+            `;
+            }
+        }).join('');
+    }
+
+    // Load all available tags for filter dropdown
+    async function loadAllTags() {
+        try {
+            const tagSet = new Set();
+            const maxPageSize = 100;
+            let currentPage = 1;
+            let totalPages = 1;
+
+            do {
+                const params = new URLSearchParams({
+                    active_only: 'true',
+                    page: currentPage.toString(),
+                    page_size: maxPageSize.toString()
+                });
+
+                const response = await fetch(`/api/global-master-templates/?${params}`);
+
+                if (!response.ok) {
+                    throw new Error('Failed to load tags');
+                }
+
+                const data = await response.json();
+                const templatesData = Array.isArray(data.templates) ? data.templates : Array.isArray(data) ? data : [];
+
+                templatesData.forEach(template => {
+                    if (Array.isArray(template.tags)) {
+                        template.tags.forEach(tag => {
+                            if (tag && tag.trim()) {
+                                tagSet.add(tag.trim());
+                            }
+                        });
+                    }
+                });
+
+                totalPages = data.pagination?.total_pages || 1;
+                currentPage += 1;
+            } while (currentPage <= totalPages);
+
+            allTags = Array.from(tagSet).sort();
+            populateTagFilter();
+            updateActiveFiltersDisplay();
+
+        } catch (error) {
+            console.error('Error loading tags:', error);
+        }
+    }
+
+    function populateTagFilter() {
+        const tagFilter = document.getElementById('tagFilter');
+        if (!tagFilter) {
+            return;
+        }
+
+        const selectedValue = currentTag;
+        tagFilter.innerHTML = '';
+
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = '全部分类';
+        tagFilter.appendChild(defaultOption);
+
+        // 统一通过 DOM API 重建选项，避免标签文本中的特殊字符破坏下拉框结构。
+        allTags.forEach(tag => {
+            const option = document.createElement('option');
+            option.value = tag;
+            option.textContent = tag;
+            tagFilter.appendChild(option);
+        });
+
+        tagFilter.value = allTags.includes(selectedValue) ? selectedValue : '';
+    }
+
+    function updateActiveFiltersDisplay() {
+        updateActiveFilters();
+    }

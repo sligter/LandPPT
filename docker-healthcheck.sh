@@ -55,17 +55,23 @@ check_api_docs() {
     fi
 }
 
-# Check database connectivity
-check_database() {
-    log "Checking database connectivity..."
-    
-    if [ -f "/app/data/landppt.db" ]; then
-        log "✅ Database file exists"
+# Check configured database mode (informational only)
+check_database_mode() {
+    log "Checking database mode..."
+
+    local database_url="${DATABASE_URL:-}"
+    if [ -z "$database_url" ]; then
+        warn "⚠️ DATABASE_URL not set; application will use its internal default"
         return 0
-    else
-        warn "⚠️ Database file not found"
-        return 1
     fi
+
+    if [[ "$database_url" == sqlite:* ]]; then
+        log "✅ SQLite mode configured"
+        return 0
+    fi
+
+    log "✅ External database configured via DATABASE_URL"
+    return 0
 }
 
 # Check required directories
@@ -94,14 +100,27 @@ check_directories() {
 # Check Python process
 check_python_process() {
     log "Checking Python process..."
-    
+
+    # `pgrep` is provided by `procps` on Debian. Some slim images may not have it.
+    # If it's missing, rely on the HTTP health check as the critical signal.
+    if ! command -v pgrep >/dev/null 2>&1; then
+        warn "pgrep not found; skipping process check (install procps to enable it)"
+        return 0
+    fi
+
     if pgrep -f "python.*run.py" > /dev/null; then
         log "✅ Python process running"
         return 0
-    else
-        error "❌ Python process not found"
-        return 1
     fi
+
+    # Fallback for uvicorn multi-worker where the parent/worker cmdline may not match `run.py` exactly.
+    if pgrep -f "uvicorn" > /dev/null; then
+        log "✅ Uvicorn process running"
+        return 0
+    fi
+
+    error "❌ Python/Uvicorn process not found"
+    return 1
 }
 
 # Main health check function
@@ -121,7 +140,7 @@ main() {
     
     # Non-critical checks (warnings only)
     check_api_docs || true
-    check_database || true
+    check_database_mode || true
     check_directories || true
     
     if [ $exit_code -eq 0 ]; then

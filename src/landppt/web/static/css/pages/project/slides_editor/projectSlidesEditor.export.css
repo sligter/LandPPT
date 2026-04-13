@@ -1,0 +1,123 @@
+/* Export PPTX Progress Overlay */
+.export-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    z-index: 10002;
+    display: none;
+    justify-content: center;
+    align-items: center;
+}
+
+.export-overlay.active {
+    display: flex;
+}
+
+.export-modal {
+    background: var(--surface-elevated);
+    border-radius: 20px;
+    padding: 40px;
+    min-width: 420px;
+    max-width: 520px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    text-align: center;
+}
+
+.export-modal h5 {
+    font-weight: 800;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    font-size: 1.3rem;
+}
+
+.export-modal .export-subtitle {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 24px;
+}
+
+.export-modal .export-progress-bar {
+    height: 8px;
+    border-radius: 10px;
+    background: var(--surface-muted);
+    overflow: hidden;
+    margin-bottom: 16px;
+}
+
+.export-modal .export-progress-bar-inner {
+    height: 100%;
+    background: var(--accent-strong, #333);
+    border-radius: 10px;
+    transition: width 0.4s ease;
+    width: 0%;
+}
+
+.export-modal .export-status {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    min-height: 22px;
+}
+
+.export-modal .export-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 18px;
+}
+
+.export-modal .export-cancel-btn {
+    border: 1px solid var(--border-color);
+    background: var(--surface-muted);
+    color: var(--text-primary);
+    border-radius: 999px;
+    padding: 10px 18px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: opacity 0.2s ease, transform 0.2s ease, background-color 0.2s ease;
+}
+
+.export-modal .export-cancel-btn:hover:not(:disabled) {
+    background: var(--surface-elevated);
+    transform: translateY(-1px);
+}
+
+.export-modal .export-cancel-btn:disabled {
+    cursor: wait;
+    opacity: 0.65;
+    transform: none;
+}
+
+.export-modal .export-icon {
+    font-size: 3rem;
+    color: var(--accent-strong, #333);
+    margin-bottom: 20px;
+}
+
+.export-modal .export-icon.success {
+    color: #10b981;
+}
+
+.export-modal .export-icon.error {
+    color: #ef4444;
+}
+
+@keyframes exportSpin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.export-modal .export-icon.spinning i {
+    animation: exportSpin 1.5s linear infinite;
+}

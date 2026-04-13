@@ -5,6 +5,10 @@
 
 set -e
 
+# Activate virtual environment
+export VIRTUAL_ENV=/opt/venv
+export PATH=/opt/venv/bin:$PATH
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -205,7 +209,7 @@ main() {
 
     log "🚀 Starting LandPPT application..."
     info "📍 Server will be available at: http://0.0.0.0:${PORT:-8000}"
-    info "📚 API Documentation: http://0.0.0.0:${PORT:-8000}/docs"
+    info "🧵 Workers: ${WORKERS:-1}"
     info "🌐 Web Interface: http://0.0.0.0:${PORT:-8000}/web"
 
     # Execute the main command

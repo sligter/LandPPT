@@ -290,6 +290,24 @@ class ProviderRegistry:
             return [p for p in self._storage_providers if p.enabled]
         return self._storage_providers
     
+    def unregister(self, provider: ImageProvider):
+        """注销提供者"""
+        if provider in self._providers:
+            old_provider = self._providers[provider]
+            del self._providers[provider]
+            
+            # 从相应的列表中移除
+            if isinstance(old_provider, ImageSearchProvider):
+                self._search_providers = [p for p in self._search_providers if p.provider != provider]
+            elif isinstance(old_provider, ImageGenerationProvider):
+                self._generation_providers = [p for p in self._generation_providers if p.provider != provider]
+            elif isinstance(old_provider, LocalStorageProvider):
+                self._storage_providers = [p for p in self._storage_providers if p.provider != provider]
+            
+            logger.debug(f"Provider {provider} unregistered successfully")
+        else:
+            logger.debug(f"Provider {provider} was not registered")
+    
     async def health_check_all(self) -> Dict[str, Any]:
         """检查所有提供者健康状态"""
         results = {}

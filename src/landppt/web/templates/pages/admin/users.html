@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理 - LandPPT Admin</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/landppt-logo.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+
+    <style>
+        .users-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .users-topbar h2 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .users-topbar h2 span {
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: var(--muted);
+        }
+
+        .users-card {
+            background: var(--paper);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+
+        .users-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border-light);
+            background: var(--paper-2);
+            flex-wrap: wrap;
+        }
+
+        .users-search {
+            position: relative;
+            flex: 1;
+            min-width: 200px;
+            max-width: 380px;
+        }
+
+        .users-search input {
+            padding-left: 36px;
+            height: 38px;
+            font-size: 0.85rem;
+        }
+
+        .users-search .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted-2);
+            font-size: 0.82rem;
+            pointer-events: none;
+        }
+
+        .controls-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+            flex-shrink: 0;
+        }
+
+        .users-controls select {
+            height: 38px;
+            min-width: 110px;
+            width: auto;
+            font-size: 0.82rem;
+            padding: 0 12px;
+        }
+
+        .users-controls .btn {
+            height: 38px;
+            font-size: 0.82rem;
+            padding: 0 14px;
+            flex-shrink: 0;
+        }
+
+        .controls-spacer {
+            flex: 1;
+        }
+
+        .table-scroll table {
+            table-layout: fixed;
+        }
+
+        .table-scroll th,
+        .table-scroll td {
+            vertical-align: middle;
+            padding: 10px 12px;
+        }
+
+        .cell-ellipsis {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .actions {
+            flex-wrap: nowrap;
+            gap: 4px;
+        }
+
+        .actions button {
+            padding: 5px 7px;
+            min-width: 30px;
+        }
+
+        .col-id { width: 56px; }
+        .col-username { width: 130px; }
+        .col-email { width: 210px; }
+        .col-status { width: 80px; }
+        .col-role { width: 80px; }
+        .col-credits { width: 80px; }
+        .col-projects { width: 90px; }
+        .col-consumed { width: 110px; }
+        .col-active { width: 160px; }
+        .col-ip { width: 110px; }
+        .col-created { width: 160px; }
+        .col-actions { width: 170px; }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--paper-2);
+        }
+
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .detail-item span {
+            font-size: 0.75rem;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .detail-item strong {
+            font-size: 0.82rem;
+            color: var(--ink);
+            word-break: break-all;
+        }
+    </style>
+</head>
+
+<body class="admin-body">
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="header">
+        <h1><i class="fas fa-users-cog"></i> 用户管理</h1>
+        <div class="header-links">
+            <span class="header-user"><i class="fas fa-user-shield"></i> {{ user.username }}</span>
+            <a href="/admin/users" aria-current="page"><i class="fas fa-users"></i> 用户</a>
+            {% if credits_enabled %}
+            <a href="/admin/credits"><i class="fas fa-coins"></i> 积分</a>
+            {% endif %}
+            <a href="/admin/community"><i class="fas fa-compass-drafting"></i> 运营</a>
+            <a href="/admin/oauth"><i class="fas fa-right-to-bracket"></i> OAuth</a>
+            <a href="/admin/smtp"><i class="fas fa-envelope"></i> SMTP</a>
+            <a href="/dashboard"><i class="fas fa-home"></i> 首页</a>
+            <a href="/auth/logout" onclick="return confirm('确定要退出登录吗？')"><i
+                    class="fas fa-arrow-right-from-bracket"></i> 退出</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="users-topbar">
+            <h2>全部用户 <span id="tableMetaLeft">加载中...</span></h2>
+            <button class="btn" onclick="showCreateModal()"><i class="fas fa-plus"></i> 新建用户</button>
+        </div>
+
+        <div class="users-card">
+            <div class="users-controls">
+                <div class="users-search">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" id="searchInput" placeholder="搜索用户名或邮箱...">
+                </div>
+
+                <div class="controls-divider"></div>
+
+                <select id="filterStatus" aria-label="状态筛选">
+                    <option value="">全部状态</option>
+                    <option value="true">活跃</option>
+                    <option value="false">已停用</option>
+                </select>
+                <select id="filterRole" aria-label="角色筛选">
+                    <option value="">全部角色</option>
+                    <option value="true">管理员</option>
+                    <option value="false">用户</option>
+                </select>
+
+                <div class="controls-spacer"></div>
+
+                <select id="pageSizeSelect" aria-label="每页数量">
+                    <option value="20" selected>20/页</option>
+                    <option value="50">50/页</option>
+                    <option value="100">100/页</option>
+                </select>
+                <span id="tableMetaRight" style="font-size:0.8rem;color:var(--muted);white-space:nowrap;"></span>
+            </div>
+
+            <div class="table-scroll">
+                <table>
+                    <colgroup>
+                        <col class="col-id">
+                        <col class="col-username">
+                        <col class="col-email">
+                        <col class="col-status">
+                        <col class="col-role">
+                        {% if credits_enabled %}
+                        <col class="col-credits">
+                        {% endif %}
+                        <col class="col-projects">
+                        <col class="col-consumed">
+                        <col class="col-active">
+                        <col class="col-ip">
+                        <col class="col-created">
+                        <col class="col-actions">
+                    </colgroup>
+
+                    <thead>
+                        <tr>
+                            <th>
+                                <button class="th-sort" type="button" data-sort="id">
+                                    ID <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            <th>
+                                <button class="th-sort" type="button" data-sort="username">
+                                    用户名 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            <th>
+                                <button class="th-sort" type="button" data-sort="email">
+                                    邮箱 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            <th>
+                                <button class="th-sort" type="button" data-sort="is_active">
+                                    状态 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            <th>
+                                <button class="th-sort" type="button" data-sort="is_admin">
+                                    角色 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            {% if credits_enabled %}
+                            <th>
+                                <button class="th-sort" type="button" data-sort="credits_balance">
+                                    积分 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            {% endif %}
+                            <th>
+                                <button class="th-sort" type="button" data-sort="projects_count">
+                                    项目数 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            <th>
+                                <button class="th-sort" type="button" data-sort="credits_consumed_total">
+                                    累计消耗 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            <th>
+                                <button class="th-sort" type="button" data-sort="last_active_at">
+                                    最后活跃 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            <th>IP</th>
+                            <th>
+                                <button class="th-sort" type="button" data-sort="created_at">
+                                    创建时间 <i class="fas fa-sort"></i>
+                                </button>
+                            </th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTable">
+                        <tr>
+                            <td colspan="{{ 12 if credits_enabled else 11 }}" class="loading">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pagination" id="pagination" style="padding: 12px 20px; border-top: 1px solid var(--border-light);"></div>
+        </div>
+    </div>
+
+    <div class="modal" id="userModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">新建用户</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <form id="userForm">
+                <input type="hidden" id="userId" value="">
+                <div class="form-group">
+                    <label>用户名 *</label>
+                    <input type="text" id="userUsername" required>
+                </div>
+                <div class="form-group" id="passwordGroup">
+                    <label>密码 *</label>
+                    <input type="password" id="userPassword">
+                </div>
+                <div class="form-group">
+                    <label>邮箱</label>
+                    <input type="email" id="userEmail">
+                </div>
+                <div class="form-group">
+                    <label>角色</label>
+                    <select id="userRole">
+                        <option value="false">普通用户</option>
+                        <option value="true">管理员</option>
+                    </select>
+                </div>
+                <div id="userDetailsPanel" class="detail-grid" style="display:none;">
+                    <div class="detail-item">
+                        <span>手机号</span>
+                        <strong id="detailPhone">-</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>注册渠道</span>
+                        <strong id="detailRegistrationChannel">-</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>OAuth 来源</span>
+                        <strong id="detailOauthProvider">-</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>最后登录</span>
+                        <strong id="detailLastLogin">-</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>注册 IP</span>
+                        <strong id="detailRegisterIp">-</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>最近登录 IP</span>
+                        <strong id="detailLastLoginIp">-</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>项目数</span>
+                        <strong id="detailProjectsCount">0</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>累计消耗积分</span>
+                        <strong id="detailCreditsConsumed">0</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>最后活跃</span>
+                        <strong id="detailLastActive">-</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span>最近创建项目</span>
+                        <strong id="detailLastProjectCreatedAt">-</strong>
+                    </div>
+                </div>
+                {% if credits_enabled %}
+                <div class="form-group" id="creditsGroup" style="margin-top:16px;">
+                    <label>初始积分</label>
+                    <input type="number" id="userCredits" value="100" min="0">
+                </div>
+                {% endif %}
+                <button type="submit" class="btn" style="width:100%;margin-top:20px;">保存</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="creditsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>调整积分</h3>
+                <button class="modal-close" onclick="closeCreditsModal()">&times;</button>
+            </div>
+            <form id="creditsForm">
+                <input type="hidden" id="creditsUserId" value="">
+                <div class="form-group">
+                    <label>调整金额 (正数增加，负数扣除)</label>
+                    <input type="number" id="creditsAmount" required>
+                </div>
+                <div class="form-group">
+                    <label>说明</label>
+                    <input type="text" id="creditsDescription" required>
+                </div>
+                <button type="submit" class="btn" style="width:100%;margin-top:20px;">确认调整</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let pageSize = 20;
+        let currentSearch = '';
+        let sortBy = 'created_at';
+        let sortDir = 'desc';
+        const creditsEnabled = {{ 'true' if credits_enabled else 'false' }};
+        const tableColspan = creditsEnabled ? 12 : 11;
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle';
+            toast.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('toast-out');
+                setTimeout(() => toast.remove(), 250);
+            }, 3500);
+        }
+
+        function syncUsersTableColspan() {
+            try {
+                const cell = document.querySelector('#usersTable td[colspan]');
+                if (cell) cell.setAttribute('colspan', String(tableColspan));
+            } catch (_) {}
+        }
+
+        function formatDateTimeSeconds(tsSeconds) {
+            if (!tsSeconds) return '-';
+            const d = new Date(tsSeconds * 1000);
+            if (Number.isNaN(d.getTime())) return '-';
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+
+        function setDetailValue(id, value) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = value || '-';
+        }
+
+        function resetUserDetails() {
+            document.getElementById('userDetailsPanel').style.display = 'none';
+            setDetailValue('detailPhone', '-');
+            setDetailValue('detailRegistrationChannel', '-');
+            setDetailValue('detailOauthProvider', '-');
+            setDetailValue('detailLastLogin', '-');
+            setDetailValue('detailRegisterIp', '-');
+            setDetailValue('detailLastLoginIp', '-');
+            setDetailValue('detailProjectsCount', '0');
+            setDetailValue('detailCreditsConsumed', '0');
+            setDetailValue('detailLastActive', '-');
+            setDetailValue('detailLastProjectCreatedAt', '-');
+        }
+
+        function populateUserDetails(user) {
+            const metrics = user.metrics || {};
+            document.getElementById('userDetailsPanel').style.display = 'grid';
+            setDetailValue('detailPhone', user.phone || '-');
+            setDetailValue('detailRegistrationChannel', user.registration_channel || '-');
+            setDetailValue('detailOauthProvider', user.oauth_provider || '-');
+            setDetailValue('detailLastLogin', formatDateTimeSeconds(user.last_login));
+            setDetailValue('detailRegisterIp', user.register_ip || '-');
+            setDetailValue('detailLastLoginIp', user.last_login_ip || '-');
+            setDetailValue('detailProjectsCount', String(metrics.projects_count || 0));
+            setDetailValue('detailCreditsConsumed', String(metrics.credits_consumed_total || 0));
+            setDetailValue('detailLastActive', formatDateTimeSeconds(metrics.last_active_at));
+            setDetailValue('detailLastProjectCreatedAt', formatDateTimeSeconds(metrics.last_project_created_at));
+        }
+
+        function updateMeta(total, page, totalPages) {
+            const left = document.getElementById('tableMetaLeft');
+            const right = document.getElementById('tableMetaRight');
+            left.textContent = total > 0 ? `(${total})` : '';
+            const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+            const end = Math.min(total, page * pageSize);
+            right.textContent = total > 0 ? `${start}-${end} / ${total}` : '';
+        }
+
+        function updateSortIndicators() {
+            document.querySelectorAll('.th-sort[data-sort]').forEach((btn) => {
+                const key = btn.dataset.sort;
+                const icon = btn.querySelector('i');
+                const active = key === sortBy;
+                btn.classList.toggle('is-active', active);
+                if (!icon) return;
+                icon.className = active
+                    ? `fas ${sortDir === 'asc' ? 'fa-sort-up' : 'fa-sort-down'}`
+                    : 'fas fa-sort';
+            });
+        }
+
+        function setSort(key) {
+            if (!key) return;
+            if (sortBy === key) {
+                sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortBy = key;
+                sortDir = 'desc';
+            }
+            updateSortIndicators();
+            loadUsers(1);
+        }
+
+        async function loadUsers(page = 1) {
+            currentPage = page;
+            const params = new URLSearchParams({ page, page_size: pageSize });
+            const status = document.getElementById('filterStatus').value;
+            if (status !== '') params.append('is_active', status);
+            const role = document.getElementById('filterRole').value;
+            if (role !== '') params.append('is_admin', role);
+            if (currentSearch) params.append('search', currentSearch);
+            if (sortBy) params.append('sort_by', sortBy);
+            if (sortDir) params.append('sort_dir', sortDir);
+
+            try {
+                const res = await fetch(`/admin/api/users?${params}`);
+                const data = await res.json();
+                renderTable(data.users);
+                renderPagination(data.total, data.page, data.total_pages);
+                updateMeta(data.total, data.page, data.total_pages);
+                updateSortIndicators();
+            } catch (_) {
+                document.getElementById('usersTable').innerHTML = `<tr><td colspan="${tableColspan}" class="loading">加载失败</td></tr>`;
+                updateMeta(0, 1, 1);
+            }
+        }
+
+        function renderTable(users) {
+            const tbody = document.getElementById('usersTable');
+            if (!users.length) {
+                tbody.innerHTML = `<tr><td colspan="${tableColspan}" class="empty">暂无用户</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = users.map(u => {
+                const metrics = u.metrics || {};
+                const projectsCount = Number(metrics.projects_count || 0);
+                const consumedTotal = Number(metrics.credits_consumed_total || 0);
+                const lastActive = formatDateTimeSeconds(metrics.last_active_at);
+                const ipText = (u.last_login_ip || u.register_ip || '-');
+                return `
+                <tr>
+                    <td>${u.id}</td>
+                    <td><span class="cell-ellipsis" title="${u.username}"><strong>${u.username}</strong></span></td>
+                    <td><span class="cell-ellipsis" title="${u.email || '-'}">${u.email || '-'}</span></td>
+                    <td><span class="badge ${u.is_active ? 'badge-green' : 'badge-red'}">${u.is_active ? '活跃' : '已停用'}</span></td>
+                    <td><span class="badge ${u.is_admin ? 'badge-blue' : ''}">${u.is_admin ? '管理员' : '用户'}</span></td>
+                    ${creditsEnabled ? `<td class="credits-cell">${u.credits_balance || 0}</td>` : ''}
+                    <td>${projectsCount}</td>
+                    <td>${consumedTotal}</td>
+                    <td><span class="cell-ellipsis" title="${lastActive}">${lastActive}</span></td>
+                    <td><span class="cell-ellipsis" title="${ipText}">${ipText}</span></td>
+                    <td><span class="cell-ellipsis" title="${formatDateTimeSeconds(u.created_at)}">${formatDateTimeSeconds(u.created_at)}</span></td>
+                    <td class="actions">
+                        <button onclick="editUser(${u.id})" title="编辑"><i class="fas fa-edit"></i></button>
+                        ${creditsEnabled ? `<button onclick="adjustCredits(${u.id})" title="调整积分"><i class="fas fa-coins"></i></button>` : ''}
+                        <button onclick="resetPassword(${u.id})" title="重置密码"><i class="fas fa-key"></i></button>
+                        ${u.is_active
+                            ? `<button onclick="deactivateUser(${u.id})" title="停用"><i class="fas fa-ban"></i></button>`
+                            : `<button onclick="activateUser(${u.id})" title="启用"><i class="fas fa-check"></i></button>`
+                        }
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        function renderPagination(total, page, totalPages) {
+            const div = document.getElementById('pagination');
+            if (totalPages <= 1) { div.innerHTML = ''; return; }
+            const windowSize = 2;
+            const pages = [];
+            const push = (p) => pages.push(p);
+            const addRange = (a, b) => { for (let i = a; i <= b; i++) push(i); };
+
+            push(1);
+            const left = Math.max(2, page - windowSize);
+            const right = Math.min(totalPages - 1, page + windowSize);
+            if (left > 2) push('…');
+            addRange(left, right);
+            if (right < totalPages - 1) push('…');
+            if (totalPages > 1) push(totalPages);
+
+            let html = '';
+            html += `<button ${page <= 1 ? 'disabled' : ''} onclick="loadUsers(${page - 1})">上一页</button>`;
+            pages.forEach((p) => {
+                if (p === '…') {
+                    html += `<span class="pagination__sep">…</span>`;
+                } else {
+                    html += `<button class="${p === page ? 'active' : ''}" onclick="loadUsers(${p})">${p}</button>`;
+                }
+            });
+            html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="loadUsers(${page + 1})">下一页</button>`;
+            div.innerHTML = html;
+        }
+
+        function searchUsers() {
+            currentSearch = (document.getElementById('searchInput').value || '').trim();
+            loadUsers(1);
+        }
+
+        function showCreateModal() {
+            document.getElementById('modalTitle').textContent = '新建用户';
+            document.getElementById('userId').value = '';
+            document.getElementById('userUsername').value = '';
+            document.getElementById('userPassword').value = '';
+            document.getElementById('userEmail').value = '';
+            document.getElementById('userRole').value = 'false';
+            document.getElementById('passwordGroup').style.display = 'block';
+            document.getElementById('userUsername').disabled = false;
+            if (creditsEnabled) document.getElementById('creditsGroup').style.display = 'block';
+            resetUserDetails();
+            document.getElementById('userModal').classList.add('active');
+        }
+
+        async function editUser(id) {
+            const res = await fetch(`/admin/api/users/${id}`);
+            const data = await res.json();
+            const u = data.user;
+            document.getElementById('modalTitle').textContent = '编辑用户';
+            document.getElementById('userId').value = u.id;
+            document.getElementById('userUsername').value = u.username;
+            document.getElementById('userUsername').disabled = true;
+            document.getElementById('userPassword').value = '';
+            document.getElementById('userEmail').value = u.email || '';
+            document.getElementById('userRole').value = u.is_admin ? 'true' : 'false';
+            document.getElementById('passwordGroup').style.display = 'none';
+            if (creditsEnabled) document.getElementById('creditsGroup').style.display = 'none';
+            populateUserDetails(u);
+            document.getElementById('userModal').classList.add('active');
+        }
+
+        function closeModal() { document.getElementById('userModal').classList.remove('active'); }
+
+        document.getElementById('userForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('userId').value;
+            const isEdit = !!id;
+            const payload = {
+                email: document.getElementById('userEmail').value || null,
+                is_admin: document.getElementById('userRole').value === 'true'
+            };
+            if (!isEdit) {
+                payload.username = document.getElementById('userUsername').value;
+                payload.password = document.getElementById('userPassword').value;
+                if (creditsEnabled) payload.credits_balance = parseInt(document.getElementById('userCredits').value) || 0;
+            }
+
+            try {
+                const res = await fetch(isEdit ? `/admin/api/users/${id}` : '/admin/api/users', {
+                    method: isEdit ? 'PUT' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || '操作失败');
+                closeModal();
+                loadUsers(currentPage);
+                showToast(isEdit ? '用户已更新' : '用户已创建');
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+
+        function adjustCredits(userId) {
+            document.getElementById('creditsUserId').value = userId;
+            document.getElementById('creditsAmount').value = '';
+            document.getElementById('creditsDescription').value = '';
+            document.getElementById('creditsModal').classList.add('active');
+        }
+
+        function closeCreditsModal() { document.getElementById('creditsModal').classList.remove('active'); }
+
+        document.getElementById('creditsForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const userId = document.getElementById('creditsUserId').value;
+            const amount = parseInt(document.getElementById('creditsAmount').value);
+            const description = document.getElementById('creditsDescription').value;
+
+            try {
+                const res = await fetch(`/admin/api/users/${userId}/credits`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount, description })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || '操作失败');
+                closeCreditsModal();
+                loadUsers(currentPage);
+                showToast(data.message);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+
+        async function resetPassword(userId) {
+            if (!confirm('确定要重置该用户的密码吗？')) return;
+            const res = await fetch(`/admin/api/users/${userId}/reset-password`, { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(`密码已重置为: ${data.temporary_password}`);
+            } else {
+                showToast(data.detail || '操作失败', 'error');
+            }
+        }
+
+        async function deactivateUser(userId) {
+            if (!confirm('确定要停用该用户吗？')) return;
+            const res = await fetch(`/admin/api/users/${userId}`, { method: 'DELETE' });
+            if (res.ok) {
+                loadUsers(currentPage);
+                showToast('用户已停用');
+            } else {
+                const data = await res.json();
+                showToast(data.detail || '操作失败', 'error');
+            }
+        }
+
+        async function activateUser(userId) {
+            if (!confirm('确定要启用该用户吗？')) return;
+            const res = await fetch(`/admin/api/users/${userId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: true })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                loadUsers(currentPage);
+                showToast('用户已启用');
+            } else {
+                showToast(data.detail || '操作失败', 'error');
+            }
+        }
+
+        document.getElementById('searchInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') searchUsers();
+        });
+
+        document.getElementById('filterStatus').addEventListener('change', () => loadUsers(1));
+        document.getElementById('filterRole').addEventListener('change', () => loadUsers(1));
+
+        document.getElementById('pageSizeSelect').addEventListener('change', (e) => {
+            pageSize = parseInt(e.target.value, 10) || 20;
+            loadUsers(1);
+        });
+
+        document.querySelectorAll('.th-sort[data-sort]').forEach((btn) => {
+            btn.addEventListener('click', () => setSort(btn.dataset.sort));
+        });
+
+        syncUsersTableColspan();
+        loadUsers();
+    </script>
+</body>
+
+</html>

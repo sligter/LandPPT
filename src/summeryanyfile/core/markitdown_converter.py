@@ -30,8 +30,16 @@ class MarkItDownConverter:
     - EPubs
     """
     
-    def __init__(self, enable_plugins: bool = False, use_magic_pdf: bool = True, enable_cache: bool = True,
-                 cache_dir: Optional[str] = None, processing_mode: Optional[str] = None):
+    def __init__(
+        self,
+        enable_plugins: bool = False,
+        use_magic_pdf: bool = True,
+        enable_cache: bool = True,
+        cache_dir: Optional[str] = None,
+        processing_mode: Optional[str] = None,
+        mineru_api_key: Optional[str] = None,
+        mineru_base_url: Optional[str] = None,
+    ):
         """
         初始化MarkItDown转换器
 
@@ -45,6 +53,8 @@ class MarkItDownConverter:
         self.enable_plugins = enable_plugins
         self.use_magic_pdf = use_magic_pdf
         self.enable_cache = enable_cache
+        self.mineru_api_key = mineru_api_key
+        self.mineru_base_url = mineru_base_url
         self._markitdown = None
         self._magic_pdf_converter = None
         self._cache_manager = None
@@ -91,11 +101,14 @@ class MarkItDownConverter:
                     # 如果相对导入失败，尝试绝对导入
                     from summeryanyfile.core.magic_pdf_converter import MagicPDFConverter
 
-                self._magic_pdf_converter = MagicPDFConverter()
+                self._magic_pdf_converter = MagicPDFConverter(
+                    mineru_api_key=self.mineru_api_key,
+                    mineru_base_url=self.mineru_base_url,
+                )
                 if self._magic_pdf_converter.is_available():
                     logger.info("Magic-PDF转换器初始化成功，将优先用于PDF转换")
                 else:
-                    logger.info("Magic-PDF库未安装，PDF转换将使用MarkItDown")
+                    logger.info("Magic-PDF(MinerU) 不可用（未配置 MinerU Key 或初始化失败），PDF转换将使用MarkItDown")
                     self._magic_pdf_converter = None
             except ImportError as e:
                 logger.debug(f"Magic-PDF转换器不可用，使用MarkItDown: {e}")
@@ -127,6 +140,14 @@ class MarkItDownConverter:
         logger.info(f"开始转换文件: {file_path}")
 
         # 检查缓存
+        # 对于 PDF：当启用 magic_pdf 且 MinerU 可用时，避免复用非 magic_pdf 的旧缓存
+        # （例如之前 MinerU 不可用时落盘的 markitdown 缓存），否则会导致 magic_pdf 模式不再调用 MinerU。
+        require_magic_pdf_cache = False
+        magic_pdf_converter_for_cache = None
+        if path.suffix.lower() == '.pdf' and self.use_magic_pdf:
+            magic_pdf_converter_for_cache = self._get_magic_pdf_converter()
+            require_magic_pdf_cache = magic_pdf_converter_for_cache is not None
+
         if self.enable_cache and self._cache_manager:
             is_cached, md5_hash = self._cache_manager.is_cached(file_path)
             if is_cached and md5_hash:
@@ -134,28 +155,25 @@ class MarkItDownConverter:
                 cached_content, cached_metadata = self._cache_manager.get_cached_content(md5_hash)
 
                 if cached_content:
-                    # 从缓存元数据中获取编码信息
-                    encoding = cached_metadata.get('processing_metadata', {}).get('detected_encoding', 'utf-8')
-                    logger.info(f"成功从缓存恢复转换结果: {path.name}")
-                    # 对于PDF：当启用magic_pdf且MinerU可用时，避免直接复用非magic_pdf的旧缓存，
-                    # 否则会导致“magic_pdf模式”仍然不调用MinerU接口。
-                    if path.suffix.lower() == '.pdf' and self.use_magic_pdf:
-                        processing_metadata = (cached_metadata or {}).get('processing_metadata') or {}
-                        processing_method = processing_metadata.get('processing_method')
-                        if processing_method != 'magic_pdf' and self._get_magic_pdf_converter():
-                            logger.info(
-                                f"PDF缓存命中但来源为{processing_method or 'unknown'}，将重新调用Magic-PDF(MinerU)处理: {path.name}"
-                            )
-                        else:
-                            return cached_content, encoding
+                    cached_method = None
+                    try:
+                        cached_method = (cached_metadata or {}).get('processing_metadata', {}).get('processing_method')
+                    except Exception:
+                        cached_method = None
+
+                    if require_magic_pdf_cache and cached_method != 'magic_pdf':
+                        logger.info(f"magic_pdf已启用且MinerU可用，忽略非magic_pdf缓存: {md5_hash} (method={cached_method})")
                     else:
+                        # 从缓存元数据中获取编码信息
+                        encoding = (cached_metadata or {}).get('processing_metadata', {}).get('detected_encoding', 'utf-8')
+                        logger.info(f"成功从缓存恢复转换结果: {path.name}")
                         return cached_content, encoding
 
         # 对于PDF文件，优先尝试Magic-PDF
         if path.suffix.lower() == '.pdf':
             # 优先尝试Magic-PDF（本地处理）
             if self.use_magic_pdf:
-                magic_pdf_converter = self._get_magic_pdf_converter()
+                magic_pdf_converter = magic_pdf_converter_for_cache or self._get_magic_pdf_converter()
                 if magic_pdf_converter:
                     try:
                         logger.info(f"使用Magic-PDF转换PDF文件: {file_path}")

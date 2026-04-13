@@ -1,5 +1,5 @@
 """
-Pollinations AI图片生成提供者
+Pollinations 图片生成提供者（gen.pollinations.ai）
 """
 
 import asyncio
@@ -7,7 +7,7 @@ import logging
 import time
 import urllib.parse
 import tempfile
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from pathlib import Path
 import aiohttp
 
@@ -21,23 +21,20 @@ logger = logging.getLogger(__name__)
 
 
 class PollinationsProvider(ImageGenerationProvider):
-    """Pollinations AI图片生成提供者"""
+    """Pollinations 图片生成提供者"""
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(ImageProvider.POLLINATIONS, config)
         
         # API配置
+        self.api_key = config.get('api_key', '')
         self.api_base = config.get('api_base', 'https://gen.pollinations.ai')
-        self.api_token = config.get('api_token', '')
-        self.referrer = config.get('referrer', '')
         self.model = config.get('model', 'flux')
         self.default_width = config.get('default_width', 1024)
         self.default_height = config.get('default_height', 1024)
-        self.default_enhance = config.get('default_enhance', False)
-        self.default_safe = config.get('default_safe', False)
-        self.default_nologo = config.get('default_nologo', False)
-        self.default_private = config.get('default_private', False)
-        self.default_transparent = config.get('default_transparent', False)
+        self.default_negative_prompt = config.get('default_negative_prompt', 'worst quality, blurry')
+        self.default_enhance = bool(config.get('default_enhance', False))
+        self.default_safe = bool(config.get('default_safe', False))
         
         # 速率限制
         self.rate_limit_requests = config.get('rate_limit_requests', 60)
@@ -46,10 +43,19 @@ class PollinationsProvider(ImageGenerationProvider):
         # 请求历史（用于速率限制）
         self._request_history = []
         
+        if not self.api_key:
+            logger.warning("Pollinations API key not configured")
         logger.debug(f"Pollinations provider initialized with model: {self.model}")
 
     async def generate(self, request: ImageGenerationRequest) -> ImageOperationResult:
         """生成图片"""
+        if not self.api_key:
+            return ImageOperationResult(
+                success=False,
+                message="Pollinations API key not configured",
+                error_code="api_key_missing"
+            )
+
         try:
             # 检查速率限制
             if not self._check_rate_limit():
@@ -67,9 +73,9 @@ class PollinationsProvider(ImageGenerationProvider):
             logger.debug(f"Generating image with Pollinations API: {api_url}")
             
             # 准备请求头
-            headers = {}
-            if self.api_token:
-                headers['Authorization'] = f'Bearer {self.api_token}'
+            headers = {
+                'Authorization': f'Bearer {self.api_key}'
+            }
 
             # 发送请求
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
@@ -77,16 +83,25 @@ class PollinationsProvider(ImageGenerationProvider):
                     if response.status == 200:
                         # 读取图片数据
                         image_data = await response.read()
+                        content_type = (response.headers.get('Content-Type') or '').lower()
                         
                         # 创建图片信息
-                        image_id = f"pollinations_{int(time.time())}"
-                        filename = f"{image_id}.png"
+                        image_id = f"pollinations_{int(time.time() * 1000)}"
+                        file_ext = "png"
+                        image_format = ImageFormat.PNG
+                        if "image/jpeg" in content_type or "image/jpg" in content_type:
+                            file_ext = "jpg"
+                            image_format = ImageFormat.JPG
+                        elif "image/webp" in content_type:
+                            file_ext = "webp"
+                            image_format = ImageFormat.WEBP
+                        filename = f"{image_id}.{file_ext}"
 
                         # 创建元数据
                         metadata = ImageMetadata(
                             width=request.width or self.default_width,
                             height=request.height or self.default_height,
-                            format=ImageFormat.PNG,
+                            format=image_format,
                             file_size=len(image_data)
                         )
 
@@ -94,7 +109,7 @@ class PollinationsProvider(ImageGenerationProvider):
                         tags = [
                             ImageTag(name="ai-generated", category="type", source="system"),
                             ImageTag(name="pollinations", category="provider", source="system"),
-                            ImageTag(name=self.model, category="model", source="system")
+                            ImageTag(name=(request.model or self.model), category="model", source="system")
                         ]
 
                         # 保存图片到临时文件
@@ -116,7 +131,7 @@ class PollinationsProvider(ImageGenerationProvider):
                             description=f"Generated by Pollinations AI using prompt: {request.prompt}",
                             metadata=metadata,
                             tags=tags,
-                            license=ImageLicense.CUSTOM
+                            license=ImageLicense.UNKNOWN
                         )
 
                         return ImageOperationResult(
@@ -145,67 +160,42 @@ class PollinationsProvider(ImageGenerationProvider):
                 message=f"Generation failed: {str(e)}"
             )
 
-    def _build_base_url(self, encoded_prompt: str) -> str:
-        """构建API基础URL"""
-        base = (self.api_base or "").rstrip("/")
-        if base.endswith("/image") or base.endswith("/prompt"):
-            return f"{base}/{encoded_prompt}"
-        if "gen.pollinations.ai" in base:
-            return f"{base}/image/{encoded_prompt}"
-        return f"{base}/prompt/{encoded_prompt}"
-
     def _build_api_url(self, request: ImageGenerationRequest) -> str:
         """构建API请求URL"""
-        # URL编码提示词
         encoded_prompt = urllib.parse.quote(request.prompt, safe='')
-        
-        # 构建基础URL
-        url = self._build_base_url(encoded_prompt)
-        
-        # 添加参数
-        params = []
-        
-        # 模型参数
-        if self.model != 'flux':  # flux是默认模型
-            params.append(f"model={self.model}")
-        
-        # 尺寸参数
+
+        # gen.pollinations.ai: /image/{prompt}
+        url = f"{self.api_base}/image/{encoded_prompt}"
+
+        params: List[str] = []
+
+        model = (request.model or self.model or '').strip()
+        if model:
+            params.append(f"model={urllib.parse.quote(model, safe='')}")
+
         width = request.width or self.default_width
         height = request.height or self.default_height
-        if width != 1024 or height != 1024:  # 1024x1024是默认尺寸
-            params.append(f"width={width}")
-            params.append(f"height={height}")
-        
-        # 种子参数（如果提供）
-        if hasattr(request, 'seed') and request.seed:
-            params.append(f"seed={request.seed}")
-        
-        # 增强参数
-        enhance = request.style == "enhanced" if request.style else self.default_enhance
+        params.append(f"width={int(width)}")
+        params.append(f"height={int(height)}")
+
+        if request.seed is not None:
+            params.append(f"seed={int(request.seed)}")
+
+        enhance = (request.style == "enhanced") if request.style else self.default_enhance
         if enhance:
             params.append("enhance=true")
-        
-        # 安全过滤
+
+        negative_prompt = request.negative_prompt or self.default_negative_prompt
+        if negative_prompt and str(negative_prompt).strip():
+            params.append(f"negative_prompt={urllib.parse.quote(str(negative_prompt), safe='')}")
+
         if self.default_safe:
             params.append("safe=true")
 
-        # 无logo（需要token或referrer认证）
-        if self.default_nologo and (self.api_token or self.referrer):
-            params.append("nologo=true")
+        if model in {"gptimage", "gptimage-large"} and request.quality:
+            q = request.quality.strip().lower()
+            params.append("quality=hd" if q == "hd" else "quality=medium")
 
-        # 私有模式
-        if self.default_private:
-            params.append("private=true")
-
-        # 透明背景（仅gptimage模型支持）
-        if self.default_transparent and self.model in {"gptimage", "gptimage-large"}:
-            params.append("transparent=true")
-
-        # 推荐人标识符（用于认证）
-        if self.referrer:
-            params.append(f"referrer={urllib.parse.quote(self.referrer)}")
-
-        # 添加参数到URL
         if params:
             url += "?" + "&".join(params)
 
@@ -230,8 +220,13 @@ class PollinationsProvider(ImageGenerationProvider):
             {
                 "id": "flux",
                 "name": "Flux",
-                "description": "High-quality image generation model (default)",
+                "description": "High-quality image generation model",
                 "default": True
+            },
+            {
+                "id": "zimage",
+                "name": "ZImage",
+                "description": "Default model on gen.pollinations.ai"
             },
             {
                 "id": "turbo",
@@ -241,42 +236,7 @@ class PollinationsProvider(ImageGenerationProvider):
             {
                 "id": "gptimage",
                 "name": "GPT Image",
-                "description": "GPT-based image generation with transparency support"
-            },
-            {
-                "id": "gptimage-large",
-                "name": "GPT Image Large",
-                "description": "Higher-quality GPT image generation"
-            },
-            {
-                "id": "kontext",
-                "name": "Kontext",
-                "description": "Context-aware image generation"
-            },
-            {
-                "id": "seedream",
-                "name": "Seedream",
-                "description": "Stylized image generation model"
-            },
-            {
-                "id": "seedream-pro",
-                "name": "Seedream Pro",
-                "description": "Enhanced Seedream model"
-            },
-            {
-                "id": "nanobanana",
-                "name": "NanoBanana",
-                "description": "Lightweight image generation model"
-            },
-            {
-                "id": "nanobanana-pro",
-                "name": "NanoBanana Pro",
-                "description": "Enhanced NanoBanana model"
-            },
-            {
-                "id": "zimage",
-                "name": "ZImage",
-                "description": "General-purpose image generation model"
+                "description": "GPT-based image generation (supports quality parameter)"
             }
         ]
 
@@ -298,32 +258,25 @@ class PollinationsProvider(ImageGenerationProvider):
     async def health_check(self) -> Dict[str, Any]:
         """健康检查"""
         try:
-            # 准备请求头
-            headers = {}
-            if self.api_token:
-                headers['Authorization'] = f'Bearer {self.api_token}'
+            headers = {'Authorization': f'Bearer {self.api_key}'} if self.api_key else {}
 
-            # 简单的健康检查 - 尝试访问API基础URL
+            # 健康检查 - 尝试访问模型列表
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-                # 使用一个简单的测试提示词
-                test_url = f"{self._build_base_url('test')}?width=64&height=64"
-                async with session.head(test_url, headers=headers) as response:
-                    if response.status in [200, 404]:  # 404也表示API可访问
+                test_url = f"{self.api_base}/image/models"
+                async with session.get(test_url, headers=headers) as response:
+                    if response.status in [200, 401]:
                         return {
                             "status": "healthy",
-                            "message": "Pollinations API is accessible",
+                            "message": "Pollinations API is reachable",
                             "model": self.model,
-                            "authenticated": bool(self.api_token or self.referrer),
-                            "nologo_enabled": self.default_nologo and bool(self.api_token or self.referrer),
-                            "referrer": self.referrer if self.referrer else None,
+                            "authenticated": bool(self.api_key),
                             "rate_limit": f"{self.rate_limit_requests}/{self.rate_limit_window}s"
                         }
-                    else:
-                        return {
-                            "status": "unhealthy",
-                            "message": f"API returned status {response.status}",
-                            "model": self.model
-                        }
+                    return {
+                        "status": "unhealthy",
+                        "message": f"API returned status {response.status}",
+                        "model": self.model
+                    }
         except Exception as e:
             return {
                 "status": "unhealthy",

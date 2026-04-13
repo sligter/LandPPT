@@ -2,12 +2,16 @@
 Shared service instances to ensure data consistency across modules
 """
 
+from collections import OrderedDict
+
 from .enhanced_ppt_service import EnhancedPPTService
 from .db_project_manager import DatabaseProjectManager
 
 # Global service instances (lazy initialization)
 _ppt_service = None
 _project_manager = None
+_ppt_services_by_user: "OrderedDict[int, EnhancedPPTService]" = OrderedDict()
+_MAX_USER_SCOPED_SERVICES = 128
 
 def get_ppt_service() -> EnhancedPPTService:
     """Get PPT service instance (lazy initialization)"""
@@ -25,7 +29,7 @@ def get_project_manager() -> DatabaseProjectManager:
 
 def reload_services():
     """Reload all service instances to pick up new configuration"""
-    global _ppt_service, _project_manager
+    global _ppt_service, _project_manager, _ppt_services_by_user
 
     # First, reload research configuration in existing PPT service instances before clearing them
     try:
@@ -35,6 +39,17 @@ def reload_services():
         import logging
         logger = logging.getLogger(__name__)
         logger.warning(f"Failed to reload research config in PPT service: {e}")
+
+    # Reload research config for per-user service instances as well
+    try:
+        for svc in list(_ppt_services_by_user.values()):
+            try:
+                svc.reload_research_config()
+            except Exception:
+                # Best-effort; don't block reload
+                pass
+    except Exception:
+        pass
 
     # Also reload research service if it exists
     try:
@@ -46,6 +61,7 @@ def reload_services():
     # Clear service instances to force recreation with new config
     _ppt_service = None
     _project_manager = None
+    _ppt_services_by_user.clear()
 
     # Also reload PDF to PPTX converter configuration
     try:
@@ -93,4 +109,39 @@ def reload_services():
     logger.info("Module variables updated with new service instances")
 
 # Export for easy import
-__all__ = ['get_ppt_service', 'get_project_manager', 'reload_services', 'ppt_service', 'project_manager']
+__all__ = ['get_ppt_service', 'get_project_manager', 'reload_services', 'ppt_service', 'project_manager', 'get_ppt_service_for_user']
+
+
+def get_ppt_service_for_user(user_id: int) -> EnhancedPPTService:
+    """
+    Get PPT service instance configured for a specific user.
+    
+    Returns a user-scoped service instance to avoid cross-request
+    user_id mutation on the global singleton under concurrency.
+    
+    Args:
+        user_id: The user ID for per-user config lookup
+        
+    Returns:
+        EnhancedPPTService instance with user_id set
+    """
+    global _ppt_services_by_user
+
+    # Fast path: cached instance
+    service = _ppt_services_by_user.get(user_id)
+    if service is None:
+        service = EnhancedPPTService(user_id=user_id)
+        _ppt_services_by_user[user_id] = service
+
+        # Evict oldest to cap memory growth
+        while len(_ppt_services_by_user) > _MAX_USER_SCOPED_SERVICES:
+            _ppt_services_by_user.popitem(last=False)
+    else:
+        # Touch for LRU-ish behavior
+        _ppt_services_by_user.move_to_end(user_id)
+
+    # Ensure the global_template_service's user_id stays in sync
+    if getattr(service, "global_template_service", None) is not None:
+        service.global_template_service.user_id = user_id
+
+    return service

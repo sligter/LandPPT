@@ -2,11 +2,23 @@
 提示模板 - 定义所有LLM交互的提示模板
 """
 
+from datetime import datetime
+
 from langchain_core.prompts import ChatPromptTemplate
 
 
 class PromptTemplates:
     """提示模板集合"""
+
+    @staticmethod
+    def _build_current_time_context() -> str:
+        """构建供提示词使用的当前时间上下文。"""
+        now = datetime.now().astimezone()
+        quarter = (now.month - 1) // 3 + 1
+        timezone_name = now.tzname() or "Local"
+        return "\n".join([
+            f"- 当前本地时间：{now:%Y-%m-%d %H:%M:%S} ({timezone_name})",
+        ])
     
     @staticmethod
     def get_structure_analysis_prompt() -> ChatPromptTemplate:
@@ -116,6 +128,9 @@ class PromptTemplates:
             **目标语言：**
             {target_language}
 
+            **当前时间参考：**
+            {current_time_context}
+
             ## 核心约束条件
             ### 1. 源材料理解原则
             - 大纲内容必须基于上述文档结构和内容，通过理解和转化形成专业表达
@@ -133,6 +148,7 @@ class PromptTemplates:
               * 图片URL必须与源材料中的URL完全一致，不得修改或编造
               * 禁止添加源材料中不存在的图片链接
               * 图片链接格式必须保持Markdown格式：![图片描述](图片URL)
+              * 若图片描述中已标注图片大小（如：图片大小：1200x800px），必须保留该尺寸信息，并将其视为版面布局线索
 
             ### 3. 语言表达规范
             - **书面化要求**：使用正式、规范的书面语言，避免口语化表达
@@ -183,11 +199,12 @@ class PromptTemplates:
               * 增加相关的背景信息和延伸内容
               * 将复杂内容拆分为多个页面进行详细阐述
 
-            ### 3. 结构组织框架
-            - **标题页**：结合项目主题和文档内容，使用适合目标受众的标题表述
-            - **目录页**：可对文档章节进行逻辑化重组，形成清晰的层次结构
-            - **内容页**：基于文档内容，采用适合目标受众的专业化语言表达和逻辑组织
-            - **结论页**：基于文档结论和项目要求，使用书面化的总结表述
+            ### 3. 结构组织框架（按顺序必须包含）
+            - **第1页 — 标题页**（slide_type="title"）：结合项目主题和文档内容，展示主标题和副标题信息，是整套 PPT 的视觉开篇
+            - **第2页 — 目录页**（slide_type="agenda"）：对文档章节进行逻辑化重组，形成清晰的导航索引。content_points 应列出后续各章节标题
+            - **第3页起 — 内容页**（slide_type="content"）：基于文档内容，采用适合目标受众的专业化语言表达和逻辑组织
+            - **最后一页 — 结论页**（slide_type="conclusion"）：基于文档结论和项目要求，使用书面化的总结表述
+            - 标题页、目录页和结论页属于特殊页面，后续会进行独立创意设计，不套用普通内容页模板
 
             ## 内容生成执行标准
             ### 项目信息整合要求
@@ -226,7 +243,7 @@ class PromptTemplates:
             - **page_number** (integer): 页码序号
             - **title** (string): 幻灯片标题，基于源材料内容，使用专业化的书面表述，目标语言：{target_language}
             - **content_points** (array): 内容要点列表，基于源材料内容，使用正式的书面语言和专业表述。可以包含Markdown格式的图片链接（![图片描述](图片URL)）
-            - **slide_type** (string): 幻灯片类型（"title"/"content"/"conclusion"）
+            - **slide_type** (string): 幻灯片类型（"title"/"agenda"/"content"/"conclusion"）
             - **description** (string): 幻灯片功能描述，使用专业化的描述语言，目标语言：{target_language}
             - **chart_config** (object, 可选): 图表配置对象，仅当源材料包含具体数据时添加
 
@@ -246,6 +263,17 @@ class PromptTemplates:
                     }},
                     {{
                         "page_number": 2,
+                        "title": "目录",
+                        "content_points": [
+                            "[章节一标题]",
+                            "[章节二标题]",
+                            "[章节三标题]"
+                        ],
+                        "slide_type": "agenda",
+                        "description": "目录导航页，展示整套PPT的章节结构"
+                    }},
+                    {{
+                        "page_number": 3,
                         "title": "[基于文档实际章节标题]",
                         "content_points": [
                             "[文档中的实际内容要点1]",
@@ -282,7 +310,7 @@ class PromptTemplates:
             ## 执行指令
             请严格按照上述规范和约束条件执行大纲生成任务，确保输出结果的准确性、完整性和规范性。
             """)
-        ])
+        ]).partial(current_time_context=PromptTemplates._build_current_time_context())
     
     @staticmethod
     def get_refine_outline_prompt() -> ChatPromptTemplate:
@@ -321,6 +349,9 @@ class PromptTemplates:
             **目标语言：**
             {target_language}
 
+            **当前时间参考：**
+            {current_time_context}
+
             ## 核心约束条件
             ### 1. 源材料理解原则
             - 所有细化和扩展内容必须基于新增内容和累积上下文的深度理解
@@ -338,6 +369,7 @@ class PromptTemplates:
               * 图片URL必须与源材料中的URL完全一致，不得修改或编造
               * 严禁添加源材料中不存在的任何图片链接
               * 必须保持Markdown格式：![图片描述](图片URL)
+              * 若图片描述中已标注图片大小（如：图片大小：1200x800px），必须保留该尺寸信息，并将其视为版面布局线索
 
             ### 3. 语言表达规范
             - **书面化要求**：所有新增和修改内容必须使用正式的书面语言
@@ -422,7 +454,7 @@ class PromptTemplates:
             ## 执行指令
             请严格按照上述规范和约束条件执行大纲细化任务，确保输出结果的准确性、完整性和规范性。
             """)
-        ])
+        ]).partial(current_time_context=PromptTemplates._build_current_time_context())
     
     @staticmethod
     def get_custom_prompt(template: str) -> ChatPromptTemplate:
@@ -460,6 +492,9 @@ class PromptTemplates:
             **目标语言：**
             {target_language}
 
+            **当前时间参考：**
+            {current_time_context}
+
             ## 核心约束条件
             ### 1. 源材料理解原则
             - **内容基础**：所有内容必须基于上述文档内容摘要的深度理解
@@ -477,6 +512,7 @@ class PromptTemplates:
               * 图片URL必须与摘要中的URL完全一致，不得修改或编造
               * 严禁添加摘要中不存在的任何图片链接
               * 必须保持Markdown格式：![图片描述](图片URL)
+              * 若图片描述中已标注图片大小（如：图片大小：1200x800px），必须保留该尺寸信息，并将其视为版面布局线索
 
             ### 3. 语言表达规范
             - **书面化要求**：所有输出内容必须使用正式的书面语言
@@ -501,11 +537,12 @@ class PromptTemplates:
             ## 生成规范要求
             请生成一个简洁但完整的PPT大纲，结合项目信息，包含以下结构：
 
-            ### 基本结构组成
-            1. **标题页**：结合项目主题和摘要中的实际主题信息
-            2. **目录页**：基于摘要中的实际章节结构，适配应用场景
-            3. **主要内容页**：3-5个，严格基于摘要中的实际内容，适合目标受众
-            4. **结论页**：基于摘要中的实际结论内容，体现项目要求
+            ### 基本结构组成（按顺序）
+            1. **第1页 — 标题页**（slide_type="title"）：结合项目主题和摘要中的实际主题信息，作为视觉开篇
+            2. **第2页 — 目录页**（slide_type="agenda"）：基于摘要中的实际章节结构，形成导航索引。content_points 列出后续各章节标题
+            3. **第3页起 — 主要内容页**（slide_type="content"）：3-5个，严格基于摘要中的实际内容，适合目标受众
+            4. **最后一页 — 结论页**（slide_type="conclusion"）：基于摘要中的实际结论内容，体现项目要求
+            - 标题页、目录页和结论页属于特殊页面，会进行独立创意设计
 
             ### 幻灯片规范标准
             每个幻灯片必须满足以下要求：
@@ -532,7 +569,7 @@ class PromptTemplates:
             ## 执行指令
             请严格按照上述规范执行错误恢复任务，生成可靠的基础PPT大纲。
             """)
-        ])
+        ]).partial(current_time_context=PromptTemplates._build_current_time_context())
     
     @classmethod
     def get_all_prompts(cls) -> dict:

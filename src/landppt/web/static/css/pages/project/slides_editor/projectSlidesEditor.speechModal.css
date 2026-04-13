@@ -1,0 +1,611 @@
+/* Speech Modal Styles */
+.speech-modal-dialog {
+    position: relative;
+    margin: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: var(--spacing-lg);
+}
+
+.speech-modal-content {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--glass-shadow);
+    width: 100%;
+    max-height: min(94vh, 940px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.speech-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #000;
+    color: #fff;
+}
+
+.speech-modal-title .speech-section-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.speech-modal-close {
+    background: var(--accent-contrast);
+    border: 1px solid var(--accent-strong);
+    color: var(--accent-strong);
+    cursor: pointer;
+    padding: var(--spacing-sm);
+    border-radius: var(--border-radius);
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.speech-modal-close:hover {
+    background: var(--accent-strong);
+    color: var(--accent-contrast);
+    transform: translateY(-1px);
+}
+
+.speech-modal-body {
+    flex: 1;
+    min-height: 0;
+    padding: 16px 20px;
+    overflow-y: auto;
+    color: var(--text-primary);
+}
+
+.speech-modal-body-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: hidden;
+}
+
+.speech-modal-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 18px;
+    backdrop-filter: blur(10px);
+}
+
+.speech-toolbar-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px 12px;
+    flex-wrap: wrap;
+}
+
+.speech-duration-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    color: var(--text-primary);
+    font-size: 0.8125rem;
+    min-height: 38px;
+    width: fit-content;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.speech-duration-info svg {
+    color: var(--primary-color);
+}
+
+.speech-action-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+    align-items: center;
+    flex: 1 1 520px;
+    min-width: 0;
+}
+
+.speech-control-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.speech-modal-controls .speech-btn {
+    min-height: 40px;
+    min-width: 0;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    border-radius: 10px;
+}
+
+.speech-modal-controls .speech-form-select {
+    width: auto;
+    min-width: 92px;
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 0.8125rem;
+    border-radius: 10px;
+}
+
+.speech-modal-controls #narrationLanguage {
+    min-width: 84px;
+}
+
+.speech-modal-controls #narrationTtsProvider {
+    min-width: 150px;
+}
+
+.speech-modal-controls #narrationRefAudioContainer {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 40px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    border: 1px dashed rgba(15, 23, 42, 0.16);
+    background: rgba(255, 255, 255, 0.72);
+    align-items: center;
+    gap: 8px;
+}
+
+.speech-modal-controls #narrationRefAudioFile {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.speech-compact-tools {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.speech-compact-tools[open] {
+    z-index: 5;
+}
+
+.speech-compact-tools-toggle {
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    background: rgba(255, 255, 255, 0.84);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    user-select: none;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.speech-compact-tools-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.speech-compact-tools-toggle::after {
+    content: '+';
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.speech-compact-tools[open] .speech-compact-tools-toggle::after {
+    content: '-';
+}
+
+.speech-compact-tools-toggle:hover {
+    border-color: rgba(15, 23, 42, 0.3);
+    background: #fff;
+    transform: translateY(-1px);
+}
+
+.speech-compact-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(760px, calc(100vw - 120px));
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.speech-compact-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.speech-compact-label {
+    padding-left: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: rgba(15, 23, 42, 0.58);
+    letter-spacing: 0.02em;
+}
+
+.speech-compact-input-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.speech-compact-panel .speech-btn,
+.speech-compact-panel .speech-form-select {
+    width: 100%;
+    justify-content: center;
+}
+
+.speech-ref-audio-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.16);
+    background: #fff;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.speech-ref-audio-trigger:hover {
+    border-color: rgba(15, 23, 42, 0.3);
+    background: rgba(15, 23, 42, 0.04);
+}
+
+.speech-ref-audio-status {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.75rem;
+    color: rgba(15, 23, 42, 0.72);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.speech-compact-help {
+    padding-left: 4px;
+    font-size: 0.72rem;
+    color: rgba(15, 23, 42, 0.52);
+    line-height: 1.4;
+}
+
+@media (max-width: 1024px) {
+    .speech-duration-info {
+        width: 100%;
+    }
+
+    .speech-control-row {
+        justify-content: flex-start;
+    }
+
+    .speech-action-group {
+        justify-content: flex-start;
+    }
+
+    .speech-compact-panel {
+        width: min(680px, calc(100vw - 72px));
+    }
+}
+
+@media (max-width: 768px) {
+    .speech-modal-body-preview {
+        padding: 16px;
+        gap: 12px;
+    }
+
+    .speech-modal-controls {
+        padding: 10px;
+    }
+
+    .speech-toolbar-head {
+        align-items: stretch;
+    }
+
+    .speech-action-group,
+    .speech-control-row {
+        justify-content: flex-start;
+        width: 100%;
+    }
+
+    .speech-compact-tools {
+        width: 100%;
+    }
+
+    .speech-compact-tools-toggle {
+        width: 100%;
+    }
+
+    .speech-compact-panel {
+        position: static;
+        width: 100%;
+        margin-top: 8px;
+        padding: 10px 0 0;
+        border: 0;
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .speech-modal-controls .speech-btn,
+    .speech-modal-controls .speech-form-select,
+    .speech-modal-controls #narrationRefAudioContainer,
+    .speech-compact-panel .speech-btn,
+    .speech-compact-panel .speech-form-select {
+        min-width: 0;
+        flex: 1 1 140px;
+    }
+
+    .speech-modal-controls #narrationRefAudioContainer {
+        padding: 8px;
+    }
+
+    .speech-ref-audio-trigger {
+        width: 100%;
+    }
+
+    .speech-ref-audio-status {
+        width: 100%;
+        flex: none;
+    }
+}
+
+.speech-scripts-container {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: var(--spacing-xs);
+}
+
+.speech-scripts-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.speech-scripts-container::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.speech-scripts-container::-webkit-scrollbar-thumb {
+    background: var(--primary-color);
+    border-radius: 3px;
+    opacity: 0.7;
+}
+
+.speech-scripts-container::-webkit-scrollbar-thumb:hover {
+    opacity: 1;
+}
+
+.speech-modal-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--glass-border);
+    background: linear-gradient(145deg, rgba(248, 249, 250, 0.8) 0%, rgba(233, 236, 239, 0.6) 100%);
+    display: flex;
+    gap: var(--spacing-md);
+    justify-content: flex-end;
+}
+
+/* Custom Checkbox */
+.speech-form-check {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.speech-form-check input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.speech-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+.speech-checkbox-custom {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.speech-form-check input[type="checkbox"]:checked+.speech-checkbox-label .speech-checkbox-custom {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.speech-form-check input[type="checkbox"]:checked+.speech-checkbox-label .speech-checkbox-custom::after {
+    content: '✓';
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* Custom Buttons */
+.speech-btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+    min-width: 120px;
+    justify-content: center;
+    background: var(--primary-color);
+    color: white;
+}
+
+.speech-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, transparent 50%, rgba(255, 255, 255, 0.1) 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.speech-btn:hover::before {
+    opacity: 1;
+}
+
+.speech-btn-secondary {
+    background: var(--secondary-color);
+    color: white;
+}
+
+.speech-btn-secondary:hover {
+    background: var(--secondary-color-hover);
+    transform: translateY(-2px);
+}
+
+.speech-btn-outline {
+    background: transparent;
+    color: var(--primary-color);
+    border: 2px solid var(--primary-color);
+}
+
+.speech-btn-outline:hover {
+    background: var(--primary-color);
+    color: white;
+    transform: translateY(-2px);
+}
+
+.speech-btn-primary {
+    background: var(--primary-color);
+    color: white;
+}
+
+.speech-btn-primary:hover {
+    transform: translateY(-3px);
+    box-shadow:
+        0 6px 20px rgba(102, 126, 234, 0.4),
+        0 3px 12px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.speech-btn-primary:active {
+    transform: translateY(-1px);
+    box-shadow:
+        0 3px 12px rgba(102, 126, 234, 0.3),
+        0 1px 6px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+
+
+/* Script Preview Styles */
+.script-item {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: var(--spacing-lg);
+    background: var(--bg-secondary);
+    margin-bottom: var(--spacing-md);
+}
+
+.script-header {
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+.script-content textarea {
+    resize: vertical;
+    min-height: 120px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-md);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    width: 100%;
+}
+
+.script-content textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.scripts-container {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: var(--spacing-xs);
+}
+
+.scripts-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.scripts-container::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+}
+
+.scripts-container::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.scripts-container::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
+

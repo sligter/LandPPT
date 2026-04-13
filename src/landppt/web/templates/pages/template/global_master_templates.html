@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}模板管理{% endblock %}
+
+{% block extra_css %}
+<style>
+{% include "components/template/global_master_templates/extra_css_1.html" %}
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "components/template/global_master_templates/content_1.html" %}
+<style>
+{% include "components/template/global_master_templates/content_style_1.html" %}
+</style>
+<script>
+window.__LANDPPT_USER__ = {
+    is_admin: {{ 'true' if user and user.is_admin else 'false' }}
+};
+</script>
+<script type="module" src="/static/js/pages/template/global_master/globalMasterTemplates.js"></script>
+{% endblock %}

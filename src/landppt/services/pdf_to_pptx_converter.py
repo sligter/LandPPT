@@ -177,9 +177,11 @@ class SDKDownloadManager:
 class PDFToPPTXConverter:
     """Converts PDF files to PPTX using Apryse SDK"""
 
-    def __init__(self):
+    def __init__(self, user_id: int = None):
         self._sdk_initialized = False
         self._sdk_available = None
+        self.user_id = user_id
+        self._cached_license_key = None
 
         # Initialize SDK download manager
         current_file = Path(__file__).resolve()
@@ -187,10 +189,78 @@ class PDFToPPTXConverter:
         lib_dir = project_root / "lib"
         self.sdk_manager = SDKDownloadManager(lib_dir)
 
+    def set_user_id(self, user_id: int):
+        """Set user ID for loading user-specific configuration (sync version - use set_user_id_async in async context)"""
+        self.user_id = user_id
+        self._cached_license_key = None  # Clear cache when user changes
+        self._sdk_initialized = False  # Force reinitialize with new license
+    async def set_user_id_async(self, user_id: int):
+        """Set user ID and pre-load license key from database (async version - use this in async routes)"""
+        logger.info(f"set_user_id_async called with user_id={user_id}")
+        self.user_id = user_id
+        self._cached_license_key = None
+        self._sdk_initialized = False
+        
+        # Pre-load the license key from user config
+        try:
+            license_key = await self._get_license_key_async()
+            self._cached_license_key = license_key
+            # Log first/last few characters for debugging (hide middle for security)
+            if license_key and len(license_key) > 10:
+                masked_key = f"{license_key[:4]}...{license_key[-4:]}"
+            else:
+                masked_key = "***"
+            logger.info(f"Pre-loaded Apryse license key for user {user_id}: {masked_key}")
+        except Exception as e:
+            logger.warning(f"Failed to pre-load Apryse license key: {e}")
+    
+    async def _get_license_key_async(self) -> str:
+        """Get license key from user database config (async version)"""
+        from ..core.config import ai_config
+        
+        logger.debug(f"_get_license_key_async: user_id={self.user_id}")
+        
+        if self.user_id is not None:
+            try:
+                from .db_config_service import get_db_config_service
+                config_service = get_db_config_service()
+                user_config = await config_service.get_all_config(user_id=self.user_id)
+                
+                license_key = user_config.get("apryse_license_key")
+                logger.info(f"Loaded apryse_license_key from user config: {'found' if license_key else 'not found'}")
+                if license_key:
+                    return license_key
+            except Exception as e:
+                logger.warning(f"Failed to load Apryse license from user config: {e}")
+        
+        # Fallback to global config
+        fallback_key = ai_config.apryse_license_key or 'your_apryse_license_key_here'
+        logger.info(f"Using fallback Apryse license key from global config")
+        return fallback_key
+
     @property
     def license_key(self):
         """Dynamically get license key to ensure latest config"""
+        # Try to use cached license key first
+        if self._cached_license_key:
+            return self._cached_license_key
+            
         from ..core.config import ai_config
+        
+        # For sync context, try to read from user config if user_id is set
+        if self.user_id is not None:
+            try:
+                from .db_config_service import get_db_config_service
+
+                config_service = get_db_config_service()
+                license_key = config_service.get_config_value_sync("apryse_license_key", user_id=self.user_id)
+                if license_key:
+                    self._cached_license_key = license_key
+                    return license_key
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to load Apryse license from user config: {e}")
+        
         return ai_config.apryse_license_key or 'your_apryse_license_key_here'
     
     def _check_sdk_availability(self) -> bool:
@@ -314,6 +384,10 @@ class PDFToPPTXConverter:
             '--output',
             str(output_path_obj),
         ]
+        
+        # Pass the pre-loaded license key to the worker subprocess
+        if self._cached_license_key:
+            command.extend(['--license-key', self._cached_license_key])
 
         env = os.environ.copy()
         src_path = str(Path(__file__).resolve().parents[2])

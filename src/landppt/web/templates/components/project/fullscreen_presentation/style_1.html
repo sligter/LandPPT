@@ -1,0 +1,631 @@
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 50%, #0d0d0d 100%);
+            overflow: hidden;
+            height: 100vh;
+            color: white;
+        }
+
+        .presentation-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.4) 100%);
+        }
+
+        .slide-display {
+            position: relative;
+            width: min(90vw, calc(90vh * 16 / 9));
+            height: auto;
+            aspect-ratio: 16 / 9;
+            background: #05070c;
+            border-radius: 16px;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(255, 255, 255, 0.1),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* 非全屏时悬停效果 */
+        body:not(.fullscreen-mode) .slide-display:hover {
+            transform: scale(1.01);
+            box-shadow: 0 30px 100px rgba(255, 255, 255, 0.08),
+                0 0 0 1px rgba(255, 255, 255, 0.15),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+
+        /* 全屏时占满整个屏幕 */
+        .fullscreen-mode .slide-display {
+            width: min(calc(100vw - 16px), calc((100vh - 16px) * 16 / 9));
+            height: auto;
+            aspect-ratio: 16 / 9;
+            background: #05070c;
+            border-radius: 16px;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.45),
+                0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+
+        .fullscreen-mode .slide-frame-container,
+        .fullscreen-mode .slide-frame {
+            border-radius: 16px;
+        }
+
+        /* 幻灯片内容始终跟随外层 16:9 容器显示，不再额外做裁切缩放。 */
+
+        /* 幻灯片容器 - 支持多iframe缓存 */
+        .slide-frame-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+
+        .slide-frame {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 1280px;
+            height: 720px;
+            border: none;
+            border-radius: 15px;
+            background: transparent;
+            transform: translate(-50%, -50%) scale(1);
+            transform-origin: center center;
+            transition: opacity 0.3s ease;
+        }
+
+        .slide-frame.hidden {
+            opacity: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .slide-frame.visible {
+            opacity: 1;
+            pointer-events: auto;
+            z-index: 2;
+        }
+
+        /* 缓存的iframe样式 */
+        .slide-frame.cached {
+            display: block;
+        }
+
+        .slide-frame.not-loaded {
+            display: none;
+        }
+
+        .presentation-controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            background: rgba(10, 10, 10, 0.92);
+            padding: 14px 28px;
+            border-radius: 60px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1000;
+        }
+
+        /* 全屏时完全隐藏控制栏 */
+        .control-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 12px 18px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 50px;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .slide-counter {
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 25px;
+            padding: 10px 20px;
+        }
+
+        .presentation-header {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 25px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 1000;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        /* UI auto-hide (avoid overlays blocking slides; keep subtitles visible) */
+        body.ui-hidden .presentation-header,
+        body.ui-hidden .presentation-controls,
+        body.ui-hidden .exit-btn,
+        body.ui-hidden .toggle-thumbnails,
+        body.ui-hidden .narration-top-controls,
+        body.ui-hidden .slide-thumbnails,
+        body.ui-hidden .keyboard-hints,
+        body.ui-hidden .cache-status {
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+
+        body.ui-hidden .presentation-header {
+            transform: translateX(-50%) translateY(-10px) !important;
+        }
+
+        body.ui-hidden .presentation-controls {
+            transform: translate(-50%, 18px) !important;
+        }
+
+        body.ui-hidden .exit-btn,
+        body.ui-hidden .toggle-thumbnails,
+        body.ui-hidden .narration-top-controls {
+            transform: translateY(-12px) !important;
+        }
+
+        .presentation-header,
+        .presentation-controls,
+        .exit-btn,
+        .toggle-thumbnails,
+        .narration-top-controls,
+        .slide-thumbnails,
+        .keyboard-hints,
+        .cache-status {
+            transition: opacity 0.25s ease, transform 0.25s ease;
+        }
+
+        /* 全屏时完全隐藏标题 */
+        .presentation-title {
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            margin: 0;
+        }
+
+        .exit-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(220, 53, 69, 0.85);
+            color: white;
+            border: none;
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            transition: all 0.3s ease;
+            z-index: 1001;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .exit-btn:hover {
+            background: rgba(220, 53, 69, 1);
+            transform: scale(1.15) rotate(90deg);
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.5);
+        }
+
+        /* 全屏时完全隐藏退出按钮 */
+        .slide-thumbnails {
+            position: fixed;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 70vh;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            z-index: 999;
+        }
+
+        .slide-thumbnails.show {
+            opacity: 1;
+        }
+
+        /* 全屏时完全隐藏缩略图 */
+        .fullscreen-mode .slide-thumbnails {
+            display: none;
+        }
+
+        .thumbnail {
+            width: 80px;
+            height: 45px;
+            border: 2px solid transparent;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            overflow: hidden;
+            background: #05070c;
+            position: relative;
+        }
+
+        .thumbnail:hover {
+            border-color: #007bff;
+            transform: scale(1.1);
+        }
+
+        .thumbnail.active {
+            border-color: #28a745;
+            box-shadow: 0 0 10px rgba(40, 167, 69, 0.5);
+        }
+
+        .thumbnail iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            pointer-events: none;
+            transform: scale(0.2);
+            transform-origin: top left;
+            width: 400px;
+            height: 225px;
+        }
+
+        .thumbnail-number {
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-size: 10px;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .toggle-thumbnails {
+            position: fixed;
+            left: 20px;
+            bottom: 30px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            padding: 12px 15px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 1000;
+        }
+
+        .toggle-thumbnails:hover {
+            background: rgba(0, 0, 0, 0.9);
+            transform: scale(1.05);
+        }
+
+        /* 全屏时完全隐藏缩略图切换按钮 */
+        .fullscreen-mode .toggle-thumbnails {
+            display: none;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(5, 7, 12, 0.72);
+            display: none;
+            /* 默认隐藏，避免初始闪烁 */
+            justify-content: center;
+            align-items: center;
+            border-radius: 15px;
+            z-index: 10;
+            transition: opacity 0.2s ease;
+        }
+
+        .loading-overlay.show {
+            display: flex;
+            opacity: 1;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 平滑过渡效果 */
+        .slide-transition {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* 防止iframe白屏闪烁 */
+        iframe {
+            background-color: transparent;
+            will-change: opacity;
+        }
+
+        /* 硬件加速优化 */
+        .slide-frame-container,
+        .slide-frame {
+            transform: translateZ(0);
+            backface-visibility: hidden;
+            perspective: 1000px;
+        }
+
+        /* 预加载优化 */
+        .slide-frame.preloading {
+            visibility: hidden;
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .slide-display {
+                width: 95vw;
+                height: 95vh;
+            }
+
+            .presentation-controls {
+                bottom: 15px;
+                padding: 10px 15px;
+                gap: 10px;
+            }
+
+            .control-btn {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+
+            .slide-counter {
+                font-size: 14px;
+                padding: 6px 12px;
+            }
+
+            .slide-thumbnails {
+                left: 10px;
+                padding: 10px;
+            }
+
+            .thumbnail {
+                width: 60px;
+                height: 34px;
+            }
+
+            .toggle-thumbnails {
+                left: 10px;
+                bottom: 15px;
+                padding: 8px 12px;
+            }
+        }
+
+        /* 键盘快捷键提示 */
+        .keyboard-hints {
+            position: fixed;
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            font-size: 12px;
+            z-index: 1002;
+        }
+
+        .keyboard-hints.show {
+            opacity: 1;
+        }
+
+        /* 全屏时也显示快捷键提示 */
+        .fullscreen-mode .keyboard-hints.show {
+            opacity: 1;
+        }
+
+        .keyboard-hints h6 {
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+
+        .keyboard-hints div {
+            margin-bottom: 5px;
+        }
+
+        .key {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        /* 缓存状态面板 */
+        .cache-status {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-family: monospace;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1000;
+            min-width: 200px;
+        }
+
+        .cache-status.show {
+            opacity: 1;
+        }
+
+        .cache-status h6 {
+            color: #4caf50;
+            margin: 0 0 8px 0;
+            font-size: 12px;
+        }
+
+        .cache-status .stat-line {
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .cache-status .stat-value {
+            color: #81c784;
+            font-weight: bold;
+        }
+
+        /* Narration (audio + subtitles) */
+        .narration-top-controls {
+            position: fixed;
+            top: 20px;
+            right: 80px;
+            display: flex;
+            gap: 10px;
+            z-index: 1001;
+            align-items: center;
+        }
+
+        .narration-lang-select {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 14px;
+            outline: none;
+            backdrop-filter: blur(10px);
+        }
+
+        .narration-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 12px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .narration-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(255, 255, 255, 0.45);
+        }
+
+        .narration-btn.active {
+            background: rgba(220, 53, 69, 0.85);
+            border-color: rgba(255, 255, 255, 0.45);
+        }
+
+        .narration-subtitle {
+            position: fixed;
+            left: 50%;
+            bottom: 8vh; /* closer to bottom; align with exported video */
+            transform: translateX(-50%);
+            max-width: 84vw;
+            padding: 10px 14px;
+            border-radius: 14px;
+            background: rgba(0, 0, 0, 0.58);
+            color: #FFD400;
+            font-size: clamp(16px, 1.6vw, 28px);
+            font-weight: 800;
+            line-height: 1.25;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            z-index: 1000;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease;
+            font-family: "Noto Sans CJK SC", "SimHei", "Microsoft YaHei", system-ui, sans-serif;
+            text-shadow:
+                0 2px 0 rgba(0,0,0,0.95),
+                0 -2px 0 rgba(0,0,0,0.95),
+                2px 0 0 rgba(0,0,0,0.95),
+                -2px 0 0 rgba(0,0,0,0.95),
+                2px 2px 0 rgba(0,0,0,0.95),
+                -2px 2px 0 rgba(0,0,0,0.95),
+                2px -2px 0 rgba(0,0,0,0.95),
+                -2px -2px 0 rgba(0,0,0,0.95);
+        }
+
+        .narration-subtitle.show {
+            opacity: 1;
+        }
+    </style>

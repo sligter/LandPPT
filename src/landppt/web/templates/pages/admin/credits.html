@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>积分管理 - LandPPT Admin</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/landppt-logo.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+
+    <style>
+        .admin-body .container {
+            max-width: 1200px;
+        }
+
+        .list-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            width: 100%;
+        }
+
+        .list-controls .search-box {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .list-controls select,
+        .list-controls .filter-input {
+            width: auto;
+            min-width: 120px;
+        }
+
+        .codes-table {
+            width: 100%;
+            border-collapse: collapse;
+            white-space: nowrap;
+        }
+
+        .codes-table th,
+        .codes-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .col-code { min-width: 180px; }
+        .col-credits { width: 100px; text-align: center; }
+        .col-status { width: 100px; text-align: center; }
+        .col-used-by { min-width: 120px; }
+        .col-created, .col-expires { min-width: 160px; }
+        .col-actions { width: 100px; text-align: center; }
+
+        .cell-ellipsis {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
+        }
+
+        .generated-result {
+            background: var(--paper-2);
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            margin-top: 24px;
+        }
+
+        .generated-result h3 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--ink);
+        }
+    </style>
+</head>
+
+<body class="admin-body">
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="header">
+        <h1><i class="fas fa-coins"></i> 积分管理</h1>
+        <div class="header-links">
+            <span class="header-user"><i class="fas fa-user-shield"></i> {{ user.username }}</span>
+            <a href="/admin/users"><i class="fas fa-users"></i> 用户</a>
+            <a href="/admin/credits" aria-current="page"><i class="fas fa-coins"></i> 积分</a>
+            <a href="/admin/community"><i class="fas fa-compass-drafting"></i> 运营</a>
+            <a href="/admin/oauth"><i class="fas fa-right-to-bracket"></i> OAuth</a>
+            <a href="/admin/smtp"><i class="fas fa-envelope"></i> SMTP</a>
+            <a href="/dashboard"><i class="fas fa-home"></i> 首页</a>
+            <a href="/auth/logout" onclick="return confirm('确定要退出登录吗？')"><i class="fas fa-arrow-right-from-bracket"></i> 退出</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div id="alertArea"></div>
+
+        <div class="toolbar">
+            <div class="tabs" style="margin:0;">
+                <button class="tab active" onclick="showPanel('generate')">生成兑换码</button>
+                <button class="tab" onclick="showPanel('list')">兑换码列表</button>
+            </div>
+        </div>
+
+        <div class="panel active" id="generatePanel">
+            <div class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-plus-circle"></i> 批量生成兑换码</h2>
+                </div>
+                <div class="section-body">
+                    <form id="generateForm">
+                        <div class="form-row form-row--3">
+                            <div class="form-group">
+                                <label>生成数量</label>
+                                <input type="number" id="codeCount" value="10" min="1" max="100" required>
+                                <div class="form-hint">单次最多生成 100 个</div>
+                            </div>
+                            <div class="form-group">
+                                <label>每张积分数</label>
+                                <input type="number" id="codeCredits" value="100" min="1" required>
+                                <div class="form-hint">用户兑换后获得的积分</div>
+                            </div>
+                            <div class="form-group">
+                                <label>有效期（天）</label>
+                                <input type="number" id="codeExpires" min="1" placeholder="留空则永久有效">
+                                <div class="form-hint">从生成之时开始计算</div>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top: 16px;">
+                            <label>备注说明</label>
+                            <input type="text" id="codeDesc">
+                        </div>
+                        <div style="margin-top: 20px;">
+                            <button type="submit" class="btn"><i class="fas fa-magic"></i> 立即生成</button>
+                        </div>
+                    </form>
+
+                    <div id="generatedCodes" class="generated-result" style="display:none;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <h3>已生成的兑换码</h3>
+                            <button class="btn btn-outline" onclick="copyAllCodes()">
+                                <i class="fas fa-copy"></i> 复制全部
+                            </button>
+                        </div>
+                        <div class="codes-list" id="codesList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel" id="listPanel">
+            <div class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-list"></i> 兑换码列表</h2>
+                </div>
+
+                <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-light);">
+                    <div class="list-controls">
+                        <div class="search-box">
+                            <input type="text" id="codeSearchInput" placeholder="搜索兑换码 / 备注...">
+                            <button class="btn btn-outline" onclick="applyCodeFilters()"><i class="fas fa-search"></i></button>
+                        </div>
+
+                        <input type="number" id="createdByInput" class="filter-input" min="1" placeholder="创建人ID">
+
+                        <select id="filterStatus" aria-label="状态筛选">
+                            <option value="">全部状态</option>
+                            <option value="false">未使用</option>
+                            <option value="true">已使用</option>
+                        </select>
+
+                        <select id="pageSizeSelect" aria-label="每页数量">
+                            <option value="20" selected>20 / 页</option>
+                            <option value="50">50 / 页</option>
+                            <option value="100">100 / 页</option>
+                        </select>
+
+                        <button class="btn btn-outline" onclick="exportCodes()" title="导出 CSV">
+                            <i class="fas fa-file-export"></i> 导出
+                        </button>
+                    </div>
+                </div>
+
+                <div class="section-body" style="padding:0;">
+                    <div class="table-container" style="border:none; box-shadow:none; border-radius:0;">
+                        <div class="table-scroll">
+                            <table class="codes-table">
+                                <colgroup>
+                                    <col class="col-code">
+                                    <col class="col-credits">
+                                    <col class="col-status">
+                                    <col class="col-used-by">
+                                    <col class="col-created">
+                                    <col class="col-expires">
+                                    <col class="col-actions">
+                                </colgroup>
+                                <thead>
+                                    <tr>
+                                        <th>兑换码</th>
+                                        <th style="text-align:center;">积分</th>
+                                        <th style="text-align:center;">状态</th>
+                                        <th>使用者</th>
+                                        <th>创建时间</th>
+                                        <th>过期时间</th>
+                                        <th style="text-align:center;">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="codesTable">
+                                    <tr>
+                                        <td colspan="7" class="empty">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="padding: 12px 20px; border-top: 1px solid var(--border-light);">
+                    <div class="table-meta">
+                        <div id="tableMetaLeft"></div>
+                        <div class="pagination" id="pagination" style="margin:0;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let pageSize = 20;
+        let currentSearch = '';
+        let currentCreator = '';
+        let generatedCodesList = [];
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle';
+            toast.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('toast-out');
+                setTimeout(() => toast.remove(), 250);
+            }, 3500);
+        }
+
+        function showPanel(name) {
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById(name + 'Panel').classList.add('active');
+            event.target.classList.add('active');
+            if (name === 'list') loadCodes(1);
+        }
+
+        function updateCodesMeta(total, page, totalPages) {
+            const left = document.getElementById('tableMetaLeft');
+            if (!left) return;
+            const start = total == 0 ? 0 : (page - 1) * pageSize + 1;
+            const end = Math.min(total, page * pageSize);
+            left.innerHTML = `
+                <span>共 <strong>${total}</strong> 个兑换码</span>
+                <span style="margin: 0 8px; color: var(--border);">|</span>
+                <span>显示 ${start}-${end}</span>
+                <span style="margin: 0 8px; color: var(--border);">|</span>
+                <span>第 ${page}/${Math.max(1, totalPages)} 页</span>
+            `;
+        }
+
+        function applyCodeFilters() {
+            currentSearch = (document.getElementById('codeSearchInput').value || '').trim();
+            const creatorRaw = (document.getElementById('createdByInput').value || '').trim();
+            const creatorValue = parseInt(creatorRaw, 10);
+            currentCreator = Number.isNaN(creatorValue) ? '' : String(creatorValue);
+            loadCodes(1);
+        }
+
+        function showAlert(message, type = 'success') {
+            showToast(message, type);
+        }
+
+        function formatDateTimeSeconds(tsSeconds) {
+            if (!tsSeconds) return '-';
+            const d = new Date(tsSeconds * 1000);
+            if (Number.isNaN(d.getTime())) return '-';
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+
+        function exportCodes() {
+            const params = new URLSearchParams();
+            const status = document.getElementById('filterStatus')?.value;
+            if (status !== undefined && status !== '') params.append('is_used', status);
+            const search = (document.getElementById('codeSearchInput')?.value || '').trim();
+            if (search) params.append('search', search);
+            const creatorRaw = (document.getElementById('createdByInput')?.value || '').trim();
+            const creatorValue = parseInt(creatorRaw, 10);
+            if (!Number.isNaN(creatorValue) && creatorValue > 0) params.append('created_by', String(creatorValue));
+            window.location.href = `/admin/api/redemption-codes/export?${params.toString()}`;
+        }
+
+        document.getElementById('codeSearchInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') applyCodeFilters();
+        });
+
+        document.getElementById('createdByInput').addEventListener('change', () => applyCodeFilters());
+        document.getElementById('filterStatus').addEventListener('change', () => loadCodes(1));
+
+        document.getElementById('pageSizeSelect').addEventListener('change', (e) => {
+            pageSize = parseInt(e.target.value, 10) || 20;
+            loadCodes(1);
+        });
+
+        document.getElementById('generateForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const count = parseInt(document.getElementById('codeCount').value);
+            const credits = parseInt(document.getElementById('codeCredits').value);
+            const expires = document.getElementById('codeExpires').value;
+            const desc = document.getElementById('codeDesc').value;
+
+            try {
+                const payload = { count, credits_amount: credits };
+                if (expires) payload.expires_in_days = parseInt(expires);
+                if (desc) payload.description = desc;
+
+                const res = await fetch('/admin/api/redemption-codes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail);
+
+                generatedCodesList = data.codes.map(c => c.code);
+                renderGeneratedCodes();
+                showToast(`成功生成 ${data.codes.length} 个兑换码`);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+
+        function renderGeneratedCodes() {
+            const list = document.getElementById('codesList');
+            if (list) {
+                list.innerHTML = generatedCodesList.map(code => `
+                    <div class="code-item">
+                        <span>${code}</span>
+                        <button onclick="copyCode('${code}')" title="复制"><i class="fas fa-copy"></i></button>
+                    </div>
+                `).join('');
+                document.getElementById('generatedCodes').style.display = 'block';
+            }
+        }
+
+        function copyCode(code) {
+            navigator.clipboard.writeText(code);
+            showToast('已复制: ' + code);
+        }
+
+        function copyAllCodes() {
+            navigator.clipboard.writeText(generatedCodesList.join('\n'));
+            showToast('已复制全部兑换码');
+        }
+
+        async function loadCodes(page = 1) {
+            currentPage = page;
+            const params = new URLSearchParams({ page, page_size: pageSize });
+            const statusInput = document.getElementById('filterStatus');
+            if (statusInput && statusInput.value !== '') params.append('is_used', statusInput.value);
+            if (currentSearch) params.append('search', currentSearch);
+            if (currentCreator) params.append('created_by', currentCreator);
+
+            try {
+                const res = await fetch(`/admin/api/redemption-codes?${params}`);
+                const data = await res.json();
+                renderCodesTable(data.codes);
+                const totalPages = Math.ceil(data.total / pageSize) || 1;
+                renderPagination(data.total, data.page, totalPages);
+                updateCodesMeta(data.total, data.page, totalPages);
+            } catch (_) {
+                const tbody = document.getElementById('codesTable');
+                if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty">加载失败</td></tr>';
+            }
+        }
+
+        function renderCodesTable(codes) {
+            const tbody = document.getElementById('codesTable');
+            if (!tbody) return;
+            if (!codes || !codes.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty">暂无兑换码</td></tr>';
+                return;
+            }
+            tbody.innerHTML = codes.map(c => `
+                <tr>
+                    <td><span class="code-display" title="${c.code}">${c.code}</span></td>
+                    <td><strong>${c.credits_amount}</strong></td>
+                    <td><span class="badge ${c.is_used ? 'badge-gray' : 'badge-green'}">${c.is_used ? '已使用' : '可用'}</span></td>
+                    <td><span class="cell-ellipsis" title="${c.used_by || '-'}">${c.used_by || '-'}</span></td>
+                    <td><span class="cell-ellipsis" title="${formatDateTimeSeconds(c.created_at)}">${formatDateTimeSeconds(c.created_at)}</span></td>
+                    <td><span class="cell-ellipsis" title="${c.expires_at ? formatDateTimeSeconds(c.expires_at) : '永久'}">${c.expires_at ? formatDateTimeSeconds(c.expires_at) : '永久'}</span></td>
+                    <td class="actions">
+                        <button onclick="copyCode('${c.code}')" title="复制"><i class="fas fa-copy"></i></button>
+                        ${!c.is_used ? `<button onclick="deleteCode(${c.id})" title="删除"><i class="fas fa-trash"></i></button>` : ''}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderPagination(total, page, totalPages) {
+            const div = document.getElementById('pagination');
+            if (totalPages <= 1) { div.innerHTML = ''; return; }
+            const windowSize = 2;
+            const pages = [];
+            const push = (p) => pages.push(p);
+            const addRange = (a, b) => { for (let i = a; i <= b; i++) push(i); };
+
+            push(1);
+            const left = Math.max(2, page - windowSize);
+            const right = Math.min(totalPages - 1, page + windowSize);
+            if (left > 2) push('...');
+            addRange(left, right);
+            if (right < totalPages - 1) push('...');
+            if (totalPages > 1) push(totalPages);
+
+            let html = '';
+            html += `<button ${page <= 1 ? 'disabled' : ''} onclick="loadCodes(${page - 1})">上一页</button>`;
+            pages.forEach((p) => {
+                if (p === '...') {
+                    html += `<span class="pagination__sep">...</span>`;
+                } else {
+                    html += `<button class="${p === page ? 'active' : ''}" onclick="loadCodes(${p})">${p}</button>`;
+                }
+            });
+            html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="loadCodes(${page + 1})">下一页</button>`;
+            div.innerHTML = html;
+        }
+
+        async function deleteCode(id) {
+            if (!confirm('确定要删除此兑换码吗？')) return;
+            try {
+                const res = await fetch(`/admin/api/redemption-codes/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error((await res.json()).detail);
+                loadCodes(currentPage);
+                showToast('兑换码已删除');
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,1109 @@
+        const projectId = '{{ project.project_id }}';
+        const projectOutline = {{ project.outline | tojson if project.outline else 'null' }};
+        const projectSlides = {{ project.outline.get('slides', []) | tojson if project.outline else '[]' }};
+
+        async function archiveProject() {
+            if (confirm('确定要归档这个项目吗？归档后项目将不会显示在活跃项目列表中。')) {
+                try {
+                    const response = await fetch(`/api/projects/${projectId}/archive`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    if (response.ok) {
+                        alert('项目已归档');
+                        window.location.href = '/projects';
+                    } else {
+                        alert('归档失败，请重试');
+                    }
+                } catch (error) {
+                    console.error('Error archiving project:', error);
+                    alert('归档失败: ' + error.message);
+                }
+            }
+        }
+
+        async function deleteProject() {
+            if (confirm('确定要删除这个项目吗？此操作不可撤销！')) {
+                if (confirm('请再次确认删除操作，所有数据将永久丢失！')) {
+                    try {
+                        // Show loading indicator
+                        const deleteBtn = document.querySelector('button[onclick="deleteProject()"]');
+                        const originalText = deleteBtn.innerHTML;
+                        deleteBtn.innerHTML = '删除中...';
+                        deleteBtn.disabled = true;
+
+                        const response = await fetch(`/api/database/projects/${projectId}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            }
+                        });
+
+                        const result = await response.json();
+
+                        if (response.ok) {
+                            alert('项目删除成功！');
+                            window.location.href = '/projects';
+                        } else {
+                            throw new Error(result.detail || '删除失败');
+                        }
+                    } catch (error) {
+                        console.error('Error deleting project:', error);
+                        alert('删除失败: ' + error.message);
+
+                        // Restore button state
+                        const deleteBtn = document.querySelector('button[onclick="deleteProject()"]');
+                        deleteBtn.innerHTML = '删除项目';
+                        deleteBtn.disabled = false;
+                    }
+                }
+            }
+        }
+
+        // 大纲视图切换
+        let isDetailView = false;
+
+        function toggleOutlineView() {
+            const compactView = document.getElementById('compactView');
+            const detailView = document.getElementById('detailView');
+            const toggleText = document.getElementById('viewToggleText');
+
+            if (isDetailView) {
+                compactView.style.display = 'block';
+                detailView.style.display = 'none';
+                toggleText.textContent = '详细视图';
+                isDetailView = false;
+            } else {
+                compactView.style.display = 'none';
+                detailView.style.display = 'block';
+                toggleText.textContent = '简洁视图';
+                isDetailView = true;
+            }
+        }
+
+        // 查看幻灯片详情
+        function viewSlideDetail(slideIndex) {
+            const slide = projectSlides[slideIndex];
+
+            if (!slide) return;
+
+            // 创建模态框显示详细信息
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5); z-index: 1000; display: flex;
+        align-items: center; justify-content: center; padding: 20px;
+    `;
+
+            const content = document.createElement('div');
+            content.style.cssText = `
+        background: white; border-radius: 15px; padding: 30px;
+        max-width: 600px; max-height: 80vh; overflow-y: auto;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    `;
+
+            let contentPoints = '';
+            if (slide.content_points && slide.content_points.length > 0) {
+                contentPoints = '<h5 style="color: #555; margin: 15px 0 8px 0;">内容要点：</h5><ul style="margin: 0; padding-left: 20px; color: #555; line-height: 1.6;">';
+                slide.content_points.forEach(point => {
+                    contentPoints += `<li style="margin-bottom: 5px;">${point}</li>`;
+                });
+                contentPoints += '</ul>';
+            } else if (slide.content) {
+                contentPoints = `<h5 style="color: #555; margin: 15px 0 8px 0;">内容：</h5><div style="background: #f8f9fa; padding: 15px; border-radius: 6px; color: #555; line-height: 1.6; white-space: pre-wrap;">${slide.content}</div>`;
+            }
+
+            content.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="color: #2c3e50; margin: 0;">第${slide.page_number || slideIndex + 1}页详情</h3>
+            <button onclick="this.closest('.modal').remove()" style="background: #e74c3c; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 16px;">×</button>
+        </div>
+        <h4 style="color: #3498db; margin-bottom: 10px;">${slide.title || '未命名幻灯片'}</h4>
+        ${slide.subtitle ? `<p style="color: #7f8c8d; font-style: italic; margin-bottom: 15px;">${slide.subtitle}</p>` : ''}
+        ${contentPoints}
+        ${slide.slide_type ? `<div style="margin-top: 15px;"><span style="background: #e8f4fd; color: #3498db; padding: 6px 12px; border-radius: 6px; font-size: 0.9em;">类型: ${slide.slide_type}</span></div>` : ''}
+    `;
+
+            modal.className = 'modal';
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+
+            // 点击背景关闭
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+
+        // 编辑大纲
+        function editOutline() {
+            if (!projectOutline) {
+                alert('大纲数据不存在，无法编辑');
+                return;
+            }
+
+            // 创建编辑模态框
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5); z-index: 1000; display: flex;
+        align-items: center; justify-content: center; padding: 20px;
+    `;
+
+            const content = document.createElement('div');
+            content.style.cssText = `
+        background: white; border-radius: 15px; padding: 30px;
+        width: 90%; max-width: 800px; height: 80vh; display: flex;
+        flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    `;
+
+            content.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="color: var(--text-primary); margin: 0;">编辑PPT大纲</h3>
+            <button type="button" class="modal-close-button" onclick="this.closest('.modal').remove()" aria-label="关闭">×</button>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column;">
+            <textarea id="outlineEditor" style="flex: 1; border: 2px solid #ecf0f1; border-radius: 8px; padding: 15px; font-family: 'Courier New', monospace; font-size: 14px; line-height: 1.5; resize: none;" placeholder="编辑大纲JSON...">${JSON.stringify(projectOutline, null, 2)}</textarea>
+            <div style="display: flex; gap: 10px; margin-top: 15px; justify-content: space-between;">
+                <button type="button" onclick="aiOptimizeFullOutlineInProjectDetail()" class="btn modal-btn-primary">
+                    <i class="fas fa-robot"></i> 优化大纲
+                </button>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" onclick="this.closest('.modal').remove()" class="btn modal-btn-neutral">取消</button>
+                    <button type="button" onclick="saveOutlineChanges()" class="btn modal-btn-primary">保存修改</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+            modal.className = 'modal';
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+        }
+
+        // 保存大纲修改
+        async function saveOutlineChanges() {
+            const editor = document.getElementById('outlineEditor');
+            try {
+                const newOutline = JSON.parse(editor.value);
+
+                const response = await fetch(`/projects/${projectId}/update-outline`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ outline_content: JSON.stringify(newOutline, null, 2) })
+                });
+
+                if (response.ok) {
+                    alert('大纲修改成功！');
+                    window.location.reload();
+                } else {
+                    const error = await response.json();
+                    alert('保存失败: ' + (error.detail || '未知错误'));
+                }
+            } catch (error) {
+                if (error instanceof SyntaxError) {
+                    alert('JSON格式错误，请检查语法！');
+                } else {
+                    console.error('Error saving outline:', error);
+                    alert('保存失败: ' + error.message);
+                }
+            }
+        }
+
+        // 导出大纲为JSON文件
+        function exportOutlineJSON() {
+            if (!projectOutline) {
+                alert('大纲数据不存在，无法导出');
+                return;
+            }
+
+            const dataStr = JSON.stringify(projectOutline, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(dataBlob);
+            link.download = `${(projectOutline.title || 'ppt_outline')}_${new Date().toISOString().split('T')[0]}.json`;
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // 显示成功提示
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+        position: fixed; top: 20px; right: 20px; background: #27ae60;
+        color: white; padding: 15px 20px; border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1001;
+        font-size: 14px; font-weight: bold;
+    `;
+            toast.textContent = '✅ 大纲JSON文件已导出';
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+
+        // 编辑单页幻灯片
+        function editSingleSlide(slideIndex) {
+            if (!projectSlides || !projectSlides[slideIndex]) {
+                alert('幻灯片不存在');
+                return;
+            }
+
+            const slide = projectSlides[slideIndex];
+
+            // 创建编辑模态框
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5); z-index: 1000; display: flex;
+        align-items: center; justify-content: center; padding: 20px;
+    `;
+
+            const content = document.createElement('div');
+            content.style.cssText = `
+        background: white; border-radius: 15px; padding: 30px;
+        width: 90%; max-width: 700px; max-height: 85vh; overflow-y: auto;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    `;
+
+            // 构建内容要点的编辑界面
+            let contentPointsHtml = '<h5 style="color: var(--text-secondary); margin: 15px 0 8px 0; font-size: 0.9rem;">内容要点：</h5>';
+            contentPointsHtml += '<div id="contentPointsContainer">';
+
+            if (slide.content_points && slide.content_points.length > 0) {
+                slide.content_points.forEach((point, index) => {
+                    contentPointsHtml += `
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <input type="text" id="point_${index}" value="${point.replace(/"/g, '&quot;')}"
+                           style="flex: 1; padding: 8px 12px; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--surface); color: var(--text-primary);">
+                    <button type="button" class="btn btn-sm modal-btn-outline" onclick="removeContentPoint(${index})">删除</button>
+                </div>
+            `;
+                });
+            }
+
+            contentPointsHtml += '</div>';
+            contentPointsHtml += `
+        <button type="button" class="btn btn-sm modal-btn-primary" onclick="addContentPoint()" style="margin-top: 10px;">
+            添加要点
+        </button>
+    `;
+
+            content.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3 style="color: var(--text-primary); margin: 0;">编辑第${slide.page_number || slideIndex + 1}页</h3>
+            <button type="button" class="modal-close-button" onclick="this.closest('.modal').remove()" aria-label="关闭">×</button>
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; color: var(--text-secondary); font-weight: 600;">标题：</label>
+            <input type="text" id="slideTitle" value="${slide.title || ''}"
+                   style="width: 100%; padding: 10px; border: 1px solid var(--glass-border); border-radius: 10px; font-size: 14px; background: var(--surface); color: var(--text-primary);">
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; color: var(--text-secondary); font-weight: 600;">副标题：</label>
+            <input type="text" id="slideSubtitle" value="${slide.subtitle || ''}"
+                   style="width: 100%; padding: 10px; border: 1px solid var(--glass-border); border-radius: 10px; font-size: 14px; background: var(--surface); color: var(--text-primary);">
+        </div>
+
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; color: var(--text-secondary); font-weight: 600;">幻灯片类型：</label>
+            <select id="slideType" style="width: 100%; padding: 10px; border: 1px solid var(--glass-border); border-radius: 10px; font-size: 14px; background: var(--surface); color: var(--text-primary);">
+                <option value="content" ${slide.slide_type === 'content' ? 'selected' : ''}>内容页</option>
+                <option value="title" ${slide.slide_type === 'title' ? 'selected' : ''}>标题页</option>
+                <option value="conclusion" ${slide.slide_type === 'conclusion' ? 'selected' : ''}>结论页</option>
+            </select>
+        </div>
+
+        <div id="contentPointsSection" style="margin-bottom: 20px;">
+            ${contentPointsHtml}
+        </div>
+
+        ${slide.content ? `
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; color: var(--text-secondary); font-weight: 600;">内容：</label>
+            <textarea id="slideContent" rows="4"
+                      style="width: 100%; padding: 10px; border: 1px solid var(--glass-border); border-radius: 10px; font-size: 14px; resize: vertical; background: var(--surface); color: var(--text-primary);">${slide.content}</textarea>
+        </div>
+        ` : ''}
+
+        <div style="display: flex; gap: 10px; justify-content: space-between; margin-top: 20px;">
+            <button type="button" onclick="aiOptimizeSingleSlideInProjectDetail(${slideIndex})" class="btn modal-btn-primary">
+                <i class="fas fa-robot"></i> AI优化
+            </button>
+            <div style="display: flex; gap: 10px;">
+                <button type="button" onclick="this.closest('.modal').remove()" class="btn modal-btn-neutral">取消</button>
+                <button type="button" onclick="saveSingleSlideChanges(${slideIndex})" class="btn modal-btn-primary">保存修改</button>
+            </div>
+        </div>
+    `;
+
+            modal.className = 'modal';
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+
+            // 存储当前编辑的幻灯片索引
+            window.currentEditingSlideIndex = slideIndex;
+        }
+
+        // 添加内容要点
+        function addContentPoint() {
+            // 查找内容要点容器
+            const container = document.getElementById('contentPointsContainer');
+
+            if (!container) {
+                console.error('找不到内容要点容器');
+                alert('无法找到内容要点容器，请刷新页面重试');
+                return;
+            }
+
+            // 计算当前要点数量
+            const existingPoints = document.querySelectorAll('input[id^="point_"]');
+            const pointIndex = existingPoints.length;
+
+            const pointDiv = document.createElement('div');
+            pointDiv.style.cssText = 'display: flex; align-items: center; margin-bottom: 8px;';
+            pointDiv.innerHTML = `
+        <input type="text" id="point_${pointIndex}" placeholder="输入要点内容..."
+               style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-right: 8px;">
+        <button onclick="removeContentPoint(${pointIndex})" style="background: #e74c3c; color: white; border: none; border-radius: 4px; padding: 6px 10px; cursor: pointer;">删除</button>
+    `;
+
+            // 直接添加到容器末尾
+            container.appendChild(pointDiv);
+        }
+
+        // 删除内容要点
+        function removeContentPoint(index) {
+            const pointElement = document.getElementById(`point_${index}`);
+            if (pointElement) {
+                pointElement.closest('div').remove();
+            }
+        }
+
+        // 保存单页幻灯片修改
+        async function saveSingleSlideChanges(slideIndex) {
+            try {
+                const title = document.getElementById('slideTitle').value.trim();
+                const subtitle = document.getElementById('slideSubtitle').value.trim();
+                const slideType = document.getElementById('slideType').value;
+                const content = document.getElementById('slideContent')?.value.trim() || '';
+
+                // 收集所有内容要点
+                const contentPoints = [];
+                const pointInputs = document.querySelectorAll('input[id^="point_"]');
+                pointInputs.forEach(input => {
+                    const value = input.value.trim();
+                    if (value) {
+                        contentPoints.push(value);
+                    }
+                });
+
+                if (!title) {
+                    alert('请输入幻灯片标题');
+                    return;
+                }
+
+                // 构建更新的幻灯片数据
+                const updatedSlide = {
+                    ...projectSlides[slideIndex],
+                    title: title,
+                    subtitle: subtitle || undefined,
+                    slide_type: slideType,
+                    content_points: contentPoints.length > 0 ? contentPoints : undefined,
+                    content: content || undefined
+                };
+
+                // 更新本地数据
+                projectSlides[slideIndex] = updatedSlide;
+
+                // 更新大纲中的幻灯片
+                if (!projectOutline) {
+                    alert('大纲数据不存在，无法保存修改');
+                    return;
+                }
+                const updatedOutline = { ...projectOutline };
+                updatedOutline.slides[slideIndex] = updatedSlide;
+
+                // 发送到服务器
+                const response = await fetch(`/projects/${projectId}/update-outline`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ outline_content: JSON.stringify(updatedOutline, null, 2) })
+                });
+
+                if (response.ok) {
+                    // 关闭模态框
+                    document.querySelector('.modal').remove();
+
+                    // 显示成功提示
+                    const toast = document.createElement('div');
+                    toast.style.cssText = `
+                position: fixed; top: 20px; right: 20px; background: #27ae60;
+                color: white; padding: 15px 20px; border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1001;
+                font-size: 14px; font-weight: bold;
+            `;
+                    toast.textContent = `✅ 第${slideIndex + 1}页修改成功`;
+                    document.body.appendChild(toast);
+
+                    setTimeout(() => {
+                        toast.remove();
+                        // 刷新页面以显示更新
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    const error = await response.json();
+                    alert('保存失败: ' + (error.detail || '未知错误'));
+                }
+            } catch (error) {
+                console.error('Error saving slide changes:', error);
+                alert('保存失败: ' + error.message);
+            }
+        }
+
+        async function restoreVersion(version) {
+            if (confirm(`确定要恢复到版本 v${version} 吗？当前未保存的更改将丢失。`)) {
+                try {
+                    const response = await fetch(`/api/projects/${projectId}/versions/${version}/restore`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    if (response.ok) {
+                        alert('版本恢复成功');
+                        window.location.reload();
+                    } else {
+                        alert('版本恢复失败，请重试');
+                    }
+                } catch (error) {
+                    console.error('Error restoring version:', error);
+                    alert('版本恢复失败: ' + error.message);
+                }
+            }
+        }
+
+        // ========== AI优化功能 ==========
+
+        // 创建美化的AI优化需求输入弹窗
+        function showAIOptimizeModal(config) {
+            return new Promise((resolve, reject) => {
+                // 创建模态框遮罩
+                const modal = document.createElement('div');
+                modal.className = 'ai-optimize-modal';
+                modal.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.98);
+            z-index: 10000; display: flex; align-items: center; justify-content: center;
+            padding: 20px; animation: fadeIn 0.3s ease;
+        `;
+
+                // 创建弹窗内容
+                const content = document.createElement('div');
+                content.style.cssText = `
+            background: var(--surface);
+            border-radius: 20px; padding: 0; max-width: 600px; width: 100%;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+            animation: slideIn 0.3s ease; max-height: 90vh; overflow: hidden;
+            display: flex; flex-direction: column;
+        `;
+
+                // 建议示例
+                const suggestions = config.suggestions || [
+                    '增加更多文字说明',
+                    '简化内容，突出核心要点',
+                    '添加数据支撑和案例分析',
+                    '优化逻辑结构，增强说服力',
+                    '增加视觉化描述建议'
+                ];
+
+                content.innerHTML = `
+            <style>
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+                @keyframes slideIn {
+                    from { transform: translateY(-50px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+                .ai-optimize-modal__header {
+                    background: var(--surface-contrast);
+                    color: var(--surface);
+                    padding: 24px 32px;
+                }
+                .ai-optimize-modal__header-content {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 16px;
+                }
+                .ai-optimize-modal__title {
+                    margin: 0 0 6px 0;
+                    font-size: 1.3rem;
+                    font-weight: 700;
+                    letter-spacing: -0.01em;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
+                .ai-optimize-modal__subtitle {
+                    margin: 0;
+                    font-size: 0.95rem;
+                    color: rgba(255, 255, 255, 0.72);
+                }
+                .ai-optimize-modal__close {
+                    border: none;
+                    background: rgba(255, 255, 255, 0.12);
+                    color: var(--surface);
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 50%;
+                    font-size: 1.2rem;
+                    cursor: pointer;
+                    transition: background 0.2s ease, transform 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .ai-optimize-modal__close:hover {
+                    background: rgba(255, 255, 255, 0.2);
+                    transform: scale(1.05);
+                }
+                .ai-optimize-modal__body {
+                    padding: 30px 32px;
+                    flex: 1;
+                    overflow-y: auto;
+                    background: var(--surface);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 20px;
+                }
+                .ai-optimize-modal__body .current-info {
+                    background: var(--surface-subtle);
+                    border-left: 3px solid var(--surface-contrast);
+                    padding: 16px 18px;
+                    border-radius: 12px;
+                    color: var(--text-secondary);
+                    font-size: 0.95rem;
+                    line-height: 1.7;
+                }
+                .ai-optimize-modal__body .current-info strong {
+                    color: var(--surface-contrast);
+                    font-weight: 600;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .input-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                }
+                .input-label {
+                    display: block;
+                    color: var(--text-primary);
+                    font-weight: 600;
+                    font-size: 0.95rem;
+                    letter-spacing: 0.01em;
+                }
+                .input-textarea {
+                    width: 100%;
+                    min-height: 120px;
+                    padding: 16px 18px;
+                    border: 1px solid var(--glass-border);
+                    border-radius: 12px;
+                    font-size: 0.95rem;
+                    resize: vertical;
+                    font-family: inherit;
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+                    color: var(--text-primary);
+                    background: var(--surface);
+                }
+                .input-textarea::placeholder {
+                    color: var(--text-muted);
+                    opacity: 0.9;
+                }
+                .input-textarea:focus {
+                    outline: none;
+                    border-color: var(--surface-contrast);
+                    box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.08);
+                }
+                .suggestions {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                .suggestion-label {
+                    display: block;
+                    color: var(--text-secondary);
+                    font-size: 0.85rem;
+                    font-weight: 500;
+                    letter-spacing: 0.02em;
+                }
+                .suggestion-list {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                }
+                .suggestion-tag {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 6px 14px;
+                    background: var(--surface-subtle);
+                    border: 1px solid var(--glass-border);
+                    border-radius: 999px;
+                    font-size: 0.8rem;
+                    color: var(--text-primary);
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .suggestion-tag:hover {
+                    transform: translateY(-2px);
+                    background: var(--surface-contrast);
+                    border-color: var(--surface-contrast);
+                    color: var(--surface);
+                    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+                }
+                .ai-optimize-modal__footer {
+                    padding: 20px 32px;
+                    background: var(--surface);
+                    border-top: 1px solid var(--glass-border);
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 16px;
+                }
+                .footer-hint {
+                    color: var(--text-secondary);
+                    font-size: 0.85rem;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .footer-actions {
+                    display: flex;
+                    gap: 12px;
+                }
+                .footer-actions .btn {
+                    min-width: 110px;
+                    justify-content: center;
+                }
+                .modal-cancel {
+                    background: var(--surface-subtle);
+                    border-color: var(--border-color);
+                    color: var(--text-primary);
+                }
+                .modal-cancel:hover {
+                    background: var(--surface);
+                }
+                @media (max-width: 520px) {
+                    .ai-optimize-modal__header,
+                    .ai-optimize-modal__body,
+                    .ai-optimize-modal__footer {
+                        padding-left: 20px;
+                        padding-right: 20px;
+                    }
+                    .footer-actions {
+                        width: 100%;
+                        flex-direction: column;
+                    }
+                    .footer-actions .btn {
+                        width: 100%;
+                    }
+                }
+            </style>
+
+            <div class="ai-optimize-modal__header">
+                <div class="ai-optimize-modal__header-content">
+                    <div>
+                        <h3 class="ai-optimize-modal__title">
+                            <i class="fas fa-magic"></i>${config.title}
+                        </h3>
+                        <p class="ai-optimize-modal__subtitle">${config.subtitle}</p>
+                    </div>
+                    <button type="button" class="ai-optimize-modal__close" onclick="this.closest('.ai-optimize-modal').remove()" aria-label="关闭">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="ai-optimize-modal__body">
+                <div class="current-info">
+                    <div>
+                        <strong><i class="fas fa-info-circle"></i> 当前内容</strong><br>
+                        ${config.currentInfo}
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label" for="aiOptimizeInput">
+                        <i class="fas fa-edit"></i> 请描述您的优化需求
+                    </label>
+                    <textarea id="aiOptimizeInput" class="input-textarea" placeholder="详细描述您希望如何优化此内容...
+
+例如：
+- 增加更多技术细节
+- 重新组织逻辑结构
+- 添加案例分析"></textarea>
+                </div>
+
+                <div class="suggestions">
+                    <label class="suggestion-label">
+                        <i class="fas fa-lightbulb"></i> 点击快捷建议快速填充
+                    </label>
+                    <div class="suggestion-list">
+                        ${suggestions.map(s => `<span class="suggestion-tag" onclick="document.getElementById('aiOptimizeInput').value = '${s}'">${s}</span>`).join('')}
+                    </div>
+                </div>
+            </div>
+
+            <div class="ai-optimize-modal__footer">
+                <div class="footer-hint">
+                    <i class="fas fa-robot"></i> AI将根据您的需求智能优化内容
+                </div>
+                <div class="footer-actions">
+                    <button type="button" class="btn btn-sm modal-cancel" onclick="this.closest('.ai-optimize-modal').remove()">
+                        取消
+                    </button>
+                    <button type="button" id="confirmOptimizeBtn" class="btn btn-sm btn-primary">
+                        开始优化
+                    </button>
+                </div>
+            </div>
+        `;
+
+                modal.appendChild(content);
+                document.body.appendChild(modal);
+
+                // 聚焦输入框
+                setTimeout(() => {
+                    const input = document.getElementById('aiOptimizeInput');
+                    if (input) input.focus();
+                }, 100);
+
+                // 点击背景关闭
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        modal.remove();
+                        reject('用户取消');
+                    }
+                });
+
+                // 确认按钮
+                const confirmBtn = document.getElementById('confirmOptimizeBtn');
+                confirmBtn.onclick = () => {
+                    const input = document.getElementById('aiOptimizeInput');
+                    const value = input?.value.trim();
+                    if (!value) {
+                        // 输入框抖动动画
+                        input.style.animation = 'shake 0.5s';
+                        setTimeout(() => { input.style.animation = ''; }, 500);
+                        return;
+                    }
+                    modal.remove();
+                    resolve(value);
+                };
+
+                // 添加shake动画
+                const style = document.createElement('style');
+                style.textContent = `
+            @keyframes shake {
+                0%, 100% { transform: translateX(0); }
+                25% { transform: translateX(-10px); }
+                75% { transform: translateX(10px); }
+            }
+        `;
+                document.head.appendChild(style);
+            });
+        }
+
+        // 辅助函数：获取正确的目标受众（处理自定义受众情况）
+        function getTargetAudience(outline) {
+            if (!outline || !outline.metadata) {
+                return '普通大众';
+            }
+            const audienceType = outline.metadata.target_audience;
+            // 如果选择的是"自定义"，则使用custom_audience字段的值
+            if (audienceType === '自定义' && outline.metadata.custom_audience) {
+                return outline.metadata.custom_audience;
+            }
+            return audienceType || '普通大众';
+        }
+
+        // AI优化整个大纲
+        async function aiOptimizeFullOutlineInProjectDetail() {
+            const editor = document.getElementById('outlineEditor');
+            if (!editor || !editor.value) {
+                alert('请先输入大纲JSON内容');
+                return;
+            }
+
+            // 验证JSON格式
+            let parsedOutline;
+            try {
+                parsedOutline = JSON.parse(editor.value);
+            } catch (e) {
+                alert('JSON格式错误，请先修正格式后再进行AI优化');
+                return;
+            }
+
+            // 显示美化的优化需求输入弹窗
+            let userRequest;
+            try {
+                userRequest = await showAIOptimizeModal({
+                    title: '优化大纲',
+                    subtitle: '让AI帮助您优化整个PPT大纲结构和内容',
+                    currentInfo: `<strong>大纲标题：</strong>${parsedOutline.title}<br><strong>幻灯片数量：</strong>${parsedOutline.slides ? parsedOutline.slides.length : 0} 页<br><strong>场景：</strong>${parsedOutline.metadata?.scenario || '通用'}`,
+                    suggestions: [
+                        '增加更多文字说明和技术细节',
+                        '重新组织结构，优化逻辑流程',
+                        '突出创新点和亮点内容',
+                        '增强各页面之间的连贯性',
+                        '调整页数，使内容更详细'
+                    ]
+                });
+            } catch (e) {
+                return; // 用户取消
+            }
+
+            if (!userRequest || !userRequest.trim()) {
+                return;
+            }
+
+            // 显示加载提示
+            const loadingToast = document.createElement('div');
+            loadingToast.id = 'ai-optimize-loading';
+            loadingToast.style.cssText = `
+        position: fixed; top: 20px; right: 20px; background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white; padding: 15px 20px; border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10001;
+        font-size: 14px; font-weight: bold;
+    `;
+            loadingToast.innerHTML = `<i class="fas fa-spinner fa-spin"></i> AI正在优化整个大纲...`;
+            document.body.appendChild(loadingToast);
+
+            try {
+                // 调用AI优化接口
+                const response = await fetch('/api/ai/optimize-outline', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        outline_content: editor.value,
+                        user_request: userRequest.trim(),
+                        language: parsedOutline?.metadata?.language || 'zh',
+                        project_info: {
+                            topic: parsedOutline.title || '未知',
+                            scenario: parsedOutline.metadata?.scenario || '通用',
+                            target_audience: getTargetAudience(parsedOutline)
+                        },
+                        optimization_type: 'full'
+                    })
+                });
+
+                const result = await response.json();
+                loadingToast.remove();
+
+                if (result.success && result.optimized_content) {
+                    // 更新编辑器内容
+                    editor.value = result.optimized_content;
+
+                    // 显示成功提示
+                    const successToast = document.createElement('div');
+                    successToast.style.cssText = `
+                position: fixed; top: 20px; right: 20px; background: #27ae60;
+                color: white; padding: 15px 20px; border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10001;
+                font-size: 14px; font-weight: bold;
+            `;
+                    successToast.innerHTML = `✅ AI优化完成<br><small style="font-weight: normal;">请检查优化结果，满意后点击"保存修改"</small>`;
+                    document.body.appendChild(successToast);
+
+                    setTimeout(() => {
+                        successToast.remove();
+                    }, 5000);
+
+                } else {
+                    // 显示详细的错误信息
+                    let errorMsg = result.error || '未知错误';
+                    if (result.extracted_json) {
+                        console.error('提取的JSON:', result.extracted_json);
+                        errorMsg += '\n\n请检查控制台查看详细信息。';
+                    }
+                    if (result.raw_response) {
+                        console.error('AI原始响应:', result.raw_response);
+                    }
+                    alert('AI优化失败:\n' + errorMsg);
+                }
+
+            } catch (error) {
+                console.error('AI优化失败:', error);
+                const loadingToast = document.getElementById('ai-optimize-loading');
+                if (loadingToast) loadingToast.remove();
+                alert('AI优化失败: ' + error.message);
+            }
+        }
+
+        // AI优化单页幻灯片
+        async function aiOptimizeSingleSlideInProjectDetail(slideIndex) {
+            // 从表单中获取当前数据
+            const title = document.getElementById('slideTitle')?.value.trim() || '';
+            const subtitle = document.getElementById('slideSubtitle')?.value.trim() || '';
+            const slideType = document.getElementById('slideType')?.value || 'content';
+
+            // 获取所有内容要点
+            const contentPointInputs = document.querySelectorAll('input[id^="point_"]');
+            const contentPoints = Array.from(contentPointInputs)
+                .map(input => input.value.trim())
+                .filter(point => point.length > 0);
+
+            if (!title) {
+                alert('请先输入页面标题');
+                return;
+            }
+
+            // 显示美化的优化需求输入弹窗
+            let userRequest;
+            try {
+                userRequest = await showAIOptimizeModal({
+                    title: `AI优化 - 第${slideIndex + 1}页`,
+                    subtitle: '让AI帮助您优化这一页的内容',
+                    currentInfo: `<strong>标题：</strong>${title}<br>${subtitle ? `<strong>副标题：</strong>${subtitle}<br>` : ''}<strong>类型：</strong>${slideType}<br><strong>内容要点：</strong>${contentPoints.length}个`,
+                    suggestions: [
+                        '增加更多技术细节和实例',
+                        '简化内容，突出核心要点',
+                        '优化逻辑结构，使内容更连贯',
+                        '增强说服力，添加数据支撑',
+                        '丰富表达方式，提升专业度'
+                    ]
+                });
+            } catch (e) {
+                return; // 用户取消
+            }
+
+            if (!userRequest || !userRequest.trim()) {
+                return;
+            }
+
+            // 显示加载提示
+            const loadingToast = document.createElement('div');
+            loadingToast.id = 'ai-optimize-loading';
+            loadingToast.style.cssText = `
+        position: fixed; top: 20px; right: 20px; background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white; padding: 15px 20px; border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10001;
+        font-size: 14px; font-weight: bold;
+    `;
+            loadingToast.innerHTML = `<i class="fas fa-spinner fa-spin"></i> AI正在优化第${slideIndex + 1}页...`;
+            document.body.appendChild(loadingToast);
+
+            try {
+                // 使用项目大纲数据
+                if (!projectOutline || !projectOutline.slides) {
+                    throw new Error('大纲数据不存在');
+                }
+
+                const outlineContent = JSON.stringify(projectOutline);
+
+                // 调用AI优化接口
+                const response = await fetch('/api/ai/optimize-outline', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        outline_content: outlineContent,
+                        user_request: userRequest.trim(),
+                        language: projectOutline?.metadata?.language || 'zh',
+                        project_info: {
+                            topic: projectOutline.title || '未知',
+                            scenario: projectOutline.metadata?.scenario || '通用',
+                            target_audience: getTargetAudience(projectOutline)
+                        },
+                        optimization_type: 'single',
+                        slide_index: slideIndex
+                    })
+                });
+
+                const result = await response.json();
+                loadingToast.remove();
+
+                if (result.success && result.optimized_content) {
+                    // 解析优化后的单页数据
+                    const optimizedSlide = JSON.parse(result.optimized_content);
+
+                    // 更新弹窗中的表单
+                    document.getElementById('slideTitle').value = optimizedSlide.title || '';
+                    document.getElementById('slideSubtitle').value = optimizedSlide.subtitle || '';
+                    document.getElementById('slideType').value = optimizedSlide.slide_type || 'content';
+
+                    // 更新内容要点
+                    const container = document.getElementById('contentPointsContainer');
+                    if (container) {
+                        container.innerHTML = '';
+                        if (optimizedSlide.content_points && optimizedSlide.content_points.length > 0) {
+                            optimizedSlide.content_points.forEach((point, idx) => {
+                                const pointDiv = document.createElement('div');
+                                pointDiv.style.cssText = 'display: flex; align-items: center; margin-bottom: 8px;';
+                                pointDiv.innerHTML = `
+                            <input type="text" id="point_${idx}" value="${point.replace(/"/g, '&quot;')}"
+                                   style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-right: 8px;">
+                            <button onclick="removeContentPoint(${idx})" style="background: #e74c3c; color: white; border: none; border-radius: 4px; padding: 6px 10px; cursor: pointer;">删除</button>
+                        `;
+                                container.appendChild(pointDiv);
+                            });
+                        }
+                    }
+
+                    // 显示成功提示
+                    const successToast = document.createElement('div');
+                    successToast.style.cssText = `
+                position: fixed; top: 20px; right: 20px; background: #27ae60;
+                color: white; padding: 15px 20px; border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10001;
+                font-size: 14px; font-weight: bold;
+            `;
+                    successToast.textContent = `✅ AI优化完成，请检查后保存`;
+                    document.body.appendChild(successToast);
+
+                    setTimeout(() => {
+                        successToast.remove();
+                    }, 3000);
+
+                } else {
+                    // 显示详细的错误信息
+                    let errorMsg = result.error || '未知错误';
+                    if (result.extracted_json) {
+                        console.error('提取的JSON:', result.extracted_json);
+                        errorMsg += '\n\n请检查控制台查看详细信息。';
+                    }
+                    if (result.raw_response) {
+                        console.error('AI原始响应:', result.raw_response);
+                    }
+                    alert('AI优化失败:\n' + errorMsg);
+                }
+
+            } catch (error) {
+                console.error('AI优化失败:', error);
+                const loadingToast = document.getElementById('ai-optimize-loading');
+                if (loadingToast) loadingToast.remove();
+                alert('AI优化失败: ' + error.message);
+            }
+        }

@@ -9,25 +9,133 @@ import re
 from typing import List, Dict, Any, Optional, AsyncGenerator, Union, Tuple
 
 from .base import AIProvider, AIMessage, AIResponse, MessageRole, TextContent, ImageContent, MessageContentType
-from ..core.config import ai_config
+from ..core.config import ai_config, resolve_timeout_seconds
 
 logger = logging.getLogger(__name__)
+
+def _get_llm_timeout_seconds(config: Dict[str, Any], *, default_seconds: float = 600.0) -> float:
+    raw_timeout = config.get("llm_timeout_seconds")
+    if raw_timeout is not None:
+        return float(resolve_timeout_seconds(raw_timeout, int(default_seconds)))
+
+    for key in ("http_timeout_seconds", "request_timeout_seconds", "timeout_seconds", "http_timeout", "timeout"):
+        value = config.get(key)
+        if value is None:
+            continue
+        try:
+            seconds = float(value)
+            if seconds > 0:
+                return seconds
+        except Exception:
+            continue
+    return float(resolve_timeout_seconds(None, int(default_seconds)))
+
+
+def _get_httpx_timeout_seconds(config: Dict[str, Any], *, default_seconds: float = 600.0) -> float:
+    """
+    Get per-request HTTP timeout for OpenAI-compatible SDKs (which use httpx under the hood).
+
+    Notes:
+    - This is the *client-side* timeout. If the upstream gateway returns 504, increasing this
+      won't override the gateway's own timeout, but it avoids local read timeouts for slower models.
+    """
+    return _get_llm_timeout_seconds(config, default_seconds=default_seconds)
+
+
+def _build_aiohttp_timeout(config: Dict[str, Any], *, default_seconds: float = 600.0):
+    try:
+        import aiohttp
+    except Exception:
+        return None
+
+    total = _get_llm_timeout_seconds(config, default_seconds=default_seconds)
+    return aiohttp.ClientTimeout(total=total)
+
+
+def _build_httpx_timeout(config: Dict[str, Any]):
+    try:
+        import httpx
+    except Exception:
+        return None
+
+    total = _get_httpx_timeout_seconds(config, default_seconds=600.0)
+    connect = min(30.0, total)
+    write = min(30.0, total)
+    pool = min(30.0, total)
+    return httpx.Timeout(total, connect=connect, read=total, write=write, pool=pool)
 
 
 class OpenAIProvider(AIProvider):
     """OpenAI API provider"""
 
+    SUPPORTED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
+        self.use_responses_api = self._coerce_bool(config.get("use_responses_api"))
+        self.enable_reasoning = self._coerce_bool(config.get("enable_reasoning"))
+        self.reasoning_effort = self._normalize_reasoning_effort(config.get("reasoning_effort")) or "medium"
         try:
             import openai
-            self.client = openai.AsyncOpenAI(
-                api_key=config.get("api_key"),
-                base_url=config.get("base_url")
-            )
+            timeout = _build_httpx_timeout(config)
+            try:
+                self.client = openai.AsyncOpenAI(
+                    api_key=config.get("api_key"),
+                    base_url=config.get("base_url"),
+                    timeout=timeout,
+                )
+            except TypeError:
+                self.client = openai.AsyncOpenAI(
+                    api_key=config.get("api_key"),
+                    base_url=config.get("base_url"),
+                )
         except ImportError:
             logger.warning("OpenAI library not installed. Install with: pip install openai")
             self.client = None
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _should_use_responses_api(self, config: Dict[str, Any]) -> bool:
+        return self._coerce_bool(config.get("use_responses_api", self.use_responses_api))
+
+    @classmethod
+    def _normalize_reasoning_effort(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        return normalized if normalized in cls.SUPPORTED_REASONING_EFFORTS else None
+
+    def _should_enable_reasoning(self, config: Dict[str, Any]) -> bool:
+        return self._coerce_bool(config.get("enable_reasoning", self.enable_reasoning))
+
+    def _get_reasoning_effort(self, config: Dict[str, Any]) -> str:
+        return (
+            self._normalize_reasoning_effort(config.get("reasoning_effort"))
+            or self.reasoning_effort
+            or "medium"
+        )
+
+    def _apply_reasoning_config(
+        self,
+        request_kwargs: Dict[str, Any],
+        config: Dict[str, Any],
+        *,
+        responses_api: bool,
+    ) -> None:
+        if not self._should_enable_reasoning(config):
+            return
+
+        reasoning_effort = self._get_reasoning_effort(config)
+        if responses_api:
+            request_kwargs["reasoning"] = {"effort": reasoning_effort}
+        else:
+            request_kwargs["reasoning_effort"] = reasoning_effort
 
     def _convert_message_to_openai(self, message: AIMessage) -> Dict[str, Any]:
         """Convert AIMessage to OpenAI format, supporting multimodal content"""
@@ -60,47 +168,13 @@ class OpenAIProvider(AIProvider):
 
         return openai_message
 
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return bool(value)
-
-    def _should_use_responses_api(self, config: Dict[str, Any]) -> bool:
-        use_responses_api = self._is_truthy(config.get("use_responses_api"))
-        if use_responses_api and not hasattr(self.client, "responses"):
-            raise RuntimeError("Installed openai SDK does not support the Responses API")
-        return use_responses_api
-
-    def _normalize_reasoning_effort(self, effort: Any, use_responses_api: bool) -> str:
-        normalized = str(effort or "medium").strip().lower()
-        if normalized in {"none", "minimal", "low", "medium", "high", "xhigh"}:
-            return normalized
-        return "medium"
-
-    def _build_reasoning_config(self, config: Dict[str, Any], use_responses_api: bool) -> Dict[str, Any]:
-        if not self._is_truthy(config.get("enable_reasoning")):
-            return {}
-
-        effort = self._normalize_reasoning_effort(
-            config.get("reasoning_effort"),
-            use_responses_api,
-        )
-        if use_responses_api:
-            return {"reasoning": {"effort": effort}}
-        return {"reasoning_effort": effort}
-
     def _convert_message_to_responses_input(self, message: AIMessage) -> Dict[str, Any]:
-        """Convert AIMessage to the OpenAI Responses API input format."""
-        response_message: Dict[str, Any] = {"role": message.role.value}
+        """Convert AIMessage to OpenAI Responses API input format."""
+        responses_message: Dict[str, Any] = {"role": message.role.value}
 
         if isinstance(message.content, str):
-            response_message["content"] = message.content
-            return response_message
+            responses_message["content"] = message.content
+            return responses_message
 
         if isinstance(message.content, list):
             content_parts = []
@@ -108,110 +182,134 @@ class OpenAIProvider(AIProvider):
                 if isinstance(part, TextContent):
                     content_parts.append({
                         "type": "input_text",
-                        "text": part.text
+                        "text": part.text,
                     })
                 elif isinstance(part, ImageContent):
-                    image_url = part.image_url.get("url", "")
+                    image_url = part.image_url.get("url") if isinstance(part.image_url, dict) else None
                     if image_url:
                         content_parts.append({
                             "type": "input_image",
                             "image_url": image_url,
-                            "detail": "auto"
+                            "detail": "auto",
                         })
-            response_message["content"] = content_parts or ""
-            return response_message
+            responses_message["content"] = content_parts or str(message.content)
+            return responses_message
 
-        response_message["content"] = str(message.content)
-        return response_message
+        responses_message["content"] = str(message.content)
+        return responses_message
 
-    def _build_responses_request(self, messages: List[AIMessage], config: Dict[str, Any]) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+    def _build_chat_completions_request(
+        self,
+        config: Dict[str, Any],
+        openai_messages: List[Dict[str, Any]],
+        *,
+        stream: bool = False,
+    ) -> Dict[str, Any]:
+        request_kwargs: Dict[str, Any] = {
             "model": config.get("model", self.model),
-            "input": [self._convert_message_to_responses_input(msg) for msg in messages],
+            "messages": openai_messages,
             "temperature": config.get("temperature", 0.7),
             "top_p": config.get("top_p", 1.0),
         }
-        payload.update(self._build_reasoning_config(config, use_responses_api=True))
+        if stream:
+            request_kwargs["stream"] = True
 
-        max_tokens = config.get("max_tokens")
-        if max_tokens is not None:
-            payload["max_output_tokens"] = max_tokens
+        max_output_tokens = config.get("max_output_tokens")
+        if max_output_tokens is not None:
+            request_kwargs["max_tokens"] = max_output_tokens
 
-        model_name = str(payload.get("model") or "")
-        reasoning = payload.get("reasoning") or {}
-        if model_name.startswith("gpt-5") and reasoning.get("effort") not in {None, "none"}:
-            payload.pop("temperature", None)
+        self._apply_reasoning_config(request_kwargs, config, responses_api=False)
 
-        return payload
+        return request_kwargs
+
+    def _build_responses_request(
+        self,
+        config: Dict[str, Any],
+        responses_input: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        request_kwargs: Dict[str, Any] = {
+            "model": config.get("model", self.model),
+            "input": responses_input,
+            "temperature": config.get("temperature", 0.7),
+            "top_p": config.get("top_p", 1.0),
+        }
+
+        max_output_tokens = config.get("max_output_tokens")
+        if max_output_tokens is not None:
+            request_kwargs["max_output_tokens"] = max_output_tokens
+
+        self._apply_reasoning_config(request_kwargs, config, responses_api=True)
+
+        return request_kwargs
 
     @staticmethod
-    def _extract_responses_usage(response: Any) -> Dict[str, int]:
-        usage = getattr(response, "usage", None)
-        if not usage:
-            return {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0
-            }
-
+    def _extract_usage(usage: Any, *, prompt_key: str, completion_key: str, total_key: str) -> Dict[str, int]:
         return {
-            "prompt_tokens": int(getattr(usage, "input_tokens", 0) or 0),
-            "completion_tokens": int(getattr(usage, "output_tokens", 0) or 0),
-            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0)
+            "prompt_tokens": int(getattr(usage, prompt_key, 0) or 0),
+            "completion_tokens": int(getattr(usage, completion_key, 0) or 0),
+            "total_tokens": int(getattr(usage, total_key, 0) or 0),
         }
 
     @staticmethod
-    def _extract_responses_finish_reason(response: Any) -> str:
-        incomplete_details = getattr(response, "incomplete_details", None)
-        if incomplete_details and getattr(incomplete_details, "reason", None):
-            return str(incomplete_details.reason)
+    def _find_first_match(text: str, markers: Tuple[str, ...]) -> Optional[Tuple[int, str]]:
+        matches = []
+        lowered = text.lower()
+        for marker in markers:
+            pos = lowered.find(marker.lower())
+            if pos != -1:
+                matches.append((pos, marker))
+        if not matches:
+            return None
+        return min(matches, key=lambda item: item[0])
 
-        status = getattr(response, "status", None)
-        if not status or str(status) == "completed":
-            return "stop"
+    async def _filter_think_chunks(self, chunks: AsyncGenerator[str, None]) -> AsyncGenerator[str, None]:
+        buffer = ""
+        in_think_tag = False
+        open_markers = ("<think", "＜think")
+        close_markers = ("</think>", "＜/think＞")
 
-        return str(status)
-
-    def _filter_stream_chunk(
-        self,
-        chunk_content: str,
-        buffer: str,
-        in_think_tag: bool,
-    ) -> tuple[str, str, bool]:
-        """Filter think-tag content from streaming chunks while preserving partial tags."""
-        buffer += chunk_content
-        processed_content = ""
-        remaining_buffer = buffer
-
-        while remaining_buffer:
-            lowered = remaining_buffer.lower()
-
-            if not in_think_tag:
-                think_start = lowered.find("<think")
-                if think_start == -1:
-                    processed_content += remaining_buffer
-                    remaining_buffer = ""
-                    break
-
-                processed_content += remaining_buffer[:think_start]
-                tag_end = lowered.find(">", think_start)
-                if tag_end == -1:
-                    remaining_buffer = remaining_buffer[think_start:]
-                    break
-
-                in_think_tag = True
-                remaining_buffer = remaining_buffer[tag_end + 1:]
+        async for chunk_content in chunks:
+            if not chunk_content:
                 continue
 
-            think_end = lowered.find("</think>")
-            if think_end == -1:
-                remaining_buffer = ""
-                break
+            buffer += chunk_content
+            processed_content = ""
+            remaining_buffer = buffer
 
-            in_think_tag = False
-            remaining_buffer = remaining_buffer[think_end + len("</think>"):]
+            while remaining_buffer:
+                if not in_think_tag:
+                    match = self._find_first_match(remaining_buffer, open_markers)
+                    if match is None:
+                        processed_content += remaining_buffer
+                        remaining_buffer = ""
+                        break
 
-        return processed_content, remaining_buffer, in_think_tag
+                    think_start, _ = match
+                    processed_content += remaining_buffer[:think_start]
+                    in_think_tag = True
+                    remaining_buffer = remaining_buffer[think_start:]
+
+                    tag_end_candidates = [remaining_buffer.find(">"), remaining_buffer.find("＞")]
+                    tag_end_candidates = [idx for idx in tag_end_candidates if idx != -1]
+                    if tag_end_candidates:
+                        remaining_buffer = remaining_buffer[min(tag_end_candidates) + 1:]
+                    else:
+                        remaining_buffer = ""
+                        break
+                else:
+                    match = self._find_first_match(remaining_buffer, close_markers)
+                    if match is None:
+                        remaining_buffer = ""
+                        break
+
+                    think_end, close_marker = match
+                    in_think_tag = False
+                    remaining_buffer = remaining_buffer[think_end + len(close_marker):]
+
+            buffer = remaining_buffer
+
+            if not in_think_tag and processed_content:
+                yield processed_content
 
     def _filter_think_content(self, content: str) -> str:
         """
@@ -247,6 +345,56 @@ class OpenAIProvider(AIProvider):
         # filtered_content = re.sub(r' +', ' ', filtered_content)
 
         return filtered_content
+
+    async def _chat_completion_via_chat_completions(
+        self,
+        config: Dict[str, Any],
+        openai_messages: List[Dict[str, Any]],
+    ) -> AIResponse:
+        request_kwargs = self._build_chat_completions_request(config, openai_messages)
+        response = await self.client.chat.completions.create(**request_kwargs)
+
+        choice = response.choices[0]
+        filtered_content = self._filter_think_content(choice.message.content or "")
+
+        return AIResponse(
+            content=filtered_content,
+            model=response.model,
+            usage=self._extract_usage(
+                response.usage,
+                prompt_key="prompt_tokens",
+                completion_key="completion_tokens",
+                total_key="total_tokens",
+            ),
+            finish_reason=choice.finish_reason,
+            metadata={"provider": "openai", "transport": "chat_completions"},
+        )
+
+    async def _chat_completion_via_responses(
+        self,
+        config: Dict[str, Any],
+        responses_input: List[Dict[str, Any]],
+    ) -> AIResponse:
+        request_kwargs = self._build_responses_request(config, responses_input)
+        response = await self.client.responses.create(**request_kwargs)
+
+        incomplete_details = getattr(response, "incomplete_details", None)
+        finish_reason = getattr(incomplete_details, "reason", None)
+        if finish_reason is None and getattr(response, "status", None) == "completed":
+            finish_reason = "stop"
+
+        return AIResponse(
+            content=self._filter_think_content(response.output_text or ""),
+            model=response.model,
+            usage=self._extract_usage(
+                getattr(response, "usage", None),
+                prompt_key="input_tokens",
+                completion_key="output_tokens",
+                total_key="total_tokens",
+            ),
+            finish_reason=finish_reason,
+            metadata={"provider": "openai", "transport": "responses"},
+        )
     
     async def chat_completion(self, messages: List[AIMessage], **kwargs) -> AIResponse:
         """Generate chat completion using OpenAI"""
@@ -254,71 +402,15 @@ class OpenAIProvider(AIProvider):
             raise RuntimeError("OpenAI client not available")
 
         config = self._merge_config(**kwargs)
-
-        if self._should_use_responses_api(config):
-            try:
-                response = await self.client.responses.create(
-                    **self._build_responses_request(messages, config)
-                )
-                filtered_content = self._filter_think_content(getattr(response, "output_text", ""))
-
-                return AIResponse(
-                    content=filtered_content,
-                    model=response.model,
-                    usage=self._extract_responses_usage(response),
-                    finish_reason=self._extract_responses_finish_reason(response),
-                    metadata={"provider": "openai", "api_mode": "responses"}
-                )
-
-            except Exception as e:
-                error_msg = str(e)
-                if "Expecting value" in error_msg:
-                    logger.error(f"OpenAI Responses API JSON parsing error: {error_msg}. This usually indicates the API returned malformed JSON.")
-                elif "timeout" in error_msg.lower():
-                    logger.error(f"OpenAI Responses API timeout error: {error_msg}")
-                elif "rate limit" in error_msg.lower():
-                    logger.error(f"OpenAI Responses API rate limit error: {error_msg}")
-                else:
-                    logger.error(f"OpenAI Responses API error: {error_msg}")
-                raise
-
-        # Convert messages to OpenAI format with multimodal support
-        openai_messages = [
-            self._convert_message_to_openai(msg)
-            for msg in messages
-        ]
+        use_responses_api = self._should_use_responses_api(config)
         
         try:
-            request_payload = {
-                "model": config.get("model", self.model),
-                "messages": openai_messages,
-                # "max_tokens": config.get("max_tokens", 2000),
-                "temperature": config.get("temperature", 0.7),
-                "top_p": config.get("top_p", 1.0),
-            }
-            request_payload.update(self._build_reasoning_config(config, use_responses_api=False))
+            if use_responses_api:
+                responses_input = [self._convert_message_to_responses_input(msg) for msg in messages]
+                return await self._chat_completion_via_responses(config, responses_input)
 
-            model_name = str(request_payload.get("model") or "")
-            if model_name.startswith("gpt-5") and "chat" not in model_name and "reasoning_effort" in request_payload:
-                request_payload.pop("temperature", None)
-
-            response = await self.client.chat.completions.create(**request_payload)
-            
-            choice = response.choices[0]
-            # Filter out think content from the response
-            filtered_content = self._filter_think_content(choice.message.content)
-
-            return AIResponse(
-                content=filtered_content,
-                model=response.model,
-                usage={
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
-                },
-                finish_reason=choice.finish_reason,
-                metadata={"provider": "openai", "api_mode": "chat_completions"}
-            )
+            openai_messages = [self._convert_message_to_openai(msg) for msg in messages]
+            return await self._chat_completion_via_chat_completions(config, openai_messages)
             
         except Exception as e:
             # 提供更详细的错误信息
@@ -344,128 +436,34 @@ class OpenAIProvider(AIProvider):
             raise RuntimeError("OpenAI client not available")
 
         config = self._merge_config(**kwargs)
-
-        if self._should_use_responses_api(config):
-            try:
-                stream = await self.client.responses.create(
-                    **self._build_responses_request(messages, config),
-                    stream=True
-                )
-
-                buffer = ""
-                in_think_tag = False
-
-                async for event in stream:
-                    if getattr(event, "type", None) != "response.output_text.delta":
-                        continue
-
-                    chunk_content = getattr(event, "delta", "")
-                    if not chunk_content:
-                        continue
-
-                    processed_content, buffer, in_think_tag = self._filter_stream_chunk(
-                        chunk_content,
-                        buffer,
-                        in_think_tag,
-                    )
-
-                    if not in_think_tag and processed_content:
-                        yield processed_content
-
-            except Exception as e:
-                logger.error(f"OpenAI Responses streaming error: {e}")
-                raise
-
-            return
-
-        # Convert messages to OpenAI format with multimodal support
-        openai_messages = [
-            self._convert_message_to_openai(msg)
-            for msg in messages
-        ]
+        use_responses_api = self._should_use_responses_api(config)
 
         try:
-            request_payload = {
-                "model": config.get("model", self.model),
-                "messages": openai_messages,
-                # "max_tokens": config.get("max_tokens", 2000),
-                "temperature": config.get("temperature", 0.7),
-                "top_p": config.get("top_p", 1.0),
-                "stream": True,
-            }
-            request_payload.update(self._build_reasoning_config(config, use_responses_api=False))
+            if use_responses_api:
+                responses_input = [self._convert_message_to_responses_input(msg) for msg in messages]
+                request_kwargs = self._build_responses_request(config, responses_input)
 
-            model_name = str(request_payload.get("model") or "")
-            if model_name.startswith("gpt-5") and "chat" not in model_name and "reasoning_effort" in request_payload:
-                request_payload.pop("temperature", None)
+                async def _responses_chunks() -> AsyncGenerator[str, None]:
+                    async with self.client.responses.stream(**request_kwargs) as stream:
+                        async for event in stream:
+                            if getattr(event, "type", None) == "response.output_text.delta" and getattr(event, "delta", None):
+                                yield event.delta
 
-            stream = await self.client.chat.completions.create(**request_payload)
+                async for visible_chunk in self._filter_think_chunks(_responses_chunks()):
+                    yield visible_chunk
+                return
 
-            buffer = ""
-            in_think_tag = False
+            openai_messages = [self._convert_message_to_openai(msg) for msg in messages]
+            request_kwargs = self._build_chat_completions_request(config, openai_messages, stream=True)
+            stream = await self.client.chat.completions.create(**request_kwargs)
 
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    chunk_content = chunk.choices[0].delta.content
-                    buffer += chunk_content
+            async def _chat_completion_chunks() -> AsyncGenerator[str, None]:
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        yield chunk.choices[0].delta.content
 
-                    # Process the buffer to handle think tags
-                    processed_content = ""
-                    remaining_buffer = buffer
-
-                    while remaining_buffer:
-                        if not in_think_tag:
-                            # Look for opening think tag
-                            think_start = None
-                            # Check for different forms of think tags (case-insensitive)
-                            for tag in ['<think', '<think>', '＜think', '【think']:
-                                pos = remaining_buffer.lower().find(tag.lower())
-                                if pos != -1:
-                                    think_start = pos
-                                    break
-
-                            if think_start is not None:
-                                # Found opening tag, add content before it
-                                processed_content += remaining_buffer[:think_start]
-                                in_think_tag = True
-                                # Remove everything up to and including the opening tag
-                                remaining_buffer = remaining_buffer[think_start:]
-                                # Find the end of the opening tag
-                                tag_end = remaining_buffer.lower().find('>')
-                                if tag_end != -1:
-                                    remaining_buffer = remaining_buffer[tag_end + 1:]
-                                else:
-                                    remaining_buffer = ""
-                                    break
-                            else:
-                                # No think tag found, add everything to processed content
-                                processed_content += remaining_buffer
-                                remaining_buffer = ""
-                                break
-                        else:
-                            # We're inside a think tag, look for closing tag
-                            think_end = None
-                            # Check for different forms of closing tags (case-insensitive)
-                            for tag in ['</think>', '</think>', '＜/think＞', '【/think】']:
-                                pos = remaining_buffer.lower().find(tag.lower())
-                                if pos != -1:
-                                    think_end = pos
-                                    break
-
-                            if think_end is not None:
-                                # Found closing tag, skip to after it
-                                in_think_tag = False
-                                remaining_buffer = remaining_buffer[think_end + len('</think>'):]
-                            else:
-                                # Haven't found closing tag yet, skip this chunk
-                                remaining_buffer = ""
-
-                    # Update buffer with remaining content
-                    buffer = remaining_buffer
-
-                    # Yield processed content if not in think tag
-                    if not in_think_tag and processed_content:
-                        yield processed_content
+            async for visible_chunk in self._filter_think_chunks(_chat_completion_chunks()):
+                yield visible_chunk
 
         except Exception as e:
             logger.error(f"OpenAI streaming error: {e}")
@@ -477,6 +475,35 @@ class OpenAIProvider(AIProvider):
         async for chunk in self.stream_chat_completion(messages, **kwargs):
             yield chunk
 
+
+class AzureOpenAIProvider(OpenAIProvider):
+    """Azure OpenAI provider (OpenAI Python SDK AsyncAzureOpenAI)"""
+
+    def __init__(self, config: Dict[str, Any]):
+        # Do not call OpenAIProvider.__init__ (it would create AsyncOpenAI).
+        AIProvider.__init__(self, config)
+        try:
+            import openai
+            timeout = _build_httpx_timeout(config)
+
+            try:
+                self.client = openai.AsyncAzureOpenAI(
+                    api_key=config.get("api_key"),
+                    azure_endpoint=config.get("azure_endpoint"),
+                    api_version=config.get("api_version"),
+                    timeout=timeout,
+                )
+            except TypeError:
+                self.client = openai.AsyncAzureOpenAI(
+                    api_key=config.get("api_key"),
+                    azure_endpoint=config.get("azure_endpoint"),
+                    api_version=config.get("api_version"),
+                )
+        except ImportError:
+            logger.warning("OpenAI library not installed. Install with: pip install openai")
+            self.client = None
+
+
 class AnthropicProvider(AIProvider):
     """Anthropic Claude API provider"""
 
@@ -487,11 +514,20 @@ class AnthropicProvider(AIProvider):
             base_url = config.get("base_url")
             base_url = base_url.strip() if isinstance(base_url, str) else None
 
+            timeout = _get_llm_timeout_seconds(config)
+
             try:
                 if base_url:
-                    self.client = anthropic.AsyncAnthropic(api_key=config.get("api_key"), base_url=base_url)
+                    self.client = anthropic.AsyncAnthropic(
+                        api_key=config.get("api_key"),
+                        base_url=base_url,
+                        timeout=timeout,
+                    )
                 else:
-                    self.client = anthropic.AsyncAnthropic(api_key=config.get("api_key"))
+                    self.client = anthropic.AsyncAnthropic(
+                        api_key=config.get("api_key"),
+                        timeout=timeout,
+                    )
             except TypeError:
                 # Backwards compatibility with older anthropic SDK versions
                 self.client = anthropic.AsyncAnthropic(api_key=config.get("api_key"))
@@ -599,7 +635,9 @@ class AnthropicProvider(AIProvider):
         api_key = config.get("api_key", "")
         base_url = config.get("base_url", "https://api.anthropic.com")
         model = config.get("model", self.model)
-        max_tokens = config.get("max_tokens", 65535)
+        # NOTE: `MAX_TOKENS` in this project refers to chunking/splitting, not model output length.
+        # Anthropic Messages API requires `max_tokens`, so we use a conservative fixed default here.
+        max_output_tokens = config.get("max_output_tokens", 32768)
         temperature = config.get("temperature", 0.7)
 
         # Convert messages to Anthropic format
@@ -625,7 +663,7 @@ class AnthropicProvider(AIProvider):
             body = {
                 "model": model,
                 "messages": claude_messages,
-                "max_tokens": max_tokens,
+                "max_tokens": max_output_tokens,
                 "temperature": temperature,
                 "stream": True
             }
@@ -646,7 +684,7 @@ class AnthropicProvider(AIProvider):
                     }
                     headers.update(auth_header)
 
-                    async with aiohttp.ClientSession() as session:
+                    async with aiohttp.ClientSession(timeout=_build_aiohttp_timeout(config)) as session:
                         async with session.post(url, headers=headers, json=body) as response:
                             if response.status == 401 and auth_name == "x-api-key":
                                 # x-api-key failed, try Authorization header
@@ -697,17 +735,191 @@ class GoogleProvider(AIProvider):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.api_key = config.get("api_key")
-        # Keep the configured base_url; used for REST calls (including mirror endpoints).
+        # Base URL can be a mirror/proxy endpoint. Frontend config test hits:
+        #   {base_url}/v1beta/models/{model}:generateContent?key=...
+        # The google-generativeai SDK defaults to the official endpoint unless configured,
+        # so we keep the base_url and (when it's non-default) use direct REST calls.
         self.base_url = config.get("base_url", "https://generativelanguage.googleapis.com")
-        # The legacy `google.generativeai` package is deprecated and emits warnings on import.
-        # Use the REST API implementation in this provider instead.
-        self.client = None
-        self.model_instance = None
+        try:
+            import google.generativeai as genai
+
+            # Configure the API key
+            genai.configure(api_key=config.get("api_key"))
+
+            self.client = genai
+            self.model_instance = genai.GenerativeModel(config.get("model", "gemini-1.5-flash"))
+        except ImportError:
+            logger.warning("Google Generative AI library not installed. Install with: pip install google-generativeai")
+            self.client = None
+            self.model_instance = None
+
+    def _should_use_rest_api(self, base_url: Optional[str]) -> bool:
+        """
+        Decide whether to use direct REST calls instead of the google-generativeai SDK.
+
+        We must use REST when base_url points to a mirror/proxy (possibly with a path prefix),
+        because the SDK may ignore it and attempt to connect to the official endpoint.
+        """
+        from urllib.parse import urlparse
+
+        if not base_url:
+            base_url = self.base_url
+
+        base_url = str(base_url).strip()
+        if not base_url:
+            return False
+
+        default_host = urlparse("https://generativelanguage.googleapis.com").netloc
+
+        # If base_url doesn't look like an URL, treat it as a host[:port][/prefix].
+        # Use REST for any non-default host, or when a path prefix is present.
+        if "://" not in base_url:
+            stripped = base_url.strip().lstrip("/")
+            host = stripped.split("/", 1)[0]
+            if host and host.lower() != default_host.lower():
+                return True
+            return "/" in stripped
+
+        parsed = urlparse(base_url)
+        # Any non-root path implies a prefix that the SDK cannot represent reliably.
+        if parsed.path and parsed.path not in ("", "/"):
+            return True
+
+        # Non-default host implies mirror/proxy.
+        return parsed.netloc and parsed.netloc.lower() != default_host.lower()
+
+    def _normalize_gemini_base_url(self, base_url: str) -> str:
+        """Normalize base_url to the API root without trailing /v1(/beta) suffix."""
+        base_url = (base_url or "").strip()
+        if not base_url:
+            return "https://generativelanguage.googleapis.com"
+
+        if not base_url.startswith("http"):
+            base_url = "https://" + base_url
+
+        base_url = base_url.rstrip("/")
+        for suffix in ("/v1beta", "/v1"):
+            if base_url.lower().endswith(suffix):
+                base_url = base_url[: -len(suffix)]
+                break
+        return base_url.rstrip("/")
+
+    def _messages_to_plaintext_prompt(self, messages: List[AIMessage]) -> str:
+        """Best-effort conversion for REST API (keeps text, degrades images to placeholders)."""
+        parts: List[str] = []
+        for msg in messages:
+            role_prefix = f"[{msg.role.value.upper()}]: "
+            if isinstance(msg.content, str):
+                parts.append(role_prefix + msg.content)
+            elif isinstance(msg.content, list):
+                msg_parts: List[str] = []
+                for part in msg.content:
+                    if isinstance(part, TextContent):
+                        msg_parts.append(part.text)
+                    elif isinstance(part, ImageContent):
+                        url = part.image_url.get("url", "")
+                        msg_parts.append(f"[Image: {url}]" if url else "[Image]")
+                parts.append(role_prefix + " ".join(p for p in msg_parts if p))
+            else:
+                parts.append(role_prefix + str(msg.content))
+        return "\n\n".join(parts)
+
+    async def _rest_generate_content(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        prompt: str,
+        generation_config: Dict[str, Any],
+        timeout_seconds: float,
+    ) -> Dict[str, Any]:
+        import aiohttp
+
+        base_url = self._normalize_gemini_base_url(base_url)
+        url = f"{base_url}/v1beta/models/{model}:generateContent"
+
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+        ]
+
+        payload: Dict[str, Any] = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": generation_config,
+            "safetySettings": safety_settings,
+        }
+
+        timeout = _build_aiohttp_timeout(
+            {"llm_timeout_seconds": timeout_seconds},
+            default_seconds=600.0,
+        )
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Most mirrors and the official API support `?key=...`. Try that first.
+            async with session.post(url, params={"key": api_key}, json=payload) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                error_text = await resp.text()
+
+            # Fallback: some proxies prefer header auth.
+            headers = {"x-goog-api-key": api_key}
+            async with session.post(url, headers=headers, json=payload) as resp2:
+                if resp2.status == 200:
+                    return await resp2.json()
+                error_text2 = await resp2.text()
+
+        raise RuntimeError(f"Gemini REST API request failed: {error_text.strip() or error_text2.strip()}")
+
+    def _extract_rest_text(self, data: Dict[str, Any]) -> tuple[str, str, Dict[str, int]]:
+        """Extract content, finish_reason, and usage from REST response JSON."""
+        finish_reason = "stop"
+        content = ""
+
+        try:
+            candidates = data.get("candidates") or []
+            if candidates:
+                candidate = candidates[0] or {}
+                finish_reason = candidate.get("finishReason") or candidate.get("finish_reason") or finish_reason
+
+                # Prefer the modern structure: candidate.content.parts[].text
+                candidate_content = candidate.get("content") or {}
+                candidate_parts = candidate_content.get("parts") or []
+                texts = [p.get("text", "") for p in candidate_parts if isinstance(p, dict) and p.get("text")]
+                if texts:
+                    content = "".join(texts)
+                else:
+                    # Fallback: some mirrors may return `text` directly.
+                    content = candidate.get("text") or ""
+        except Exception:
+            content = ""
+
+        usage_meta = data.get("usageMetadata") or data.get("usage_metadata") or {}
+        usage = {
+            "prompt_tokens": int(usage_meta.get("promptTokenCount") or 0),
+            "completion_tokens": int(usage_meta.get("candidatesTokenCount") or 0),
+            "total_tokens": int(usage_meta.get("totalTokenCount") or 0),
+        }
+        return content, str(finish_reason), usage
 
     def _convert_messages_to_gemini(self, messages: List[AIMessage]):
-        """Convert AIMessage list to Gemini REST prompt parts (supports multimodal content)."""
+        """Convert AIMessage list to Gemini format, supporting multimodal content"""
+        import google.generativeai as genai
         import base64
+
+        # Try to import genai types for proper image handling
+        try:
+            from google.genai import types
+            GENAI_TYPES_AVAILABLE = True
+        except ImportError:
+            try:
+                # Fallback to older API structure
+                from google.generativeai import types
+                GENAI_TYPES_AVAILABLE = True
+            except ImportError:
+                logger.warning("Google GenAI types not available for proper image processing")
+                GENAI_TYPES_AVAILABLE = False
 
         # Check if we have any images
         has_images = any(
@@ -755,20 +967,36 @@ class GoogleProvider(AIProvider):
 
                             # Process image for Gemini
                             image_url = part.image_url.get("url", "")
-                            if image_url.startswith("data:image/"):
+                            if image_url.startswith("data:image/") and GENAI_TYPES_AVAILABLE:
                                 try:
                                     # Extract base64 data and mime type
                                     header, base64_data = image_url.split(",", 1)
                                     mime_type = header.split(":")[1].split(";")[0]  # Extract mime type like 'image/jpeg'
                                     image_data = base64.b64decode(base64_data)
 
-                                    # REST-compatible inline_data payload (bytes -> base64 happens later).
-                                    content_parts.append({
-                                        "inline_data": {
-                                            "mime_type": mime_type,
-                                            "data": image_data,
+                                    # Create Gemini-compatible part from base64 image data
+                                    image_part = None
+                                    if GENAI_TYPES_AVAILABLE:
+                                        if hasattr(types, 'Part') and hasattr(types.Part, 'from_bytes'):
+                                            image_part = types.Part.from_bytes(
+                                                data=image_data,
+                                                mime_type=mime_type
+                                            )
+                                        elif hasattr(types, 'to_part'):
+                                            image_part = types.to_part({
+                                                'inline_data': {
+                                                    'mime_type': mime_type,
+                                                    'data': image_data
+                                                }
+                                            })
+                                    if image_part is None:
+                                        image_part = {
+                                            'inline_data': {
+                                                'mime_type': mime_type,
+                                                'data': image_data
+                                            }
                                         }
-                                    })
+                                    content_parts.append(image_part)
                                     logger.info(f"Successfully processed image for Gemini: {mime_type}, {len(image_data)} bytes")
                                 except Exception as e:
                                     logger.error(f"Failed to process image for Gemini: {e}")
@@ -788,117 +1016,43 @@ class GoogleProvider(AIProvider):
 
             return content_parts
 
-    @staticmethod
-    def _normalize_base_url(base_url: str) -> str:
-        base_url = (base_url or "").strip()
-        if not base_url:
-            base_url = "https://generativelanguage.googleapis.com"
-        if not base_url.startswith("http://") and not base_url.startswith("https://"):
-            base_url = "https://" + base_url
-        base_url = base_url.rstrip("/")
-        # Allow users to paste a full v1beta base; normalize back to the host root.
-        if base_url.endswith("/v1beta"):
-            base_url = base_url[: -len("/v1beta")]
-        return base_url
-
-    @staticmethod
-    def _normalize_model_name(model: str) -> str:
-        model = (model or "").strip() or "gemini-1.5-flash"
-        if model.startswith("models/"):
-            model = model.split("/", 1)[1]
-        return model
-
-    @staticmethod
-    def _prompt_to_rest_parts(prompt) -> List[Dict[str, Any]]:
-        import base64
-
-        if isinstance(prompt, str):
-            return [{"text": prompt}]
-
-        parts: List[Dict[str, Any]] = []
-        for item in (prompt or []):
-            if isinstance(item, str):
-                parts.append({"text": item})
-                continue
-
-            if isinstance(item, dict):
-                if "text" in item and isinstance(item["text"], str):
-                    parts.append({"text": item["text"]})
-                    continue
-                if "inline_data" in item and isinstance(item["inline_data"], dict):
-                    inline_data = item["inline_data"]
-                    mime_type = inline_data.get("mime_type") or inline_data.get("mimeType")
-                    data = inline_data.get("data")
-                    if isinstance(data, (bytes, bytearray)):
-                        data = base64.b64encode(data).decode("ascii")
-                    if isinstance(mime_type, str) and isinstance(data, str):
-                        parts.append({"inline_data": {"mime_type": mime_type, "data": data}})
-                        continue
-
-            parts.append({"text": str(item)})
-
-        return parts
-
-    async def _generate_via_rest(
-        self,
-        *,
-        model: str,
-        prompt,
-        generation_config: Dict[str, Any],
-        safety_settings: Optional[List[Dict[str, Any]]] = None,
-        timeout_s: int = 120,
-    ) -> Dict[str, Any]:
-        import aiohttp
-
-        if not self.api_key:
-            raise RuntimeError("Google API key not configured")
-
-        base_url = self._normalize_base_url(self.base_url)
-        model = self._normalize_model_name(model)
-        url = f"{base_url}/v1beta/models/{model}:generateContent?key={self.api_key}"
-
-        body: Dict[str, Any] = {
-            "contents": [{"parts": self._prompt_to_rest_parts(prompt)}],
-            "generationConfig": {
-                "temperature": generation_config.get("temperature", 0.7),
-                "topP": generation_config.get("top_p", generation_config.get("topP", 1.0)),
-            },
-        }
-        if "max_output_tokens" in generation_config:
-            body["generationConfig"]["maxOutputTokens"] = generation_config["max_output_tokens"]
-        if safety_settings:
-            body["safetySettings"] = safety_settings
-
-        timeout = aiohttp.ClientTimeout(total=timeout_s)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=body, headers={"Content-Type": "application/json"}) as resp:
-                raw = await resp.text()
-                if resp.status >= 400:
-                    try:
-                        import json as _json
-                        data = _json.loads(raw)
-                        message = (
-                            (data.get("error") or {}).get("message")
-                            or data.get("message")
-                            or raw
-                        )
-                    except Exception:
-                        message = raw
-                    raise RuntimeError(f"Google Gemini API error {resp.status}: {message}")
-
-                try:
-                    import json as _json
-                    return _json.loads(raw) if raw else {}
-                except Exception:
-                    return {}
-
     async def chat_completion(self, messages: List[AIMessage], **kwargs) -> AIResponse:
         """Generate chat completion using Google Gemini"""
-        normalized_base_url = self._normalize_base_url(self.base_url)
-        # Always use the REST path to avoid importing deprecated `google.generativeai`.
-        use_rest = True
-
         config = self._merge_config(**kwargs)
+        base_url = config.get("base_url") or self.base_url
+
+        # Use direct REST for mirrors/proxies to honor base_url.
+        if self._should_use_rest_api(base_url) or not self.client or not self.model_instance:
+            api_key = config.get("api_key") or self.config.get("api_key")
+            if not api_key:
+                raise RuntimeError("Google Gemini API key not configured")
+
+            model = config.get("model", self.model) or self.model
+            generation_config: Dict[str, Any] = {
+                "temperature": config.get("temperature", 0.7),
+                "topP": config.get("top_p", 1.0),
+            }
+            max_output_tokens = config.get("max_output_tokens")
+            if max_output_tokens is not None:
+                generation_config["maxOutputTokens"] = max_output_tokens
+
+            prompt_text = self._messages_to_plaintext_prompt(messages)
+            data = await self._rest_generate_content(
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                prompt=prompt_text,
+                generation_config=generation_config,
+                timeout_seconds=_get_llm_timeout_seconds(config),
+            )
+            content, finish_reason, usage = self._extract_rest_text(data)
+            return AIResponse(
+                content=content,
+                model=model,
+                usage=usage,
+                finish_reason=finish_reason,
+                metadata={"provider": "google", "transport": "rest"},
+            )
 
         # Convert messages to Gemini format with multimodal support
         prompt = self._convert_messages_to_gemini(messages)
@@ -906,12 +1060,13 @@ class GoogleProvider(AIProvider):
         try:
             # Configure generation parameters
             # 确保max_tokens不会太小，至少1000个token用于生成内容
-            max_tokens = max(config.get("max_tokens", 16384), 1000)
             generation_config = {
                 "temperature": config.get("temperature", 0.7),
                 "top_p": config.get("top_p", 1.0),
-                # "max_output_tokens": max_tokens,
             }
+            max_output_tokens = config.get("max_output_tokens")
+            if max_output_tokens is not None:
+                generation_config["max_output_tokens"] = max_output_tokens
 
             # 配置安全设置 - 设置为较宽松的安全级别以减少误拦截
             safety_settings = [
@@ -933,57 +1088,13 @@ class GoogleProvider(AIProvider):
                 }
             ]
 
-            if use_rest:
-                response_data = await self._generate_via_rest(
-                    model=config.get("model", self.model),
-                    prompt=prompt,
-                    generation_config={**generation_config, "max_output_tokens": max_tokens},
-                    safety_settings=safety_settings,
-                )
 
-                candidates = response_data.get("candidates") or []
-                if not candidates:
-                    content = "[å“åº”ä¸­æ²¡æœ‰å€™é€‰å†…å®¹]"
-                    finish_reason = "stop"
-                else:
-                    candidate = candidates[0] or {}
-                    finish_reason = str(candidate.get("finishReason") or "stop")
-
-                    parts = ((candidate.get("content") or {}).get("parts") or [])
-                    text_parts: List[str] = []
-                    for p in parts:
-                        t = p.get("text") if isinstance(p, dict) else None
-                        if isinstance(t, str) and t:
-                            text_parts.append(t)
-                    content = "\n".join(text_parts).strip()
-
-                    if not content:
-                        if finish_reason == "SAFETY":
-                            content = "[å†…å®¹è¢«å®‰å…¨è¿‡æ»¤å™¨é˜»æ­¢]"
-                        elif finish_reason == "RECITATION":
-                            content = "[å†…å®¹å› é‡å¤è€Œè¢«é˜»æ­¢]"
-                        elif finish_reason == "MAX_TOKENS":
-                            content = "[å“åº”å› tokené™åˆ¶è¢«æˆªæ–­ï¼Œæ— å†…å®¹]"
-                        else:
-                            content = "[æ— æ³•èŽ·å–å“åº”å†…å®¹]"
-
-                usage_meta = response_data.get("usageMetadata") or {}
-                usage = {
-                    "prompt_tokens": int(usage_meta.get("promptTokenCount") or 0),
-                    "completion_tokens": int(usage_meta.get("candidatesTokenCount") or 0),
-                    "total_tokens": int(usage_meta.get("totalTokenCount") or 0),
-                }
-
-                return AIResponse(
-                    content=content,
-                    model=config.get("model", self.model),
-                    usage=usage,
-                    finish_reason=finish_reason,
-                    metadata={"provider": "google", "base_url": normalized_base_url}
-                )
-
-
-            response = await self._generate_async(prompt, generation_config, safety_settings)
+            response = await self._generate_async(
+                prompt,
+                generation_config,
+                safety_settings,
+                timeout_seconds=_get_llm_timeout_seconds(config),
+            )
             logger.debug(f"Google Gemini API response: {response}")
 
             # 检查响应状态和安全过滤
@@ -1046,7 +1157,14 @@ class GoogleProvider(AIProvider):
             logger.error(f"Google Gemini API error: {e}")
             raise
 
-    async def _generate_async(self, prompt, generation_config: Dict[str, Any], safety_settings=None):
+    async def _generate_async(
+        self,
+        prompt,
+        generation_config: Dict[str, Any],
+        safety_settings=None,
+        *,
+        timeout_seconds: float = 600.0,
+    ):
         """Async wrapper for Gemini generation - supports both text and multimodal content"""
         import asyncio
         loop = asyncio.get_event_loop()
@@ -1063,7 +1181,10 @@ class GoogleProvider(AIProvider):
                 **kwargs
             )
 
-        return await loop.run_in_executor(None, _generate_sync)
+        return await asyncio.wait_for(
+            loop.run_in_executor(None, _generate_sync),
+            timeout=timeout_seconds,
+        )
 
     async def text_completion(self, prompt: str, **kwargs) -> AIResponse:
         """Generate text completion using Google Gemini"""
@@ -1081,69 +1202,6 @@ class OllamaProvider(AIProvider):
         except ImportError:
             logger.warning("Ollama library not installed. Install with: pip install ollama")
             self.client = None
-
-    async def _list_installed_models(self) -> List[str]:
-        if not self.client:
-            return []
-        try:
-            data = await self.client.list()
-            models = data.get("models") or []
-            names: List[str] = []
-            for model_info in models:
-                name = model_info.get("name")
-                if isinstance(name, str) and name.strip():
-                    names.append(name.strip())
-            return names
-        except Exception as e:
-            logger.warning(f"Failed to list Ollama models: {e}")
-            return []
-
-    @staticmethod
-    def _choose_preferred_model(installed: List[str]) -> str:
-        if not installed:
-            return ""
-
-        preferred_bases = [
-            "llama3.2",
-            "llama3.1",
-            "llama3",
-            "qwen2.5",
-            "qwen2",
-            "mistral",
-            "gemma2",
-            "phi3",
-            "llama2",
-        ]
-
-        normalized = [(name, name.split(":", 1)[0]) for name in installed]
-        for base in preferred_bases:
-            for full_name, base_name in normalized:
-                if base_name == base:
-                    return full_name
-
-        return installed[0]
-
-    async def _resolve_model_name(self, requested: Any) -> str:
-        requested_str = str(requested).strip() if requested is not None else ""
-        if not requested_str or requested_str.lower() == "auto":
-            installed = await self._list_installed_models()
-            if not installed:
-                raise RuntimeError(
-                    "Ollama 未检测到已安装的模型（或服务不可用）。请先执行 `ollama pull <model>`，"
-                    "或在配置中设置 `OLLAMA_MODEL` 为已安装模型名称。"
-                )
-            chosen = self._choose_preferred_model(installed)
-            logger.info(f"Ollama model auto-selected: {chosen}")
-            return chosen
-
-        installed = await self._list_installed_models()
-        if installed and requested_str not in installed:
-            # Allow shorthand like "llama3.2" to match "llama3.2:latest"
-            prefix_matches = [name for name in installed if name.startswith(f"{requested_str}:")]
-            if prefix_matches:
-                return prefix_matches[0]
-
-        return requested_str
     
     async def chat_completion(self, messages: List[AIMessage], **kwargs) -> AIResponse:
         """Generate chat completion using Ollama"""
@@ -1151,7 +1209,6 @@ class OllamaProvider(AIProvider):
             raise RuntimeError("Ollama client not available")
         
         config = self._merge_config(**kwargs)
-        model_name = await self._resolve_model_name(config.get("model", self.model))
         
         # Convert messages to Ollama format with multimodal support
         ollama_messages = []
@@ -1181,21 +1238,28 @@ class OllamaProvider(AIProvider):
                 ollama_messages.append({"role": msg.role.value, "content": str(msg.content)})
         
         try:
-            response = await self.client.chat(
-                model=model_name,
-                messages=ollama_messages,
-                options={
-                    "temperature": config.get("temperature", 0.7),
-                    "top_p": config.get("top_p", 1.0),
-                    # "num_predict": config.get("max_tokens", 2000)
-                }
+            options: Dict[str, Any] = {
+                "temperature": config.get("temperature", 0.7),
+                "top_p": config.get("top_p", 1.0),
+            }
+            max_output_tokens = config.get("max_output_tokens")
+            if max_output_tokens is not None:
+                options["num_predict"] = max_output_tokens
+
+            response = await asyncio.wait_for(
+                self.client.chat(
+                    model=config.get("model", self.model),
+                    messages=ollama_messages,
+                    options=options,
+                ),
+                timeout=_get_llm_timeout_seconds(config),
             )
             
             content = response.get("message", {}).get("content", "")
             
             return AIResponse(
                 content=content,
-                model=model_name,
+                model=config.get("model", self.model),
                 usage=self._calculate_usage(
                     " ".join([msg.content for msg in messages]),
                     content
@@ -1205,14 +1269,6 @@ class OllamaProvider(AIProvider):
             )
             
         except Exception as e:
-            msg = str(e)
-            if ("model" in msg and "not found" in msg) or ("not found" in msg and "pull" in msg):
-                installed = await self._list_installed_models()
-                installed_hint = f"已安装模型: {', '.join(installed)}" if installed else "未检测到已安装模型"
-                raise RuntimeError(
-                    f"{msg}。{installed_hint}。请在配置中设置 `OLLAMA_MODEL`（或网页配置中的 Ollama 默认模型），"
-                    "或执行 `ollama pull <model>` 安装模型。"
-                ) from e
             logger.error(f"Ollama API error: {e}")
             raise
     
@@ -1226,14 +1282,14 @@ class AIProviderFactory:
 
     _providers = {
         "openai": OpenAIProvider,
-        "deepseek": OpenAIProvider,  # OpenAI-compatible
-        "kimi": OpenAIProvider,  # OpenAI-compatible
-        "minimax": OpenAIProvider,  # OpenAI-compatible
+        "azure_openai": AzureOpenAIProvider,
+        "azure": AzureOpenAIProvider,  # Alias for azure_openai
         "anthropic": AnthropicProvider,
         "google": GoogleProvider,
         "gemini": GoogleProvider,  # Alias for google
         "ollama": OllamaProvider,
         "302ai": OpenAIProvider,  # 302.AI uses OpenAI-compatible API
+        "landppt": OpenAIProvider,  # LandPPT Official uses OpenAI-compatible API
     }
 
     @classmethod

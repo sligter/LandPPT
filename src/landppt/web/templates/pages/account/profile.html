@@ -1,0 +1,1046 @@
+{% extends "base.html" %}
+
+{% block title %}用户资料 - LandPPT{% endblock %}
+
+{% block extra_css %}
+<style>
+    .profile-page {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-xl);
+    }
+
+    .profile-header {
+        text-align: center;
+        margin-bottom: var(--spacing-xl);
+    }
+
+    .profile-header h2 {
+        font-size: 2.4rem;
+        font-weight: 700;
+        color: var(--ink-strong);
+        margin-bottom: var(--spacing-sm);
+    }
+
+    .profile-header p {
+        color: var(--text-secondary);
+        font-size: 1.05rem;
+    }
+
+    .profile-section-title {
+        color: var(--ink-strong);
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin-bottom: var(--spacing-md);
+        letter-spacing: 0.01em;
+    }
+
+    .profile-info {
+        background: var(--surface-subtle);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+        padding: var(--spacing-lg);
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-md);
+    }
+
+    .profile-info-row {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--spacing-sm);
+        flex-wrap: wrap;
+    }
+
+    .profile-info-label {
+        font-weight: 600;
+        color: var(--ink);
+    }
+
+    .profile-info-value {
+        color: var(--text-secondary);
+    }
+
+    .status-badge,
+    .role-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 14px;
+        border-radius: var(--border-radius-sm);
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        border: 1px solid var(--border-color);
+        color: var(--ink-strong);
+        background: var(--surface);
+    }
+
+    .status-active,
+    .role-admin {
+        background: var(--surface-contrast);
+        border-color: var(--surface-contrast);
+        color: var(--surface);
+    }
+
+    .status-disabled {
+        border-style: dashed;
+        color: var(--text-secondary);
+    }
+
+    .role-standard {
+        background: transparent;
+        color: var(--text-secondary);
+    }
+
+    .meta-text {
+        color: var(--text-secondary);
+    }
+
+    .field-hint {
+        margin-top: var(--spacing-xs);
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .profile-form .form-actions {
+        text-align: center;
+    }
+
+    .profile-form .btn-primary {
+        width: 100%;
+        justify-content: center;
+        background: var(--surface-contrast);
+        border-color: var(--surface-contrast);
+        color: var(--surface);
+    }
+
+    .profile-form .btn-primary:hover {
+        box-shadow: var(--shadow-soft);
+        transform: translateY(-1px);
+    }
+
+    .profile-actions {
+        display: flex;
+        gap: var(--spacing-sm);
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .profile-action-btn {
+        min-width: 180px;
+        justify-content: center;
+        background: var(--surface-contrast);
+        border-color: var(--surface-contrast);
+        color: var(--surface);
+    }
+
+    .profile-action-btn:hover {
+        box-shadow: var(--shadow-soft);
+        transform: translateY(-1px);
+    }
+
+    .profile-page .alert,
+    .profile-page .alert-success,
+    .profile-page .alert-error,
+    .profile-page .alert-info {
+        background: var(--surface-subtle);
+        border-color: var(--border-color);
+        color: var(--ink-strong);
+        border-left: 4px solid var(--border-color);
+    }
+
+    .profile-page .alert-success {
+        border-left-color: #16a34a;
+    }
+
+    .profile-page .alert-error {
+        border-left-color: #ef4444;
+    }
+
+    .profile-page .alert-info {
+        border-left-color: #3b82f6;
+    }
+
+    .api-key-form-grid {
+        display: grid;
+        gap: var(--spacing-sm);
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .api-key-form-grid .form-group {
+        margin-bottom: 0;
+    }
+
+    .api-key-actions {
+        display: flex;
+        gap: var(--spacing-sm);
+        flex-wrap: wrap;
+        margin-top: var(--spacing-sm);
+    }
+
+    .api-key-actions .btn {
+        width: auto;
+    }
+
+    .api-key-result {
+        margin-top: var(--spacing-md);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+        background: var(--surface-subtle);
+        padding: var(--spacing-md);
+    }
+
+    .api-key-result code {
+        display: block;
+        margin-top: var(--spacing-xs);
+        padding: var(--spacing-sm);
+        border-radius: var(--border-radius-sm);
+        border: 1px dashed var(--border-color);
+        background: var(--surface);
+        color: var(--ink-strong);
+        overflow-wrap: anywhere;
+    }
+
+    .api-key-list {
+        margin-top: var(--spacing-md);
+        overflow-x: auto;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+    }
+
+    .api-key-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 760px;
+    }
+
+    .api-key-table th,
+    .api-key-table td {
+        text-align: left;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        vertical-align: middle;
+    }
+
+    .api-key-table th {
+        color: var(--ink-strong);
+        font-weight: 700;
+        background: var(--surface-subtle);
+    }
+
+    .api-key-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .api-key-status {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 2px 10px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        border: 1px solid var(--border-color);
+    }
+
+    .api-key-status.active {
+        color: #166534;
+        background: #dcfce7;
+        border-color: #86efac;
+    }
+
+    .api-key-status.inactive {
+        color: #7f1d1d;
+        background: #fee2e2;
+        border-color: #fca5a5;
+    }
+
+    .api-key-empty {
+        text-align: center;
+        color: var(--text-secondary);
+        padding: var(--spacing-md);
+    }
+
+    .api-key-card {
+        grid-column: 1 / -1;
+    }
+
+    .profile-balance {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--ink-strong);
+    }
+
+    .checkin-panel {
+        position: relative;
+        overflow: hidden;
+        display: grid;
+        gap: var(--spacing-md);
+        margin-top: var(--spacing-sm);
+        padding: var(--spacing-lg);
+        border-radius: var(--border-radius-md);
+        border: 1px solid color-mix(in srgb, var(--surface-contrast) 18%, var(--border-color));
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--surface-contrast) 10%, var(--surface)) 0%, var(--surface-subtle) 100%);
+    }
+
+    .checkin-panel::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4px;
+        background: linear-gradient(180deg, var(--surface-contrast), color-mix(in srgb, var(--surface-contrast) 55%, transparent));
+    }
+
+    .checkin-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: var(--spacing-md);
+        flex-wrap: wrap;
+    }
+
+    .checkin-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 12px;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 1px solid var(--border-color);
+        color: var(--ink-strong);
+        font-size: 0.82rem;
+        font-weight: 700;
+    }
+
+    .checkin-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        flex-wrap: wrap;
+    }
+
+    .checkin-actions .btn {
+        min-width: 160px;
+        justify-content: center;
+    }
+
+    .checkin-feedback {
+        min-height: 1.25rem;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+
+    .profile-links {
+        margin-top: var(--spacing-sm);
+    }
+
+    .profile-links .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .profile-redeem {
+        margin-top: var(--spacing-md);
+        padding-top: var(--spacing-md);
+        border-top: 1px solid var(--border-color);
+    }
+
+    @media (max-width: 640px) {
+        .profile-info-row {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+        }
+
+        .checkin-top,
+        .checkin-actions {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .profile-action-btn {
+            width: 100%;
+        }
+
+        .api-key-actions {
+            flex-direction: column;
+        }
+
+        .api-key-actions .btn {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="profile-page">
+    <div class="profile-header">
+        <h2>用户资料</h2>
+        <p>管理你的账户信息与安全配置</p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    {% if success %}
+    <div class="alert alert-success">
+        {{ success }}
+    </div>
+    {% endif %}
+
+    <div class="grid">
+        <div class="card">
+            <h3 class="profile-section-title">基本信息</h3>
+
+            <div class="profile-info">
+                <div class="profile-info-row">
+                    <span class="profile-info-label">用户名</span>
+                    <span class="profile-info-value">{{ user.username }}</span>
+                </div>
+
+                {% if user.email %}
+                <div class="profile-info-row">
+                    <span class="profile-info-label">邮箱</span>
+                    <span class="profile-info-value">{{ user.email }}</span>
+                </div>
+                {% endif %}
+
+                <div class="profile-info-row">
+                    <span class="profile-info-label">账户状态</span>
+                    {% if user.is_active %}
+                    <span class="status-badge status-active">活跃</span>
+                    {% else %}
+                    <span class="status-badge status-disabled">已禁用</span>
+                    {% endif %}
+                </div>
+
+                <div class="profile-info-row">
+                    <span class="profile-info-label">权限级别</span>
+                    {% if user.is_admin %}
+                    <span class="role-badge role-admin">管理员</span>
+                    {% else %}
+                    <span class="role-badge role-standard">普通用户</span>
+                    {% endif %}
+                </div>
+
+                <div class="profile-info-row">
+                    <span class="profile-info-label">注册时间</span>
+                    <span class="profile-info-value meta-text js-ts" data-ts="{{ user.created_at }}">-</span>
+                </div>
+
+                {% if user.last_login %}
+                <div class="profile-info-row">
+                    <span class="profile-info-label">最后登录</span>
+                    <span class="profile-info-value meta-text js-ts" data-ts="{{ user.last_login }}">-</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if credits_enabled %}
+        <div class="card">
+            <h3 class="profile-section-title">我的积分</h3>
+
+            <div class="profile-info">
+                <div class="profile-info-row">
+                    <span class="profile-info-label">当前余额</span>
+                    <span class="profile-info-value profile-balance" id="profileCreditsBalance">
+                        {{ user.credits_balance | default(0) }} 积分
+                    </span>
+                </div>
+
+                <div class="checkin-panel">
+                    <div class="checkin-top">
+                        <div class="checkin-badge" id="checkinMeta">加载中...</div>
+                    </div>
+                    <div class="checkin-actions">
+                        <button type="button" class="btn btn-primary" id="checkinBtn" disabled>
+                            <i class="fas fa-hand-sparkles"></i> 立即签到
+                        </button>
+                        <span class="checkin-feedback" id="checkinFeedback"></span>
+                    </div>
+                </div>
+
+                <div class="profile-links">
+                    <a href="/credits" class="btn btn-primary">
+                        <i class="fas fa-coins"></i> 查看积分详情 / 充值
+                    </a>
+                </div>
+
+                <div class="profile-redeem">
+                    <form id="redeemForm" style="display:flex; gap:var(--spacing-sm);">
+                        <input type="text" id="redeemCode" placeholder="输入兑换码"
+                            style="flex:1; padding:var(--spacing-sm) var(--spacing-md);">
+                        <button type="submit" class="btn btn-primary">兑换</button>
+                    </form>
+                    <p id="redeemMsg" style="margin-top:var(--spacing-xs); font-size:0.85rem;"></p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h3 class="profile-section-title">修改密码</h3>
+
+            <form method="post" action="/auth/change-password" class="profile-form">
+                <div class="form-group">
+                    <label for="current_password">当前密码:</label>
+                    <input type="password" id="current_password" name="current_password" required placeholder="请输入当前密码">
+                </div>
+
+                <div class="form-group">
+                    <label for="new_password">新密码:</label>
+                    <input type="password" id="new_password" name="new_password" required placeholder="请输入新密码" minlength="6">
+                    <p class="field-hint">密码长度至少 6 位</p>
+                </div>
+
+                <div class="form-group">
+                    <label for="confirm_password">确认新密码:</label>
+                    <input type="password" id="confirm_password" name="confirm_password" required placeholder="请再次输入新密码">
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        修改密码
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card api-key-card">
+            <h3 class="profile-section-title">API Key 管理</h3>
+            <p class="field-hint">创建你的专属 API Key，支持其他渠道调用服务</p>
+
+            <div id="apiKeyMessage" class="alert alert-info" style="display:none; margin-top: var(--spacing-sm);"></div>
+
+            <form id="apiKeyForm" class="profile-form" style="margin-top: var(--spacing-md);">
+                <div class="api-key-form-grid">
+                    <div class="form-group">
+                        <label for="api_key_name">Key 名称</label>
+                        <input id="api_key_name" name="name" type="text" maxlength="100" required value="" placeholder="">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="api_key_custom">自定义 Key（可选）</label>
+                        <input id="api_key_custom" name="api_key" type="text" minlength="16" maxlength="512" placeholder="留空则自动生成">
+                        <p class="field-hint">最小长度 16；建议使用高强度随机字符串。</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="api_key_expires_days">过期天数（可选）</label>
+                        <input id="api_key_expires_days" name="expires_in_days" type="number" min="1" max="3650" placeholder="例如：30">
+                    </div>
+                </div>
+
+                <div class="api-key-actions">
+                    <button type="submit" id="apiKeyCreateBtn" class="btn btn-primary">创建 / 轮换</button>
+                    <button type="button" id="apiKeyRefreshBtn" class="btn btn-secondary">刷新列表</button>
+                </div>
+            </form>
+
+            <div id="apiKeyResult" class="api-key-result" style="display:none;">
+                <strong>本次生成的 API Key（仅展示一次）：</strong>
+                <code id="apiKeyResultValue"></code>
+                <div class="api-key-actions">
+                    <button type="button" id="apiKeyCopyBtn" class="btn btn-secondary btn-sm">复制 Key</button>
+                </div>
+            </div>
+
+            <div class="api-key-list">
+                <table class="api-key-table">
+                    <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>前缀</th>
+                            <th>状态</th>
+                            <th>创建时间</th>
+                            <th>最近使用</th>
+                            <th>过期时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="apiKeyTableBody">
+                        <tr>
+                            <td class="api-key-empty" colspan="7">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="profile-section-title">快速操作</h3>
+
+        <div class="profile-actions">
+            <a href="/dashboard" class="btn profile-action-btn">
+                项目仪表板
+            </a>
+
+            <a href="/ai-config" class="btn profile-action-btn">
+                AI配置
+            </a>
+
+            {% if user.is_admin %}
+            <a href="/admin" class="btn profile-action-btn"
+                style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); color: var(--ink);">
+                <i class="fas fa-cog"></i> 后台管理
+            </a>
+            {% endif %}
+
+            <a href="/auth/logout" class="btn profile-action-btn" onclick="return confirm('确定要退出登录吗？')">
+                退出登录
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function formatUnixTimestamp(value) {
+        if (value === null || value === undefined || value === "") {
+            return "-";
+        }
+
+        const ts = Number(value);
+        if (!Number.isFinite(ts) || ts <= 0) {
+            return "-";
+        }
+
+        return new Date(ts * 1000).toLocaleString("zh-CN");
+    }
+
+    function escapeHtml(value) {
+        return String(value || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function setElementMessage(element, text, color) {
+        if (!element) {
+            return;
+        }
+
+        element.style.color = color;
+        element.textContent = text;
+    }
+
+    async function copyText(text) {
+        if (!text) {
+            return false;
+        }
+
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+
+        const copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        return copied;
+    }
+
+    document.querySelectorAll(".js-ts").forEach((node) => {
+        node.textContent = formatUnixTimestamp(node.dataset.ts);
+    });
+
+    const confirmPasswordInput = document.getElementById("confirm_password");
+    const newPasswordInput = document.getElementById("new_password");
+
+    if (confirmPasswordInput && newPasswordInput) {
+        confirmPasswordInput.addEventListener("input", function () {
+            const confirmPassword = this.value;
+            const newPassword = newPasswordInput.value;
+
+            if (newPassword && confirmPassword && newPassword !== confirmPassword) {
+                this.setCustomValidity("两次输入的密码不一致");
+            } else {
+                this.setCustomValidity("");
+            }
+        });
+
+        newPasswordInput.addEventListener("input", function () {
+            if (confirmPasswordInput.value) {
+                confirmPasswordInput.dispatchEvent(new Event("input"));
+            }
+        });
+    }
+
+    const profileCreditsBalance = document.getElementById("profileCreditsBalance");
+    const checkinMeta = document.getElementById("checkinMeta");
+    const checkinBtn = document.getElementById("checkinBtn");
+    const checkinFeedback = document.getElementById("checkinFeedback");
+
+    function setCheckinFeedback(text = "", color = "var(--text-secondary)") {
+        if (!checkinFeedback) {
+            return;
+        }
+        checkinFeedback.style.color = color;
+        checkinFeedback.textContent = text;
+    }
+
+    function updateProfileBalance(balance) {
+        if (!profileCreditsBalance) {
+            return;
+        }
+
+        const numericBalance = Number(balance);
+        if (!Number.isFinite(numericBalance)) {
+            return;
+        }
+
+        profileCreditsBalance.textContent = `${numericBalance} 积分`;
+    }
+
+    function renderCheckinState(data) {
+        if (!checkinMeta || !checkinBtn) {
+            return;
+        }
+
+        if (!data || !data.enabled) {
+            checkinMeta.textContent = "未开启";
+            checkinBtn.disabled = true;
+            checkinBtn.innerHTML = '<i class="fas fa-lock"></i> 暂不可签到';
+            return;
+        }
+
+        const alreadyCheckedIn = Boolean(data.already_checked_in);
+        checkinMeta.textContent = alreadyCheckedIn ? "今日已签到" : "今日可签到";
+        checkinBtn.disabled = alreadyCheckedIn;
+        checkinBtn.innerHTML = alreadyCheckedIn
+            ? '<i class="fas fa-check"></i> 今日已签到'
+            : '<i class="fas fa-hand-sparkles"></i> 立即签到';
+    }
+
+    async function loadProfileCheckinStatus() {
+        if (!checkinBtn) {
+            return;
+        }
+
+        try {
+            const data = await fetchJson("/credits/api/checkin-status");
+            renderCheckinState(data);
+        } catch (err) {
+            renderCheckinState({ enabled: false });
+            setCheckinFeedback(`签到状态获取失败：${err.message}`, "#dc2626");
+        }
+    }
+
+    if (checkinBtn) {
+        checkinBtn.addEventListener("click", async () => {
+            const previousContent = checkinBtn.innerHTML;
+            checkinBtn.disabled = true;
+            checkinBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 签到中...';
+            setCheckinFeedback("");
+
+            try {
+                const data = await fetchJson("/credits/api/checkin", { method: "POST" });
+                updateProfileBalance(data.new_balance);
+                renderCheckinState(data);
+                setCheckinFeedback(data.message || "签到成功", "#16a34a");
+            } catch (err) {
+                checkinBtn.disabled = false;
+                checkinBtn.innerHTML = previousContent;
+                setCheckinFeedback(`签到失败：${err.message}`, "#dc2626");
+                await loadProfileCheckinStatus();
+            }
+        });
+    }
+
+    const redeemForm = document.getElementById("redeemForm");
+    if (redeemForm) {
+        redeemForm.addEventListener("submit", async function (e) {
+            e.preventDefault();
+
+            const codeInput = document.getElementById("redeemCode");
+            const msgEl = document.getElementById("redeemMsg");
+            const code = (codeInput?.value || "").trim();
+
+            if (!code) {
+                setElementMessage(msgEl, "请输入兑换码", "#dc2626");
+                return;
+            }
+
+            try {
+                const res = await fetch("/credits/api/redeem", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ code: code })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    setElementMessage(msgEl, `${data.message} 新余额: ${data.new_balance}`, "#16a34a");
+                    if (codeInput) {
+                        codeInput.value = "";
+                    }
+                    setTimeout(() => window.location.reload(), 1200);
+                    return;
+                }
+
+                setElementMessage(msgEl, data.detail || data.error || "兑换失败", "#dc2626");
+            } catch (err) {
+                setElementMessage(msgEl, `请求失败: ${err.message}`, "#dc2626");
+            }
+        });
+    }
+
+    const apiKeyForm = document.getElementById("apiKeyForm");
+    const apiKeyMessage = document.getElementById("apiKeyMessage");
+    const apiKeyCreateBtn = document.getElementById("apiKeyCreateBtn");
+    const apiKeyRefreshBtn = document.getElementById("apiKeyRefreshBtn");
+    const apiKeyTableBody = document.getElementById("apiKeyTableBody");
+    const apiKeyResult = document.getElementById("apiKeyResult");
+    const apiKeyResultValue = document.getElementById("apiKeyResultValue");
+    const apiKeyCopyBtn = document.getElementById("apiKeyCopyBtn");
+
+    function setApiKeyMessage(text, level = "info") {
+        if (!apiKeyMessage) {
+            return;
+        }
+
+        const levelClass = {
+            success: "alert-success",
+            error: "alert-error",
+            info: "alert-info"
+        }[level] || "alert-info";
+
+        apiKeyMessage.className = `alert ${levelClass}`;
+        apiKeyMessage.style.display = "block";
+        apiKeyMessage.textContent = text;
+    }
+
+    function clearApiKeyMessage() {
+        if (!apiKeyMessage) {
+            return;
+        }
+        apiKeyMessage.style.display = "none";
+        apiKeyMessage.textContent = "";
+    }
+
+    function setApiKeyButtonsLoading(loading) {
+        if (apiKeyCreateBtn) {
+            apiKeyCreateBtn.disabled = loading;
+            apiKeyCreateBtn.textContent = loading ? "处理中..." : "创建 / 轮换";
+        }
+        if (apiKeyRefreshBtn) {
+            apiKeyRefreshBtn.disabled = loading;
+        }
+    }
+
+    function renderApiKeyRows(items) {
+        if (!apiKeyTableBody) {
+            return;
+        }
+
+        if (!Array.isArray(items) || items.length === 0) {
+            apiKeyTableBody.innerHTML = '<tr><td class="api-key-empty" colspan="7">暂无 API Key</td></tr>';
+            return;
+        }
+
+        const rows = items.map((item) => {
+            const active = Boolean(item.is_active);
+            const statusClass = active ? "active" : "inactive";
+            const statusText = active ? "可用" : "已禁用";
+            const keyId = Number(item.id);
+            const actionHtml = Number.isFinite(keyId)
+                ? `<button type="button" class="btn btn-danger btn-sm" data-action="delete" data-key-id="${keyId}">删除</button>`
+                : "-";
+
+            return `
+                <tr>
+                    <td>${escapeHtml(item.name)}</td>
+                    <td><code>${escapeHtml(item.key_preview || item.key_prefix || "-")}</code></td>
+                    <td><span class="api-key-status ${statusClass}">${statusText}</span></td>
+                    <td>${escapeHtml(formatUnixTimestamp(item.created_at))}</td>
+                    <td>${escapeHtml(formatUnixTimestamp(item.last_used_at))}</td>
+                    <td>${escapeHtml(formatUnixTimestamp(item.expires_at))}</td>
+                    <td>${actionHtml}</td>
+                </tr>
+            `;
+        });
+
+        apiKeyTableBody.innerHTML = rows.join("");
+    }
+
+    async function fetchJson(url, options = {}) {
+        const response = await fetch(url, Object.assign({ credentials: "same-origin" }, options));
+        let data = {};
+
+        try {
+            data = await response.json();
+        } catch (_) {
+            data = {};
+        }
+
+        if (!response.ok) {
+            let detail = data.detail || data.error || "请求失败";
+            if (Array.isArray(detail)) {
+                detail = detail.map((item) => item.msg || JSON.stringify(item)).join("; ");
+            }
+            throw new Error(detail);
+        }
+
+        return data;
+    }
+
+    async function loadApiKeys() {
+        if (!apiKeyTableBody) {
+            return;
+        }
+
+        try {
+            const data = await fetchJson("/api/auth/api-keys?include_inactive=true");
+            renderApiKeyRows(data.api_keys || []);
+        } catch (err) {
+            renderApiKeyRows([]);
+            setApiKeyMessage(`加载 API Key 失败: ${err.message}`, "error");
+        }
+    }
+
+    async function deleteApiKey(keyId) {
+        if (!Number.isFinite(Number(keyId))) {
+            return;
+        }
+
+        if (!window.confirm("确定要删除这个 API Key 吗？删除后不能恢复。")) {
+            return;
+        }
+
+        clearApiKeyMessage();
+        setApiKeyButtonsLoading(true);
+
+        try {
+            await fetchJson(`/api/auth/api-keys/${Number(keyId)}`, { method: "DELETE" });
+            setApiKeyMessage("API Key 已删除", "success");
+            await loadApiKeys();
+        } catch (err) {
+            setApiKeyMessage(`删除失败: ${err.message}`, "error");
+        } finally {
+            setApiKeyButtonsLoading(false);
+        }
+    }
+
+    if (apiKeyTableBody) {
+        apiKeyTableBody.addEventListener("click", async (event) => {
+            const button = event.target.closest("button[data-action='delete']");
+            if (!button) {
+                return;
+            }
+            await deleteApiKey(button.dataset.keyId);
+        });
+    }
+
+    if (apiKeyRefreshBtn) {
+        apiKeyRefreshBtn.addEventListener("click", async () => {
+            clearApiKeyMessage();
+            await loadApiKeys();
+        });
+    }
+
+    if (apiKeyCopyBtn) {
+        apiKeyCopyBtn.addEventListener("click", async () => {
+            const value = apiKeyResultValue ? apiKeyResultValue.textContent.trim() : "";
+            if (!value) {
+                return;
+            }
+
+            try {
+                const ok = await copyText(value);
+                if (!ok) {
+                    throw new Error("复制失败");
+                }
+                setApiKeyMessage("API Key 已复制到剪贴板", "success");
+            } catch (err) {
+                setApiKeyMessage(`复制失败: ${err.message}`, "error");
+            }
+        });
+    }
+
+    if (apiKeyForm) {
+        apiKeyForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            clearApiKeyMessage();
+
+            const formData = new FormData(apiKeyForm);
+            const payload = {
+                name: String(formData.get("name") || "").trim()
+            };
+
+            const customKey = String(formData.get("api_key") || "").trim();
+            if (customKey) {
+                payload.api_key = customKey;
+            }
+
+            const expiresInDaysRaw = String(formData.get("expires_in_days") || "").trim();
+            if (expiresInDaysRaw) {
+                payload.expires_in_days = Number(expiresInDaysRaw);
+            }
+
+            if (!payload.name) {
+                setApiKeyMessage("Key 名称不能为空", "error");
+                return;
+            }
+
+            if (payload.api_key && payload.api_key.length < 16) {
+                setApiKeyMessage("自定义 Key 长度至少 16 位", "error");
+                return;
+            }
+
+            if (payload.expires_in_days && (!Number.isFinite(payload.expires_in_days) || payload.expires_in_days <= 0)) {
+                setApiKeyMessage("过期天数必须是正整数", "error");
+                return;
+            }
+
+            setApiKeyButtonsLoading(true);
+
+            try {
+                const data = await fetchJson("/api/auth/api-keys", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                if (apiKeyResult && apiKeyResultValue) {
+                    apiKeyResult.style.display = "block";
+                    apiKeyResultValue.textContent = data.api_key || "";
+                }
+
+                const opText = data.rotated ? "轮换成功" : "创建成功";
+                setApiKeyMessage(`API Key ${opText}，请立即保存。`, "success");
+                await loadApiKeys();
+
+                const customInput = document.getElementById("api_key_custom");
+                if (customInput) {
+                    customInput.value = "";
+                }
+            } catch (err) {
+                setApiKeyMessage(`创建失败: ${err.message}`, "error");
+            } finally {
+                setApiKeyButtonsLoading(false);
+            }
+        });
+    }
+
+    loadProfileCheckinStatus();
+    loadApiKeys();
+</script>
+{% endblock %}

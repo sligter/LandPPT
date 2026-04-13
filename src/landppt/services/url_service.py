@@ -1,148 +1,188 @@
 """
-URL生成服务
-统一管理所有URL生成逻辑，支持反向代理域名配置
+URL generation helpers.
+
+This module centralizes absolute URL building so server-side callers can emit
+stable public links that respect the configured BASE_URL.
 """
 
 import logging
+from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urlencode
+
+from dotenv import load_dotenv
+from ..auth.request_context import current_base_url
 
 logger = logging.getLogger(__name__)
 
 
 class URLService:
-    """URL生成服务"""
-    
+    """Build absolute URLs for app resources."""
+
     def __init__(self):
         self._base_url = None
+        self._base_url_env_mtime: Optional[float] = None
         self._config_service = None
-    
+
     def _get_config_service(self):
-        """延迟加载配置服务，避免循环导入"""
+        """Load config lazily to avoid circular imports."""
         if self._config_service is None:
             from .config_service import config_service
+
             self._config_service = config_service
         return self._config_service
-    
+
     def _get_base_url(self) -> str:
-        """获取基础URL配置"""
-        # 每次都重新获取配置，确保使用最新的配置
+        """Return the current configured base URL."""
+        request_base_url = (current_base_url.get() or "").strip()
+        if request_base_url:
+            return request_base_url.rstrip("/")
+
         try:
             config_service = self._get_config_service()
-            app_config = config_service.get_config_by_category('app_config')
-            base_url = app_config.get('base_url', 'http://localhost:8000')
-            
-            # 确保URL不以斜杠结尾
-            if base_url.endswith('/'):
-                base_url = base_url[:-1]
-            
-            logger.debug(f"Using base URL: {base_url}")
-            return base_url
-            
+
+            # Reload BASE_URL from .env when it changes so multi-worker deployments
+            # can pick up reverse-proxy domain updates without process restart.
+            env_path: Optional[Path] = getattr(config_service, "env_path", None)
+            mtime = None
+            if env_path and env_path.exists():
+                try:
+                    mtime = env_path.stat().st_mtime
+                except Exception:
+                    mtime = None
+
+            if self._base_url and mtime is not None and self._base_url_env_mtime == mtime:
+                return self._base_url
+
+            try:
+                env_file = getattr(config_service, "env_file", ".env")
+                load_dotenv(env_file, override=True)
+            except Exception:
+                pass
+
+            app_config = config_service.get_config_by_category("app_config")
+            base_url = str(app_config.get("base_url") or "").strip()
+
+            if self.validate_base_url(base_url):
+                if base_url.endswith("/"):
+                    base_url = base_url[:-1]
+
+                logger.debug(f"Using configured base URL: {base_url}")
+                self._base_url = base_url
+                self._base_url_env_mtime = mtime
+                return base_url
+
+            raise ValueError("App base_url is not configured")
+
         except Exception as e:
-            logger.warning(f"无法获取基础URL配置，使用默认值: {e}")
-            return 'http://localhost:8000'
-    
+            logger.warning(f"Failed to load base URL config: {e}")
+            raise ValueError("Public base URL is unavailable for absolute URL generation") from e
+
     def build_absolute_url(self, relative_path: str) -> str:
-        """构建绝对URL"""
+        """Build an absolute URL from a relative app path."""
         base_url = self._get_base_url()
-        
-        # 确保相对路径以斜杠开头
-        if not relative_path.startswith('/'):
-            relative_path = '/' + relative_path
-        
+        if not relative_path.startswith("/"):
+            relative_path = "/" + relative_path
+
         absolute_url = f"{base_url}{relative_path}"
         logger.debug(f"Built absolute URL: {relative_path} -> {absolute_url}")
         return absolute_url
-    
-    def build_image_url(self, image_id: str) -> str:
-        """构建图片访问URL"""
-        return self.build_absolute_url(f"/api/image/view/{image_id}")
-    
+
+    def build_image_url(
+        self,
+        image_id: str,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+    ) -> str:
+        """Build an absolute image-view URL, optionally carrying size hints."""
+        image_url = self.build_absolute_url(f"/api/image/view/{image_id}")
+        query_params = {}
+        if width and width > 0:
+            query_params["width"] = f"{width}px"
+        if height and height > 0:
+            query_params["height"] = f"{height}px"
+        if not query_params:
+            return image_url
+        return f"{image_url}?{urlencode(query_params)}"
+
     def build_image_thumbnail_url(self, image_id: str) -> str:
-        """构建图片缩略图URL"""
+        """Build an absolute image thumbnail URL."""
         return self.build_absolute_url(f"/api/image/thumbnail/{image_id}")
-    
+
     def build_image_download_url(self, image_id: str) -> str:
-        """构建图片下载URL"""
+        """Build an absolute image download URL."""
         return self.build_absolute_url(f"/api/image/download/{image_id}")
-    
+
     def build_static_url(self, static_path: str) -> str:
-        """构建静态资源URL"""
-        # 确保静态路径不以斜杠开头（因为/static已经包含了）
-        if static_path.startswith('/'):
+        """Build an absolute static asset URL."""
+        if static_path.startswith("/"):
             static_path = static_path[1:]
         return self.build_absolute_url(f"/static/{static_path}")
-    
+
     def build_temp_url(self, temp_path: str) -> str:
-        """构建临时文件URL"""
-        # 确保临时路径不以斜杠开头（因为/temp已经包含了）
-        if temp_path.startswith('/'):
+        """Build an absolute temp-file URL."""
+        if temp_path.startswith("/"):
             temp_path = temp_path[1:]
         return self.build_absolute_url(f"/temp/{temp_path}")
-    
+
     def get_current_base_url(self) -> str:
-        """获取当前配置的基础URL"""
+        """Return the configured base URL."""
         return self._get_base_url()
-    
+
     def is_localhost_url(self, url: str) -> bool:
-        """检查URL是否为localhost"""
-        return 'localhost' in url or '127.0.0.1' in url
-    
+        """Check whether a URL points at localhost."""
+        return "localhost" in url or "127.0.0.1" in url
+
     def validate_base_url(self, base_url: str) -> bool:
-        """验证基础URL格式"""
+        """Validate base URL format."""
         try:
             if not base_url:
                 return False
-            
-            # 基本格式检查
-            if not (base_url.startswith('http://') or base_url.startswith('https://')):
+            if not (base_url.startswith("http://") or base_url.startswith("https://")):
                 return False
-            
-            # 不能以斜杠结尾
-            if base_url.endswith('/'):
+            if base_url.endswith("/"):
                 return False
-            
             return True
-            
         except Exception as e:
             logger.error(f"URL validation error: {e}")
             return False
 
 
-# 全局URL服务实例
 _url_service = None
 
 
 def get_url_service() -> URLService:
-    """获取全局URL服务实例"""
+    """Return the shared URL service instance."""
     global _url_service
     if _url_service is None:
         _url_service = URLService()
     return _url_service
 
 
-# 便捷函数
 def build_absolute_url(relative_path: str) -> str:
-    """构建绝对URL的便捷函数"""
+    """Convenience helper for absolute URLs."""
     return get_url_service().build_absolute_url(relative_path)
 
 
-def build_image_url(image_id: str) -> str:
-    """构建图片URL的便捷函数"""
-    return get_url_service().build_image_url(image_id)
+def build_image_url(
+    image_id: str,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+) -> str:
+    """Convenience helper for absolute image URLs."""
+    return get_url_service().build_image_url(image_id, width=width, height=height)
 
 
 def build_image_thumbnail_url(image_id: str) -> str:
-    """构建图片缩略图URL的便捷函数"""
+    """Convenience helper for image thumbnail URLs."""
     return get_url_service().build_image_thumbnail_url(image_id)
 
 
 def build_image_download_url(image_id: str) -> str:
-    """构建图片下载URL的便捷函数"""
+    """Convenience helper for image download URLs."""
     return get_url_service().build_image_download_url(image_id)
 
 
 def get_current_base_url() -> str:
-    """获取当前基础URL的便捷函数"""
+    """Convenience helper for the configured base URL."""
     return get_url_service().get_current_base_url()

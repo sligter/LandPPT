@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth 设置 - LandPPT Admin</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/landppt-logo.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <style>
+        .community-grid {
+            display: grid;
+            gap: 16px;
+        }
+
+        .community-shell {
+            display: grid;
+            gap: 18px;
+        }
+
+        .panel-stack {
+            display: grid;
+            gap: 16px;
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 14px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+
+        .form-grid > .form-group {
+            margin-top: 0;
+        }
+
+        .oauth-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .oauth-provider-card {
+            container-type: inline-size;
+        }
+
+        .oauth-provider-card[data-provider="github"] {
+            --oauth-provider-accent: #111111;
+            --oauth-provider-accent-soft: rgba(17, 17, 17, 0.05);
+        }
+
+        .oauth-provider-card[data-provider="linuxdo"] {
+            --oauth-provider-accent: var(--blue);
+            --oauth-provider-accent-soft: rgba(37, 99, 235, 0.08);
+        }
+
+        .oauth-provider-card[data-state="enabled"] {
+            border-color: color-mix(in srgb, var(--oauth-provider-accent) 18%, var(--border));
+        }
+
+        .oauth-provider-card[data-state="enabled"] .section-header {
+            background: color-mix(in srgb, var(--paper-2) 76%, var(--oauth-provider-accent-soft));
+        }
+
+        .oauth-provider-card[data-state="pending"] {
+            border-color: color-mix(in srgb, var(--amber) 30%, var(--border));
+        }
+
+        .oauth-provider-header {
+            align-items: flex-start;
+        }
+
+        .oauth-provider-head {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .oauth-provider-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: color-mix(in srgb, var(--oauth-provider-accent) 80%, var(--muted));
+        }
+
+        .oauth-status-stack {
+            display: grid;
+            justify-items: end;
+            gap: 0;
+            flex-shrink: 0;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: var(--radius-full);
+            font-weight: 600;
+            font-size: 0.75rem;
+            background: var(--gray-bg);
+            color: var(--muted);
+        }
+
+        .status-pill.is-on {
+            background: var(--green-bg);
+            color: var(--green);
+        }
+
+        .status-pill.is-pending {
+            background: var(--amber-bg);
+            color: var(--amber);
+        }
+
+        .oauth-switch {
+            position: relative;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 16px;
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid color-mix(in srgb, var(--oauth-provider-accent) 12%, var(--border));
+            border-radius: var(--radius-md);
+            background: color-mix(in srgb, var(--paper-2) 82%, var(--oauth-provider-accent-soft));
+            cursor: pointer;
+            transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+        }
+
+        .oauth-switch:hover {
+            border-color: color-mix(in srgb, var(--oauth-provider-accent) 24%, var(--border));
+            background: var(--paper);
+            box-shadow: var(--shadow-xs);
+        }
+
+        .oauth-switch input {
+            position: absolute;
+            inline-size: 1px;
+            block-size: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .oauth-switch-copy {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .oauth-switch-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius-sm);
+            background: var(--oauth-provider-accent-soft);
+            color: var(--oauth-provider-accent);
+            font-size: 0.95rem;
+            flex-shrink: 0;
+        }
+
+        .oauth-switch-title {
+            display: block;
+            font-size: 0.92rem;
+            font-weight: 700;
+            line-height: 1.35;
+            color: var(--ink);
+        }
+
+        .oauth-switch-meta {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .oauth-switch-state-text {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 60px;
+            padding: 5px 10px;
+            border-radius: var(--radius-full);
+            background: var(--paper);
+            border: 1px solid color-mix(in srgb, var(--oauth-provider-accent) 12%, var(--border));
+            color: var(--muted);
+            font-size: 0.72rem;
+            font-weight: 700;
+            transition: color var(--transition), border-color var(--transition), background var(--transition);
+        }
+
+        .oauth-switch-track {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            width: 42px;
+            height: 24px;
+            padding: 2px;
+            border-radius: var(--radius-full);
+            background: color-mix(in srgb, var(--paper-3) 88%, var(--oauth-provider-accent-soft));
+            border: 1px solid color-mix(in srgb, var(--oauth-provider-accent) 10%, var(--border));
+            transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
+            flex-shrink: 0;
+        }
+
+        .oauth-switch-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--paper);
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+            transition: transform var(--transition), background var(--transition);
+        }
+
+        .oauth-switch input:focus-visible ~ .oauth-switch-meta .oauth-switch-track {
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--oauth-provider-accent) 16%, transparent);
+        }
+
+        .oauth-switch input:checked ~ .oauth-switch-meta .oauth-switch-track {
+            background: var(--ink);
+            border-color: var(--ink);
+        }
+
+        .oauth-switch input:checked ~ .oauth-switch-meta .oauth-switch-track .oauth-switch-thumb {
+            transform: translateX(18px);
+        }
+
+        .oauth-switch input:checked ~ .oauth-switch-meta .oauth-switch-state-text {
+            color: var(--oauth-provider-accent);
+            border-color: color-mix(in srgb, var(--oauth-provider-accent) 26%, var(--border));
+            background: color-mix(in srgb, var(--oauth-provider-accent-soft) 72%, var(--paper));
+        }
+
+        .oauth-switch:has(input:checked) {
+            border-color: color-mix(in srgb, var(--oauth-provider-accent) 24%, var(--border));
+        }
+
+        .oauth-inline-option {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            background: var(--paper-2);
+        }
+
+        .oauth-inline-option input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+            flex: 0 0 auto;
+        }
+
+        .oauth-inline-option label {
+            margin: 0;
+            font-size: 0.84rem;
+            line-height: 1.55;
+            letter-spacing: normal;
+            text-transform: none;
+            color: var(--ink-2);
+            font-weight: 600;
+        }
+
+        @container (max-width: 720px) {
+            .oauth-provider-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .oauth-status-stack {
+                justify-items: start;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .oauth-switch {
+                grid-template-columns: 1fr;
+            }
+
+            .oauth-switch-meta {
+                justify-content: space-between;
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 540px) {
+            .oauth-actions .btn {
+                flex: 1 1 100%;
+            }
+        }
+    </style>
+</head>
+
+<body class="admin-body">
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="header">
+        <h1><i class="fas fa-right-to-bracket"></i> OAuth 设置</h1>
+        <div class="header-links">
+            <span class="header-user"><i class="fas fa-user-shield"></i> {{ user.username }}</span>
+            <a href="/admin/users"><i class="fas fa-users"></i> 用户</a>
+            {% if credits_enabled %}
+            <a href="/admin/credits"><i class="fas fa-coins"></i> 积分</a>
+            {% endif %}
+            <a href="/admin/community"><i class="fas fa-compass-drafting"></i> 运营</a>
+            <a href="/admin/oauth" aria-current="page"><i class="fas fa-right-to-bracket"></i> OAuth</a>
+            <a href="/admin/smtp"><i class="fas fa-envelope"></i> SMTP</a>
+            <a href="/dashboard"><i class="fas fa-home"></i> 首页</a>
+            <a href="/auth/logout" onclick="return confirm('确定要退出登录吗？')"><i class="fas fa-arrow-right-from-bracket"></i> 退出</a>
+        </div>
+    </div>
+
+    <div class="container container--narrow community-grid">
+        <div class="community-shell">
+            <section class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-key"></i> OAuth 设置</h2>
+                    <div class="oauth-actions">
+                        <button type="button" class="btn btn-outline" onclick="loadSettings()">
+                            <i class="fas fa-rotate"></i> 重新加载
+                        </button>
+                        <button type="button" class="btn" onclick="saveSettings()">
+                            <i class="fas fa-save"></i> 保存设置
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section oauth-provider-card" data-provider="github" data-state="disabled">
+                <div class="section-header oauth-provider-header">
+                    <div class="oauth-provider-head">
+                        <span class="oauth-provider-eyebrow"><i class="fab fa-github"></i> GitHub OAuth</span>
+                    </div>
+                    <div class="oauth-status-stack">
+                        <span class="status-pill" id="githubStatus"><i class="fas fa-circle"></i> 未启用</span>
+                        <span id="githubSwitchState" hidden>关闭</span>
+                    </div>
+                </div>
+                <div class="section-body panel-stack">
+                    <label class="oauth-switch" for="github_enabled">
+                        <input type="checkbox" id="github_enabled" role="switch">
+                        <span class="oauth-switch-copy">
+                            <span class="oauth-switch-icon" aria-hidden="true"><i class="fab fa-github"></i></span>
+                            <span class="oauth-switch-title">启用 GitHub 登录</span>
+                        </span>
+                        <span class="oauth-switch-meta">
+                            <span class="oauth-switch-state-text">状态</span>
+                            <span class="oauth-switch-track" aria-hidden="true">
+                                <span class="oauth-switch-thumb"></span>
+                            </span>
+                        </span>
+                    </label>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="github_client_id">Client ID</label>
+                            <input type="text" id="github_client_id" placeholder="GitHub App / OAuth App Client ID">
+                        </div>
+                        <div class="form-group">
+                            <label for="github_client_secret">Client Secret</label>
+                            <div class="password-toggle">
+                                <input type="password" id="github_client_secret" placeholder="GitHub Client Secret">
+                                <button type="button" onclick="toggleSecret('github_client_secret', this)"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="github_callback_url">回调地址</label>
+                        <input type="url" id="github_callback_url" placeholder="https://your-domain.com/auth/github/callback">
+                    </div>
+
+                    <div class="oauth-inline-option">
+                        <input type="checkbox" id="github_callback_use_request_host">
+                        <label for="github_callback_use_request_host">优先使用当前请求域名拼接回调地址</label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section oauth-provider-card" data-provider="linuxdo" data-state="disabled">
+                <div class="section-header oauth-provider-header">
+                    <div class="oauth-provider-head">
+                        <span class="oauth-provider-eyebrow"><img src="/static/images/linuxdo.svg" alt="" style="width:14px;height:14px;"> LinuxDo OAuth</span>
+                    </div>
+                    <div class="oauth-status-stack">
+                        <span class="status-pill" id="linuxdoStatus"><i class="fas fa-circle"></i> 未启用</span>
+                        <span id="linuxdoSwitchState" hidden>关闭</span>
+                    </div>
+                </div>
+                <div class="section-body panel-stack">
+                    <label class="oauth-switch" for="linuxdo_enabled">
+                        <input type="checkbox" id="linuxdo_enabled" role="switch">
+                        <span class="oauth-switch-copy">
+                            <span class="oauth-switch-icon" aria-hidden="true"><img src="/static/images/linuxdo.svg" alt="" style="width:18px;height:18px;"></span>
+                            <span class="oauth-switch-title">启用 LinuxDo 登录</span>
+                        </span>
+                        <span class="oauth-switch-meta">
+                            <span class="oauth-switch-state-text">状态</span>
+                            <span class="oauth-switch-track" aria-hidden="true">
+                                <span class="oauth-switch-thumb"></span>
+                            </span>
+                        </span>
+                    </label>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="linuxdo_client_id">Client ID</label>
+                            <input type="text" id="linuxdo_client_id" placeholder="LinuxDo Client ID">
+                        </div>
+                        <div class="form-group">
+                            <label for="linuxdo_client_secret">Client Secret</label>
+                            <div class="password-toggle">
+                                <input type="password" id="linuxdo_client_secret" placeholder="LinuxDo Client Secret">
+                                <button type="button" onclick="toggleSecret('linuxdo_client_secret', this)"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="linuxdo_callback_url">回调地址</label>
+                        <input type="url" id="linuxdo_callback_url" placeholder="https://your-domain.com/auth/linuxdo/callback">
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        function getField(id) {
+            return document.getElementById(id);
+        }
+
+        function showToast(message, type = 'success') {
+            const container = getField('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle';
+            toast.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('toast-out');
+                setTimeout(() => toast.remove(), 250);
+            }, 3500);
+        }
+
+        function toggleSecret(inputId, button) {
+            const input = getField(inputId);
+            if (!input) return;
+            const icon = button.querySelector('i');
+            const reveal = input.type === 'password';
+            input.type = reveal ? 'text' : 'password';
+            icon.className = reveal ? 'fas fa-eye-slash' : 'fas fa-eye';
+        }
+
+        function getPayload() {
+            const githubEnabled = getField('github_enabled');
+            const githubClientId = getField('github_client_id');
+            const githubClientSecret = getField('github_client_secret');
+            const githubCallbackUrl = getField('github_callback_url');
+            const githubCallbackUseRequestHost = getField('github_callback_use_request_host');
+            const linuxdoEnabled = getField('linuxdo_enabled');
+            const linuxdoClientId = getField('linuxdo_client_id');
+            const linuxdoClientSecret = getField('linuxdo_client_secret');
+            const linuxdoCallbackUrl = getField('linuxdo_callback_url');
+
+            return {
+                github: {
+                    enabled: !!githubEnabled?.checked,
+                    client_id: githubClientId?.value.trim() || '',
+                    client_secret: githubClientSecret?.value.trim() || '',
+                    callback_url: githubCallbackUrl?.value.trim() || '',
+                    callback_use_request_host: !!githubCallbackUseRequestHost?.checked,
+                },
+                linuxdo: {
+                    enabled: !!linuxdoEnabled?.checked,
+                    client_id: linuxdoClientId?.value.trim() || '',
+                    client_secret: linuxdoClientSecret?.value.trim() || '',
+                    callback_url: linuxdoCallbackUrl?.value.trim() || '',
+                }
+            };
+        }
+
+        function applyStatus(provider, enabled, configured) {
+            const el = getField(`${provider}Status`);
+            const switchState = getField(`${provider}SwitchState`);
+            const card = document.querySelector(`.oauth-provider-card[data-provider="${provider}"]`);
+            if (!el) return;
+
+            el.classList.remove('is-on', 'is-pending');
+
+            if (enabled && configured) {
+                el.classList.add('is-on');
+                el.innerHTML = '<i class="fas fa-circle"></i> 已启用';
+                if (switchState) switchState.textContent = '开启';
+                if (card) card.dataset.state = 'enabled';
+                return;
+            }
+
+            if (enabled) {
+                el.classList.add('is-pending');
+                el.innerHTML = '<i class="fas fa-circle"></i> 待补全';
+                if (switchState) switchState.textContent = '待补全';
+                if (card) card.dataset.state = 'pending';
+                return;
+            }
+
+            el.innerHTML = '<i class="fas fa-circle"></i> 未启用';
+            if (switchState) switchState.textContent = '关闭';
+            if (card) card.dataset.state = 'disabled';
+        }
+
+        function updateSummary() {
+            const payload = getPayload();
+            const githubReady = !!(payload.github.client_id && payload.github.client_secret);
+            const linuxdoReady = !!(payload.linuxdo.client_id && payload.linuxdo.client_secret);
+
+            applyStatus('github', payload.github.enabled, githubReady);
+            applyStatus('linuxdo', payload.linuxdo.enabled, linuxdoReady);
+        }
+
+        function fillForm(config) {
+            const github = config.github || {};
+            const linuxdo = config.linuxdo || {};
+            const githubEnabled = getField('github_enabled');
+            const githubClientId = getField('github_client_id');
+            const githubClientSecret = getField('github_client_secret');
+            const githubCallbackUrl = getField('github_callback_url');
+            const githubCallbackUseRequestHost = getField('github_callback_use_request_host');
+            const linuxdoEnabled = getField('linuxdo_enabled');
+            const linuxdoClientId = getField('linuxdo_client_id');
+            const linuxdoClientSecret = getField('linuxdo_client_secret');
+            const linuxdoCallbackUrl = getField('linuxdo_callback_url');
+
+            if (githubEnabled) githubEnabled.checked = !!github.enabled;
+            if (githubClientId) githubClientId.value = github.client_id || '';
+            if (githubClientSecret) githubClientSecret.value = github.client_secret || '';
+            if (githubCallbackUrl) githubCallbackUrl.value = github.callback_url || '';
+            if (githubCallbackUseRequestHost) githubCallbackUseRequestHost.checked = !!github.callback_use_request_host;
+
+            if (linuxdoEnabled) linuxdoEnabled.checked = !!linuxdo.enabled;
+            if (linuxdoClientId) linuxdoClientId.value = linuxdo.client_id || '';
+            if (linuxdoClientSecret) linuxdoClientSecret.value = linuxdo.client_secret || '';
+            if (linuxdoCallbackUrl) linuxdoCallbackUrl.value = linuxdo.callback_url || '';
+
+            updateSummary();
+        }
+
+        async function loadSettings() {
+            try {
+                const res = await fetch('/admin/api/oauth');
+                const data = await res.json();
+                if (!data.success) {
+                    throw new Error(data.message || 'OAuth 配置加载失败');
+                }
+                fillForm(data.config || {});
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        }
+
+        async function saveSettings() {
+            const payload = getPayload();
+            try {
+                const res = await fetch('/admin/api/oauth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    throw new Error(data.message || 'OAuth 设置保存失败');
+                }
+                updateSummary();
+                showToast(data.message || 'OAuth 设置已保存');
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        }
+
+        document.querySelectorAll('input').forEach((input) => {
+            input.addEventListener('input', updateSummary);
+            input.addEventListener('change', updateSummary);
+        });
+
+        loadSettings();
+    </script>
+</body>
+
+</html>

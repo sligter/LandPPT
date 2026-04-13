@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - LandPPT</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/landppt-logo.png">
+    <link rel="alternate icon" href="/static/images/favicon.ico">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/pages/auth/auth.css">
+    <link rel="stylesheet" href="/static/css/shared/site_notice.css">
+    
+    <!-- ========================================== -->
+    <!-- 全屏纯黑白 3D + 鼠标交互 动画专属样式         -->
+    <!-- ========================================== -->
+    <style>
+        /* 强制左侧面板为深色主题 */
+        .brand-panel {
+            position: relative;
+            overflow: hidden;
+            background: #030303 !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* 强制左侧文字为白/灰阶，剔除原有色彩 */
+        .brand-panel h1, .brand-panel h2, .brand-panel .brand-name, .brand-panel .type-text {
+            color: #ffffff !important;
+        }
+        .brand-panel p, .brand-panel .type-label, .brand-panel .brand-footer {
+            color: #aaaaaa !important;
+        }
+        
+        /* 标签栏基础样式与反色悬浮动效 */
+        .brand-panel .pill {
+            background: rgba(255, 255, 255, 0.05) !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            color: #ffffff !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            cursor: default;
+        }
+        .brand-panel .pill i, .brand-panel .brand-footer i { 
+            color: #ffffff !important; 
+            transition: color 0.3s ease !important;
+        }
+        /* 交互 1：黑白极简反色 Hover */
+        .brand-panel .pill:hover {
+            background: #ffffff !important;
+            color: #000000 !important;
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 10px 20px rgba(255, 255, 255, 0.15);
+        }
+        .brand-panel .pill:hover i {
+            color: #000000 !important;
+        }
+
+        /* 徽章悬浮发光 */
+        .brand-badge {
+            background: #fff; color: #000;
+            transition: all 0.3s ease;
+        }
+        .brand-name:hover .brand-badge {
+            box-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(255,255,255,0.4);
+            transform: scale(1.05);
+        }
+
+        /* --- 动画容器 (占满整个左侧，并接受 JS 传入的 CSS 变量) --- */
+        .bw-visual-bg {
+            position: absolute;
+            /* 稍微放大，防止 3D 倾斜时露出黑边 */
+            top: -10%; left: -10%; right: -10%; bottom: -10%; 
+            z-index: 0;
+            perspective: 1200px;
+            background: radial-gradient(circle at center, #111111 0%, #000000 100%);
+            overflow: hidden;
+            pointer-events: none; /* 让鼠标事件穿透给下层文本 */
+            
+            /* 交互 2：鼠标 3D 视差偏移引擎 */
+            transform-style: preserve-3d;
+            transform: scale(0.9) rotateX(calc(var(--mouse-y-norm, 0) * -15deg)) rotateY(calc(var(--mouse-x-norm, 0) * 15deg));
+            transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        /* 交互 3：鼠标局部探照灯效果 */
+        .bw-spotlight {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            pointer-events: none;
+            background: radial-gradient(
+                400px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), 
+                rgba(255, 255, 255, 0.08) 0%, 
+                transparent 60%
+            );
+            transition: background 0.1s ease-out;
+            mix-blend-mode: screen;
+        }
+
+        /* 1. 底部流动网格 */
+        .bw-grid {
+            position: absolute;
+            top: 50%; left: -50%; right: -50%; bottom: -50%;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+            background-size: 60px 60px;
+            transform: rotateX(75deg) translateZ(0);
+            animation: gridPan 10s linear infinite;
+            -webkit-mask-image: radial-gradient(circle, black 30%, transparent 70%);
+            mask-image: radial-gradient(circle, black 30%, transparent 70%);
+        }
+
+        /* 2. AI 纵向扫描光束 */
+        .bw-scanner {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 2px;
+            background: #ffffff;
+            box-shadow: 0 0 30px 10px rgba(255, 255, 255, 0.2);
+            opacity: 0.8;
+            animation: scanScreen 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            z-index: 5;
+        }
+
+        /* 3. 3D 穿梭的 PPT 线框卡片 */
+        .bw-slide-tunnel {
+            position: absolute;
+            inset: 0;
+            transform-style: preserve-3d;
+        }
+
+        .bw-slide {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 500px; height: 300px;
+            margin-top: -150px; margin-left: -250px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            clip-path: polygon(0 0, calc(100% - 30px) 0, 100% 30px, 100% 100%, 30px 100%, 0 calc(100% - 30px));
+            animation: flyToCamera 15s linear infinite;
+            transform-style: preserve-3d;
+            box-shadow: 0 0 40px rgba(255, 255, 255, 0.05);
+        }
+
+        .bw-slide-1 { animation-delay: 0s; }
+        .bw-slide-2 { animation-delay: -5s; transform-origin: left center; }
+        .bw-slide-3 { animation-delay: -10s; transform-origin: right center; }
+
+        /* --- 幻灯片内部的黑白 UI 骨架 --- */
+        .bw-element { position: absolute; background: rgba(255, 255, 255, 0.9); }
+        .bw-element-dim { position: absolute; background: rgba(255, 255, 255, 0.3); }
+        .bw-element-border { position: absolute; border: 1px dashed rgba(255, 255, 255, 0.5); }
+
+        /* Slide 1排版 */
+        .bw-slide-1 .bw-title { top: 15%; left: 10%; width: 40%; height: 6%; }
+        .bw-slide-1 .bw-line-1 { top: 35%; left: 10%; width: 35%; height: 2px; box-shadow: 0 15px 0 rgba(255,255,255,0.3), 0 30px 0 rgba(255,255,255,0.3); }
+        .bw-slide-1 .bw-img { top: 30%; right: 10%; width: 35%; height: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px;}
+        .bw-slide-1 .bw-img::after { content: "IMG"; font-family: monospace; letter-spacing: 2px; opacity: 0.6; }
+
+        /* Slide 2排版 */
+        .bw-slide-2 .bw-title { top: 15%; left: 50%; transform: translateX(-50%); width: 60%; height: 8%; }
+        .bw-slide-2 .bw-chart { bottom: 15%; left: 50%; transform: translateX(-50%); width: 70%; height: 40%; display: flex; align-items: flex-end; gap: 10px;}
+        .bw-slide-2 .bw-chart .bw-bar { flex: 1; background: rgba(255, 255, 255, 0.7); }
+        .bw-slide-2 .bw-chart .bw-bar:nth-child(1) { height: 40%; }
+        .bw-slide-2 .bw-chart .bw-bar:nth-child(2) { height: 80%; }
+        .bw-slide-2 .bw-chart .bw-bar:nth-child(3) { height: 60%; }
+        .bw-slide-2 .bw-chart .bw-bar:nth-child(4) { height: 100%; background: #ffffff; box-shadow: 0 0 15px rgba(255,255,255,0.5);}
+
+        /* Slide 3排版 */
+        .bw-slide-3 .bw-grid-box { top: 20%; left: 10%; width: 80%; height: 60%; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .bw-slide-3 .bw-grid-box div { border: 1px solid rgba(255, 255, 255, 0.4); background: rgba(255, 255, 255, 0.05); }
+
+        /* 漂浮的二进制数据点 */
+        .bw-data {
+            position: absolute;
+            color: rgba(255, 255, 255, 0.6);
+            font-family: monospace;
+            font-size: 14px;
+            animation: floatUp 8s linear infinite;
+        }
+        .bw-data:nth-child(1) { left: 20%; animation-delay: 1s; content: "01"; }
+        .bw-data:nth-child(2) { left: 70%; animation-delay: 3s; content: "10"; font-size: 18px; }
+        .bw-data:nth-child(3) { left: 40%; animation-delay: 5s; content: "01"; }
+
+        /* --- 内容层遮罩 (微调 padding 以对齐右侧) --- */
+        .brand-content-z {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.1) 100%);
+            
+            padding: 40px; 
+            padding-bottom: 5px; 
+        }
+
+        .brand-panel .brand-footer {
+            color: #aaaaaa !important;
+            margin-bottom: 0 !important; 
+            line-height: 1; /* 统一行高防止错位 */
+        }
+
+        /* --- 动画 Keyframes --- */
+        @keyframes gridPan {
+            0% { transform: rotateX(75deg) translateY(0); }
+            100% { transform: rotateX(75deg) translateY(60px); }
+        }
+        @keyframes scanScreen {
+            0% { transform: translateY(-100px); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(120vh); opacity: 0; }
+        }
+        @keyframes flyToCamera {
+            0% { transform: translateZ(-2000px) rotateY(10deg) rotateX(5deg); opacity: 0; }
+            15% { opacity: 1; border-color: rgba(255,255,255,0.3); }
+            80% { opacity: 1; border-color: rgba(255,255,255,1); box-shadow: 0 0 50px rgba(255,255,255,0.15); }
+            100% { transform: translateZ(800px) rotateY(-5deg) rotateX(-5deg); opacity: 0; }
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(100vh) scale(0.5); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-20vh) scale(1.5); opacity: 0; }
+        }
+    </style>
+</head>
+
+<body class="auth-body" data-initial-tab="{{ active_tab or 'login' }}">
+    <div class="auth-bg" aria-hidden="true">
+        <div class="auth-bg__grid"></div>
+        <div class="auth-bg__noise"></div>
+    </div>
+
+    <main class="auth-shell">
+        <div class="auth-card">
+            
+            <!-- ================= 左侧品牌面板 ================= -->
+            <aside class="brand-panel" id="js-interactive-panel">
+                
+                <!-- 鼠标光晕层 (Spotlight) -->
+                <div class="bw-spotlight"></div>
+
+                <!-- 1. 全屏黑白 3D 背景动画 -->
+                <div class="bw-visual-bg" aria-hidden="true" id="js-parallax-bg">
+                    <div class="bw-grid"></div>
+                    <div class="bw-scanner"></div>
+                    
+                    <div class="bw-slide-tunnel">
+                        <div class="bw-slide bw-slide-1">
+                            <div class="bw-element bw-title"></div>
+                            <div class="bw-element-dim bw-line-1"></div>
+                            <div class="bw-element-border bw-img"></div>
+                        </div>
+                        <div class="bw-slide bw-slide-2">
+                            <div class="bw-element bw-title"></div>
+                            <div class="bw-chart">
+                                <div class="bw-bar"></div><div class="bw-bar"></div><div class="bw-bar"></div><div class="bw-bar"></div>
+                            </div>
+                        </div>
+                        <div class="bw-slide bw-slide-3">
+                            <div class="bw-grid-box">
+                                <div></div><div></div><div></div><div></div><div></div><div></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bw-data">10110</div>
+                    <div class="bw-data">01001</div>
+                    <div class="bw-data">11010</div>
+                </div>
+
+                <!-- 2. 内容层 -->
+                <div class="brand-content-z">
+                    <div class="brand-top">
+                        <img class="brand-logo" src="/static/images/landppt-logo.png" alt="LandPPT" style="filter: grayscale(100%) brightness(200%);">
+                        <div class="brand-name">
+                            <span>LandPPT</span>
+                            <span class="brand-badge">AI PPT</span>
+                        </div>
+                    </div>
+
+                    <div class="brand-main">
+                        <h1 class="brand-title">AI PPT 生成</h1>
+                        <p class="brand-subtitle">
+                            从主题到完整演示稿，多AI支持与在线编辑。
+                        </p>
+
+                        <div class="pill-row" aria-label="产品能力">
+                            <span class="pill"><i class="fas fa-wand-magic-sparkles"></i>多AI支持</span>
+                            <span class="pill"><i class="fas fa-pen-to-square"></i>在线编辑</span>
+                            <span class="pill"><i class="fas fa-file-export"></i>多格式导出</span>
+                        </div>
+
+                        <div class="type-stack" aria-label="特性与功能打字效果" style="margin-top: 30px;">
+                            <div class="type-row">
+                                <span class="type-label">特性：</span>
+                                <span class="type-text" data-typing-words="灵活,PPT Studio,高效创作"></span>
+                                <span class="type-caret" aria-hidden="true" style="background: #fff;"></span>
+                            </div>
+                            <div class="type-row">
+                                <span class="type-label">功能：</span>
+                                <span class="type-text" data-typing-words="深度研究,智能配图,AI编辑,讲稿生成,多格式导出"></span>
+                                <span class="type-caret" aria-hidden="true" style="background: #fff;"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="brand-footer">
+                        <span><i class="fas fa-shield-halved"></i>PPT Studio</span>
+                        <span><i class="fas fa-rocket"></i>高效创作</span>
+                    </div>
+                </div>
+            </aside>
+            <!-- ================= 左侧面板结束 ================= -->
+
+
+            <!-- ================= 右侧表单面板 (保持原样) ================= -->
+            <section class="form-panel">
+                <div class="form-shell">
+                    <div id="authSiteNotice" class="site-notice site-notice--hidden" hidden></div>
+                    <div class="auth-tabs" role="tablist" aria-label="登录与注册">
+                        <div class="auth-tabs__indicator" aria-hidden="true"></div>
+                        <button type="button" data-tab="login" role="tab" aria-selected="true">登录</button>
+                        <button type="button" data-tab="register" role="tab" aria-selected="false">注册</button>
+                    </div>
+
+                    <!-- 登录面板 -->
+                    <div class="panel is-active" data-panel="login" role="tabpanel">
+                        <div class="auth-header">
+                            <h2>欢迎回来</h2>
+                            <p>使用您的账号登录并继续创作。</p>
+                        </div>
+                        <div class="alert-area">
+                            {% if error %}
+                            <div class="alert alert--danger"><i class="fas fa-exclamation-circle"></i><div>{{ error }}</div></div>
+                            {% endif %}
+                            {% if success %}
+                            <div class="alert alert--success"><i class="fas fa-check-circle"></i><div>{{ success }}</div></div>
+                            {% endif %}
+                        </div>
+
+                        <form class="form" method="post" action="/auth/login" id="loginFormElement" autocomplete="on">
+                            <div class="field">
+                                <label for="username">用户名</label>
+                                <div class="control">
+                                    <i class="fa-regular fa-user"></i>
+                                    <input type="text" id="username" name="username" required placeholder="输入用户名" value="{{ username or '' }}" autocomplete="username">
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label for="password">密码</label>
+                                <div class="control">
+                                    <i class="fa-solid fa-key"></i>
+                                    <input type="password" id="password" name="password" required placeholder="输入密码" autocomplete="current-password">
+                                    <button class="toggle js-toggle-password" type="button" data-target="password" aria-label="显示/隐藏密码"><i class="fas fa-eye"></i></button>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary" type="submit" id="loginBtn"><span>登录</span><i class="fas fa-arrow-right"></i></button>
+                        </form>
+
+                        {% if github_oauth_enabled or linuxdo_oauth_enabled %}
+                        <div class="social-login">
+                            <div class="divider"><span>或</span></div>
+                            {% if github_oauth_enabled %}
+                            <a href="/auth/github/login" class="btn btn-github"><i class="fab fa-github"></i><span>使用 GitHub 登录</span></a>
+                            {% endif %}
+                            {% if linuxdo_oauth_enabled %}
+                            <a href="/auth/linuxdo/login" class="btn btn-linuxdo"><img class="linuxdo-icon" src="/static/images/linuxdo.svg" alt="" aria-hidden="true"><span>使用 Linux Do 登录</span></a>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <div class="links">
+                            <a href="/auth/forgot-password">忘记密码？</a>
+                            <a href="/auth/login?tab=register">没有账号，去注册</a>
+                        </div>
+                    </div>
+
+                    <!-- 注册面板 -->
+                    <div class="panel" data-panel="register" role="tabpanel">
+                        <!-- ... 保持原有注册表单不变 ... -->
+                        <div class="auth-header">
+                            <h2>创建账户</h2>
+                        </div>
+                        {% if not registration_enabled %}
+                        <div class="locked">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <i class="fas fa-lock"></i>
+                                <div><div style="font-weight:800;">注册已关闭</div><div class="muted" style="margin-top:4px;">管理员已关闭用户自助注册。</div></div>
+                            </div>
+                            <div style="margin-top:10px;"><a href="/auth/login?tab=login">返回登录</a></div>
+                        </div>
+                        {% else %}
+                        <div class="alert-area" id="registerAlert">
+                            {% if register_error %}<div class="alert alert--danger"><i class="fas fa-exclamation-circle"></i><div>{{ register_error }}</div></div>{% endif %}
+                        </div>
+                        <form class="form" method="post" action="/auth/register" id="registerFormElement" autocomplete="on">
+                            <input type="hidden" name="ui" value="login">
+                            <div class="field">
+                                <label for="reg_invite_code">邀请码</label>
+                                <div class="control">
+                                    <i class="fa-solid fa-ticket"></i>
+                                    <input type="text" id="reg_invite_code" name="invite_code" required placeholder="输入邀请码后再注册" value="{{ register_invite_code or '' }}" autocomplete="off">
+                                </div>
+                            </div>
+                            {% if github_oauth_enabled or linuxdo_oauth_enabled %}
+                            <div class="social-login" style="margin-top: 4px;">
+                                <div class="divider"><span>使用邀请码快捷注册</span></div>
+                                {% if github_oauth_enabled %}<a href="/auth/github/login" class="btn btn-github js-register-oauth" data-invite-input="reg_invite_code"><i class="fab fa-github"></i><span>GitHub 注册</span></a>{% endif %}
+                                {% if linuxdo_oauth_enabled %}<a href="/auth/linuxdo/login" class="btn btn-linuxdo js-register-oauth" data-invite-input="reg_invite_code"><img class="linuxdo-icon" src="/static/images/linuxdo.svg" alt="" aria-hidden="true"><span>LinuxDo 注册</span></a>{% endif %}
+                            </div>
+                            {% endif %}
+                            <div class="field">
+                                <label for="reg_email">邮箱地址</label>
+                                <div class="control">
+                                    <i class="fa-regular fa-envelope"></i>
+                                    <input type="email" id="reg_email" name="email" required placeholder="your@email.com" value="{{ register_email or '' }}" autocomplete="email">
+                                </div>
+                            </div>
+                            {% if turnstile_enabled and turnstile_site_key %}
+                            <div class="turnstile-wrap" data-turnstile-lazy="1" data-turnstile-sitekey="{{ turnstile_site_key }}" data-turnstile-theme="auto" data-turnstile-language="zh-cn" data-turnstile-response-field-name="turnstile_token" data-turnstile-script-src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"><div data-turnstile-widget></div></div>
+                            {% endif %}
+                            <div class="field">
+                                <label for="reg_code">验证码</label>
+                                <div class="code-row">
+                                    <div class="control">
+                                        <i class="fa-solid fa-shield"></i>
+                                        <input type="text" id="reg_code" name="code" required placeholder="6位验证码" maxlength="6" inputmode="numeric">
+                                    </div>
+                                    <button class="btn btn-secondary js-send-code" type="button" id="sendCodeBtn">发送验证码</button>
+                                </div>
+                            </div>
+                            <div class="after-code js-after-code {% if register_error or register_username %}is-open{% endif %}">
+                                <div class="field">
+                                    <label for="reg_username">用户名</label>
+                                    <div class="control">
+                                        <i class="fa-regular fa-id-badge"></i>
+                                        <input type="text" id="reg_username" name="username" required placeholder="设置用户名（至少3位）" minlength="3" maxlength="20" value="{{ register_username or '' }}" autocomplete="username" data-unlock-on-code="1" {% if not (register_error or register_username) %}disabled{% endif %}>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label for="reg_password">密码</label>
+                                    <div class="control">
+                                        <i class="fa-solid fa-key"></i>
+                                        <input type="password" id="reg_password" name="password" required placeholder="设置密码（至少6位）" minlength="6" autocomplete="new-password" data-unlock-on-code="1" {% if not (register_error or register_username) %}disabled{% endif %}>
+                                        <button class="toggle js-toggle-password" type="button" data-target="reg_password" aria-label="显示/隐藏密码"><i class="fas fa-eye"></i></button>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label for="reg_confirm">确认密码</label>
+                                    <div class="control">
+                                        <i class="fa-solid fa-key"></i>
+                                        <input type="password" id="reg_confirm" name="confirm_password" required placeholder="再次输入密码" autocomplete="new-password" data-unlock-on-code="1" {% if not (register_error or register_username) %}disabled{% endif %}>
+                                        <button class="toggle js-toggle-password" type="button" data-target="reg_confirm" aria-label="显示/隐藏密码"><i class="fas fa-eye"></i></button>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary" type="submit" id="registerBtn" data-unlock-on-code="1" {% if not (register_error or register_username) %}disabled{% endif %}><span>注册</span><i class="fas fa-user-plus"></i></button>
+                            </div>
+                        </form>
+                        <div class="links"><span class="muted">已有账号？</span><a href="/auth/login?tab=login">去登录</a></div>
+                        {% endif %}
+                    </div>
+
+                    <div class="auth-footer">
+                        <span>LandPPT</span>
+                        <span>&copy; 2026</span>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- ========================================== -->
+    <!-- 新增：鼠标交互驱动脚本 (Parallax & Spotlight) -->
+    <!-- ========================================== -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const panel = document.getElementById('js-interactive-panel');
+            
+            if (!panel) return;
+
+            panel.addEventListener('mousemove', (e) => {
+                const rect = panel.getBoundingClientRect();
+                
+                // 计算鼠标相对于面板的绝对坐标 (用于探照灯光晕)
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                // 计算归一化的鼠标位置，范围从 -0.5 到 0.5 (用于 3D 视差倾斜)
+                const xNorm = (x / rect.width) - 0.5;
+                const yNorm = (y / rect.height) - 0.5;
+                
+                // 将计算结果实时注入 CSS 变量
+                panel.style.setProperty('--mouse-x', `${x}px`);
+                panel.style.setProperty('--mouse-y', `${y}px`);
+                panel.style.setProperty('--mouse-x-norm', xNorm);
+                panel.style.setProperty('--mouse-y-norm', yNorm);
+            });
+
+            // 当鼠标离开面板时，平滑归位重置
+            panel.addEventListener('mouseleave', () => {
+                panel.style.setProperty('--mouse-x-norm', 0);
+                panel.style.setProperty('--mouse-y-norm', 0);
+                panel.style.setProperty('--mouse-x', '50%');
+                panel.style.setProperty('--mouse-y', '50%');
+            });
+        });
+    </script>
+
+    <script>
+        window.authRegistrationConfig = {
+            inviteCodeRequired: {{ 'true' if invite_code_required_for_registration else 'false' }}
+        };
+    </script>
+    <script src="/static/js/shared/site_notice.js?v=20260322"></script>
+    <script>
+        window.SiteNotice?.loadPublicSettings({
+            noticeContainer: 'authSiteNotice',
+        });
+    </script>
+    <script src="/static/js/pages/auth/auth.js?v=20260321" defer></script>
+    <script src="/static/js/pages/auth/auth.turnstile-lazy-fallback.js?v=20260214" defer></script>
+</body>
+
+</html>

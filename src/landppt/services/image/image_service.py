@@ -7,19 +7,23 @@ import logging
 from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 import time
+import hashlib
 
 from .models import (
     ImageInfo, ImageSearchRequest, ImageGenerationRequest, ImageUploadRequest,
     ImageSearchResult, ImageOperationResult, ImageProcessingOptions,
-    ImageSourceType, ImageProvider
+    ImageSourceType, ImageProvider, ImageFormat
 )
 from .providers.base import provider_registry, ImageSearchProvider, ImageGenerationProvider, LocalStorageProvider
 from .processors.image_processor import ImageProcessor
-from .cache.image_cache import ImageCacheManager
+from .processors.webp_converter import convert_image_bytes_to_webp
+from .cache.image_cache import ImageCacheManager, StorageQuotaExceededError
 from .matching.image_matcher import ImageMatcher
 from .adapters.ppt_prompt_adapter import PPTPromptAdapter, PPTSlideContext
 
 logger = logging.getLogger(__name__)
+
+from ...auth.request_context import current_user_id, USER_SCOPE_ALL
 
 
 class ImageService:
@@ -91,7 +95,7 @@ class ImageService:
             from .providers.dalle_provider import DalleProvider
             from .providers.stable_diffusion_provider import StableDiffusionProvider
             from .providers.silicon_flow_provider import SiliconFlowProvider
-            from .providers.pollinations_provider import PollinationsProvider
+
             from .config.image_config import is_provider_configured
 
             # 注册DALL-E提供者
@@ -121,15 +125,6 @@ class ImageService:
             else:
                 logger.debug("SiliconFlow API key not configured, skipping provider registration")
 
-            # 注册Pollinations提供者
-            if is_provider_configured('pollinations'):
-                pollinations_config = self.config.get('pollinations', {})
-                pollinations_provider = PollinationsProvider(pollinations_config)
-                provider_registry.register(pollinations_provider)
-                logger.debug("Pollinations provider registered")
-            else:
-                logger.debug("Pollinations provider not configured, skipping provider registration")
-
             # 注册Gemini图片生成提供者
             if is_provider_configured('gemini'):
                 from .providers.gemini_provider import GeminiImageProvider
@@ -149,6 +144,16 @@ class ImageService:
                 logger.debug("OpenAI image provider registered")
             else:
                 logger.debug("OpenAI Image API key not configured, skipping provider registration")
+
+            # 注册 Pollinations 图片生成提供者
+            if is_provider_configured('pollinations'):
+                from .providers.pollinations_provider import PollinationsProvider
+                pollinations_config = self.config.get('pollinations', {})
+                pollinations_provider = PollinationsProvider(pollinations_config)
+                provider_registry.register(pollinations_provider)
+                logger.debug("Pollinations image provider registered")
+            else:
+                logger.debug("Pollinations API key not configured, skipping provider registration")
 
             # 初始化网络搜索提供者
             from .config.image_config import ImageServiceConfig
@@ -194,6 +199,168 @@ class ImageService:
 
         except Exception as e:
             logger.error(f"Failed to initialize image providers: {e}")
+
+    async def reload_providers_for_user(self, user_id: Optional[int] = None):
+        """
+        重新加载用户特定的图片提供者配置。
+        这会从数据库加载用户配置的API密钥，并重新创建相应的提供者。
+        
+        Args:
+            user_id: 用户ID，如果为None则使用系统级配置
+        """
+        try:
+            from .config.image_config import ImageServiceConfig, is_provider_configured
+            
+            # 创建新的配置实例并从数据库加载用户配置
+            config_manager = ImageServiceConfig()
+            await config_manager.load_config_from_db_async(user_id)
+            
+            # 更新实例的config
+            self.config = config_manager.get_config()
+            
+            # 清除现有的AI生成提供者（保留存储提供者）
+            from .providers.base import provider_registry
+            
+            # 获取当前的生成提供者列表副本并逐个移除
+            existing_generation_providers = list(provider_registry.get_generation_providers())
+            for provider in existing_generation_providers:
+                try:
+                    provider_registry.unregister(provider.provider)
+                except Exception as e:
+                    logger.warning(f"Failed to unregister provider {provider.provider}: {e}")
+            
+            # 重新注册AI图片生成提供者
+            from .providers.dalle_provider import DalleProvider
+            from .providers.stable_diffusion_provider import StableDiffusionProvider
+            from .providers.silicon_flow_provider import SiliconFlowProvider
+            
+            # 注册DALL-E提供者
+            dalle_config = self.config.get('dalle', {})
+            if dalle_config.get('api_key'):
+                dalle_provider = DalleProvider(dalle_config)
+                provider_registry.register(dalle_provider)
+                logger.debug(f"DALL-E provider reloaded for user {user_id}")
+            
+            # 注册Stable Diffusion提供者
+            sd_config = self.config.get('stable_diffusion', {})
+            if sd_config.get('api_key'):
+                sd_provider = StableDiffusionProvider(sd_config)
+                provider_registry.register(sd_provider)
+                logger.debug(f"Stable Diffusion provider reloaded for user {user_id}")
+            
+            # 注册SiliconFlow提供者
+            sf_config = self.config.get('siliconflow', {})
+            sf_api_key = sf_config.get('api_key')
+            logger.info(f"SiliconFlow config for user {user_id}: api_key={'***' + sf_api_key[-4:] if sf_api_key and len(sf_api_key) > 4 else '(empty)'}")
+            if sf_api_key:
+                sf_provider = SiliconFlowProvider(sf_config)
+                provider_registry.register(sf_provider)
+                logger.info(f"SiliconFlow provider registered for user {user_id}")
+            
+            # 注册Gemini图片生成提供者
+            gemini_config = self.config.get('gemini', {})
+            if gemini_config.get('api_key'):
+                from .providers.gemini_provider import GeminiImageProvider
+                gemini_provider = GeminiImageProvider(gemini_config)
+                provider_registry.register(gemini_provider)
+                logger.debug(f"Gemini image provider reloaded for user {user_id}")
+            
+            # 注册OpenAI图片生成提供者
+            openai_image_config = self.config.get('openai_image', {})
+            if openai_image_config.get('api_key'):
+                from .providers.openai_image_provider import OpenAIImageProvider
+                openai_image_provider = OpenAIImageProvider(openai_image_config)
+                provider_registry.register(openai_image_provider)
+                logger.debug(f"OpenAI image provider reloaded for user {user_id}")
+
+            # 注册 Pollinations 图片生成提供者
+            pollinations_config = self.config.get('pollinations', {})
+            if pollinations_config.get('api_key'):
+                from .providers.pollinations_provider import PollinationsProvider
+                pollinations_provider = PollinationsProvider(pollinations_config)
+                provider_registry.register(pollinations_provider)
+                logger.debug(f"Pollinations image provider reloaded for user {user_id}")
+             
+            logger.info(f"Successfully reloaded image providers for user {user_id}")
+             
+        except Exception as e:
+            logger.error(f"Failed to reload image providers for user {user_id}: {e}")
+
+    def reload_providers_for_user_sync(self, user_id: Optional[int] = None):
+        """Sync variant of provider reload that avoids async DB access."""
+        try:
+            from .config.image_config import ImageServiceConfig
+
+            config_manager = ImageServiceConfig()
+            config_manager.load_config_from_db_sync(user_id)
+
+            self.config = config_manager.get_config()
+
+            from .providers.base import provider_registry
+
+            existing_generation_providers = list(provider_registry.get_generation_providers())
+            for provider in existing_generation_providers:
+                try:
+                    provider_registry.unregister(provider.provider)
+                except Exception as e:
+                    logger.warning(f"Failed to unregister provider {provider.provider}: {e}")
+
+            from .providers.dalle_provider import DalleProvider
+            from .providers.stable_diffusion_provider import StableDiffusionProvider
+            from .providers.silicon_flow_provider import SiliconFlowProvider
+
+            dalle_config = self.config.get('dalle', {})
+            if dalle_config.get('api_key'):
+                dalle_provider = DalleProvider(dalle_config)
+                provider_registry.register(dalle_provider)
+                logger.debug(f"DALL-E provider reloaded for user {user_id}")
+
+            sd_config = self.config.get('stable_diffusion', {})
+            if sd_config.get('api_key'):
+                sd_provider = StableDiffusionProvider(sd_config)
+                provider_registry.register(sd_provider)
+                logger.debug(f"Stable Diffusion provider reloaded for user {user_id}")
+
+            sf_config = self.config.get('siliconflow', {})
+            sf_api_key = sf_config.get('api_key')
+            logger.info(
+                "SiliconFlow config for user %s: api_key=%s",
+                user_id,
+                "***" + sf_api_key[-4:] if sf_api_key and len(sf_api_key) > 4 else "(empty)",
+            )
+            if sf_api_key:
+                sf_provider = SiliconFlowProvider(sf_config)
+                provider_registry.register(sf_provider)
+                logger.info(f"SiliconFlow provider registered for user {user_id}")
+
+            gemini_config = self.config.get('gemini', {})
+            if gemini_config.get('api_key'):
+                from .providers.gemini_provider import GeminiImageProvider
+
+                gemini_provider = GeminiImageProvider(gemini_config)
+                provider_registry.register(gemini_provider)
+                logger.debug(f"Gemini image provider reloaded for user {user_id}")
+
+            openai_image_config = self.config.get('openai_image', {})
+            if openai_image_config.get('api_key'):
+                from .providers.openai_image_provider import OpenAIImageProvider
+
+                openai_image_provider = OpenAIImageProvider(openai_image_config)
+                provider_registry.register(openai_image_provider)
+                logger.debug(f"OpenAI image provider reloaded for user {user_id}")
+
+            pollinations_config = self.config.get('pollinations', {})
+            if pollinations_config.get('api_key'):
+                from .providers.pollinations_provider import PollinationsProvider
+
+                pollinations_provider = PollinationsProvider(pollinations_config)
+                provider_registry.register(pollinations_provider)
+                logger.debug(f"Pollinations image provider reloaded for user {user_id}")
+
+            logger.info(f"Successfully reloaded image providers for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to reload image providers for user {user_id}: {e}")
+
 
     def _sort_providers_by_preference(self, providers: List[ImageSearchProvider]) -> List[ImageSearchProvider]:
         """根据默认配置对搜索提供者进行排序"""
@@ -442,13 +609,57 @@ class ImageService:
             
             # 如果生成成功，缓存图片
             if result.success and result.image_info:
+                original_path = Path(result.image_info.local_path) if result.image_info.local_path else None
                 # 读取生成的图片
                 with open(result.image_info.local_path, 'rb') as f:
                     image_data = f.read()
-                
+
+                # Convert to WebP to reduce storage usage (AI-generated images are often large PNGs)
+                processing_cfg = self.config.get("processing", {}) or {}
+                if bool(processing_cfg.get("upload_convert_to_webp", True)):
+                    webp_quality = int(processing_cfg.get("upload_webp_quality", processing_cfg.get("default_quality", 80)))
+                    webp_quality = max(1, min(100, webp_quality))
+                    webp_method = int(processing_cfg.get("upload_webp_method", 6))
+                    skip_animated = bool(processing_cfg.get("upload_skip_animated", True))
+                    try:
+                        converted_bytes, info = convert_image_bytes_to_webp(
+                            image_data,
+                            quality=webp_quality,
+                            method=webp_method,
+                            skip_if_webp=True,
+                            skip_animated=skip_animated,
+                        )
+                        if info.converted:
+                            result.image_info.filename = f"{Path(result.image_info.filename).stem}.webp"
+                            result.image_info.metadata.format = ImageFormat.WEBP
+                            result.image_info.metadata.file_size = len(converted_bytes)
+                            result.image_info.metadata.width = info.width
+                            result.image_info.metadata.height = info.height
+                            result.image_info.metadata.color_mode = info.color_mode
+                            result.image_info.metadata.has_transparency = info.has_transparency
+                            image_data = converted_bytes
+                    except Exception as e:
+                        logger.warning(f"WebP conversion skipped for generated image {result.image_info.filename}: {e}")
+                 
                 # 缓存图片
-                cache_key = await self.cache_manager.cache_image(result.image_info, image_data)
-                logger.info(f"Generated image cached: {cache_key}")
+                try:
+                    cache_key = await self.cache_manager.cache_image(result.image_info, image_data)
+                    logger.info(f"Generated image cached: {cache_key}")
+                except StorageQuotaExceededError as e:
+                    used_mb = e.used_bytes / (1024 * 1024)
+                    quota_mb = e.quota_bytes / (1024 * 1024)
+                    return ImageOperationResult(
+                        success=False,
+                        message=f"存储空间已满：已使用 {used_mb:.1f}MB，单用户上限 {quota_mb:.0f}MB。请先删除部分图片再生成。",
+                        error_code="storage_quota_exceeded",
+                    )
+
+                # Remove original provider file (cache holds the persisted artifact)
+                try:
+                    if original_path and original_path.exists() and str(original_path) != result.image_info.local_path:
+                        original_path.unlink(missing_ok=True)
+                except Exception as e:
+                    logger.debug(f"Failed to remove original generated image file {original_path}: {e}")
             
             return result
             
@@ -467,8 +678,64 @@ class ImageService:
         
         try:
             # 获取本地存储提供者
+            # Convert to WebP first to reduce storage usage for any uploaded images
+            processing_cfg = self.config.get("processing", {}) or {}
+            if bool(processing_cfg.get("upload_convert_to_webp", True)):
+                webp_quality = int(processing_cfg.get("upload_webp_quality", processing_cfg.get("default_quality", 80)))
+                webp_quality = max(1, min(100, webp_quality))
+                webp_method = int(processing_cfg.get("upload_webp_method", 6))
+                skip_animated = bool(processing_cfg.get("upload_skip_animated", True))
+                try:
+                    converted_bytes, info = convert_image_bytes_to_webp(
+                        file_data,
+                        quality=webp_quality,
+                        method=webp_method,
+                        skip_if_webp=True,
+                        skip_animated=skip_animated,
+                    )
+                    if info.converted:
+                        original_name = request.filename or "image"
+                        new_filename = f"{Path(original_name).stem}.webp"
+                        request = request.model_copy(
+                            update={
+                                "filename": new_filename,
+                                "content_type": "image/webp",
+                                "file_size": len(converted_bytes),
+                            }
+                        )
+                        file_data = converted_bytes
+                except Exception as e:
+                    logger.warning(f"WebP conversion skipped for upload {request.filename}: {e}")
+
+            # Enforce per-user quota before writing any staging files.
+            user_id = current_user_id.get()
+            quota_mb = (self.cache_manager.config or {}).get("user_quota_mb", 0)
+            try:
+                quota_mb = int(float(quota_mb))
+            except Exception:
+                quota_mb = 0
+
+            if user_id is not None and user_id != USER_SCOPE_ALL and quota_mb > 0:
+                quota_bytes = quota_mb * 1024 * 1024
+
+                # Multi-worker processes: refresh filesystem index so new uploads/deletes are visible across workers.
+                await asyncio.get_event_loop().run_in_executor(None, self.cache_manager._load_cache_index)
+
+                content_hash = hashlib.sha256(file_data).hexdigest()
+                cache_key = f"u{user_id}_{content_hash}"
+                existing = self.cache_manager._cache_index.get(cache_key)
+                if not (existing and Path(existing.file_path).exists()):
+                    used_bytes = await self.cache_manager.get_user_storage_usage_bytes(user_id, refresh_index=False)
+                    if used_bytes + len(file_data) > quota_bytes:
+                        used_mb = used_bytes / (1024 * 1024)
+                        return ImageOperationResult(
+                            success=False,
+                            message=f"存储空间已满：已使用 {used_mb:.1f}MB，单用户上限 {quota_mb}MB。请先删除部分图片再上传。",
+                            error_code="storage_quota_exceeded",
+                        )
+
             storage_providers = provider_registry.get_storage_providers()
-            
+             
             if not storage_providers:
                 return ImageOperationResult(
                     success=False,
@@ -478,15 +745,37 @@ class ImageService:
             
             # 使用第一个可用的存储提供者
             provider = storage_providers[0]
-            
+            staging_path: Optional[Path] = None
+             
             # 上传图片
             result = await provider.upload(request, file_data)
-            
+            if result.success and result.image_info and result.image_info.local_path:
+                try:
+                    staging_path = Path(result.image_info.local_path)
+                except Exception:
+                    staging_path = None
+             
             # 如果上传成功，缓存图片
             if result.success and result.image_info:
-                cache_key = await self.cache_manager.cache_image(result.image_info, file_data)
-                logger.info(f"Uploaded image cached: {cache_key}")
-            
+                try:
+                    cache_key = await self.cache_manager.cache_image(result.image_info, file_data)
+                    logger.info(f"Uploaded image cached: {cache_key}")
+                except StorageQuotaExceededError as e:
+                    used_mb = e.used_bytes / (1024 * 1024)
+                    quota_mb = e.quota_bytes / (1024 * 1024)
+                    return ImageOperationResult(
+                        success=False,
+                        message=f"存储空间已满：已使用 {used_mb:.1f}MB，单用户上限 {quota_mb:.0f}MB。请先删除部分图片再上传。",
+                        error_code="storage_quota_exceeded",
+                    )
+                finally:
+                    # Avoid keeping duplicated staging copies on disk (quota enforcement relies on cache usage).
+                    try:
+                        if staging_path and staging_path.exists() and staging_path.is_file():
+                            staging_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+             
             return result
             
         except Exception as e:
@@ -503,12 +792,22 @@ class ImageService:
             await self.initialize()
         
         try:
-            # 首先尝试从缓存获取
-            for cache_key, cache_info in self.cache_manager._cache_index.items():
+            effective_user_id = current_user_id.get()
+
+            # Fast path: image_id is a cache_key (new format)
+            cached_result = await self.cache_manager.get_cached_image(image_id)
+            if cached_result:
+                image_info, _ = cached_result
+                if effective_user_id is None or image_info.owner_user_id == effective_user_id:
+                    return image_info
+                return None
+
+            # Legacy path: scan cache for matching image_id
+            for cache_key, cache_info in cache_entries:
                 cached_result = await self.cache_manager.get_cached_image(cache_key)
                 if cached_result:
                     image_info, _ = cached_result
-                    if image_info.image_id == image_id:
+                    if image_info.image_id == image_id and (effective_user_id is None or image_info.owner_user_id == effective_user_id):
                         return image_info
             
             # 如果缓存中没有，尝试从存储提供者获取
@@ -569,8 +868,15 @@ class ImageService:
                 with open(output_path, 'rb') as f:
                     processed_data = f.read()
                 
-                await self.cache_manager.cache_image(result.image_info, processed_data)
-            
+                try:
+                    await self.cache_manager.cache_image(result.image_info, processed_data)
+                except StorageQuotaExceededError:
+                    return ImageOperationResult(
+                        success=False,
+                        message="存储空间已满：请先删除部分图片再处理。",
+                        error_code="storage_quota_exceeded",
+                    )
+             
             return result
             
         except Exception as e:
@@ -583,7 +889,42 @@ class ImageService:
     
     async def get_cache_stats(self) -> Dict[str, Any]:
         """获取缓存统计"""
-        return await self.cache_manager.get_cache_stats()
+        user_id = current_user_id.get()
+        if user_id is None:
+            return await self.cache_manager.get_cache_stats()
+
+        # Multi-worker processes: refresh filesystem index so new uploads/deletes are visible across workers.
+        await asyncio.get_event_loop().run_in_executor(None, self.cache_manager._load_cache_index)
+
+        prefix = f"u{user_id}_"
+        total_entries = 0
+        total_size = 0
+        source_stats: Dict[str, Dict[str, int]] = {}
+
+        cache_entries = list(self.cache_manager._cache_index.items())
+        for cache_key, cache_info in cache_entries:
+            if not cache_key.startswith(prefix):
+                continue
+            if not Path(cache_info.file_path).exists():
+                await self.cache_manager.remove_from_cache(cache_key)
+                continue
+            total_entries += 1
+            total_size += cache_info.file_size
+
+            file_path = Path(cache_info.file_path)
+            source_type = file_path.parent.parent.name if file_path.parent.parent.name in ['ai_generated', 'web_search', 'local_storage'] else 'unknown'
+            source_stats.setdefault(source_type, {'count': 0, 'size': 0})
+            source_stats[source_type]['count'] += 1
+            source_stats[source_type]['size'] += cache_info.file_size
+
+        categories = {k: v['count'] for k, v in source_stats.items()}
+        return {
+            'total_entries': total_entries,
+            'total_size_bytes': total_size,
+            'total_size_mb': total_size / (1024 * 1024) if total_size else 0,
+            'categories': categories,
+            'source_stats': source_stats
+        }
 
     async def list_cached_images(self,
                                 page: int = 1,
@@ -600,21 +941,31 @@ class ImageService:
             all_images = []
             processed_content_hashes = set()
 
-            logger.info(f"Processing {len(self.cache_manager._cache_index)} cached images")
+            # Multi-worker processes: refresh filesystem index so new uploads/deletes are visible across workers.
+            await asyncio.get_event_loop().run_in_executor(None, self.cache_manager._load_cache_index)
+
+            cache_entries = list(self.cache_manager._cache_index.items())
+            logger.info(f"Processing {len(cache_entries)} cached images")
+            effective_user_id = current_user_id.get()
 
             # 首先处理主要的缓存条目
-            for cache_key, cache_info in self.cache_manager._cache_index.items():
+            for cache_key, cache_info in cache_entries:
                 try:
                     # 检查文件是否存在
                     file_path = Path(cache_info.file_path)
                     if not file_path.exists():
-                        logger.warning(f"Cache file not found: {cache_info.file_path}")
+                        # Multi-worker processes: the in-memory index can be stale after clear/delete in another worker.
+                        await self.cache_manager.remove_from_cache(cache_key)
                         continue
 
                     # 加载图片元数据
                     image_info = await self.cache_manager._load_image_metadata(cache_key)
                     if not image_info:
                         logger.warning(f"Failed to load metadata for cache key: {cache_key}")
+                        continue
+
+                    # 用户隔离：仅返回当前用户的图片（owner_user_id 必须匹配）
+                    if effective_user_id is not None and image_info.owner_user_id != effective_user_id:
                         continue
 
                     # 分类筛选
@@ -634,7 +985,11 @@ class ImageService:
                         "title": image_info.title,
                         "description": image_info.description,
                         "filename": image_info.filename,
-                        "url": build_image_url(image_info.image_id),  # 使用URL服务生成绝对URL
+                        "url": build_image_url(
+                            image_info.image_id,
+                            width=image_info.metadata.width if image_info.metadata else None,
+                            height=image_info.metadata.height if image_info.metadata else None,
+                        ),  # 使用URL服务生成绝对URL
                         "file_size": cache_info.file_size,
                         "width": image_info.metadata.width if image_info.metadata else 0,  # 添加宽度
                         "height": image_info.metadata.height if image_info.metadata else 0,  # 添加高度
@@ -701,7 +1056,11 @@ class ImageService:
                                 "title": image_info.title,
                                 "description": image_info.description,
                                 "filename": image_info.filename,
-                                "url": build_image_url(image_info.image_id),  # 使用URL服务生成绝对URL
+                                "url": build_image_url(
+                                    image_info.image_id,
+                                    width=image_info.metadata.width if image_info.metadata else None,
+                                    height=image_info.metadata.height if image_info.metadata else None,
+                                ),  # 使用URL服务生成绝对URL
                                 "file_size": cache_info.file_size,
                                 "width": image_info.metadata.width if image_info.metadata else 0,  # 添加宽度
                                 "height": image_info.metadata.height if image_info.metadata else 0,  # 添加高度
@@ -801,23 +1160,34 @@ class ImageService:
             await self.initialize()
 
         try:
-            # 查找对应的缓存键
-            cache_key = None
-            for key, cache_info in self.cache_manager._cache_index.items():
+            effective_user_id = current_user_id.get()
+
+            # Prefer direct cache-key deletion (new format)
+            if image_id in self.cache_manager._cache_index:
+                image_info = await self.cache_manager._load_image_metadata(image_id)
+                if not image_info:
+                    return False
+                if effective_user_id is not None and image_info.owner_user_id != effective_user_id:
+                    return False
+                await self.cache_manager.remove_from_cache(image_id)
+                return True
+
+            # Legacy path: scan by metadata image_id
+            for cache_key in list(self.cache_manager._cache_index.keys()):
                 try:
-                    image_info = await self.cache_manager._load_image_metadata(key)
-                    if image_info and image_info.image_id == image_id:
-                        cache_key = key
-                        break
+                    image_info = await self.cache_manager._load_image_metadata(cache_key)
+                    if not image_info:
+                        continue
+                    if image_info.image_id != image_id:
+                        continue
+                    if effective_user_id is not None and image_info.owner_user_id != effective_user_id:
+                        return False
+                    await self.cache_manager.remove_from_cache(cache_key)
+                    return True
                 except Exception:
                     continue
 
-            if not cache_key:
-                return False
-
-            # 从缓存中删除
-            await self.cache_manager.remove_from_cache(cache_key)
-            return True
+            return False
 
         except Exception as e:
             logger.error(f"Failed to delete image {image_id}: {e}")
@@ -836,7 +1206,8 @@ class ImageService:
 
             # 生成缩略图路径
             thumbnail_dir = self.cache_manager.thumbnails_dir
-            thumbnail_path = thumbnail_dir / f"{image_id}_thumb.jpg"
+            # Use cache-manager naming so cleanup works (remove_from_cache deletes `{cache_key}.jpg`)
+            thumbnail_path = thumbnail_dir / f"{image_id}.jpg"
 
             # 如果缩略图已存在，直接返回
             if thumbnail_path.exists():
@@ -903,6 +1274,38 @@ class ImageService:
             return deleted_count
         except Exception as e:
             logger.error(f"Failed to clear all cache: {e}")
+            raise
+
+    async def clear_user_cache(self, user_id: Optional[int] = None) -> int:
+        """清空指定用户作用域下的缓存图片。"""
+        if not self.initialized:
+            await self.initialize()
+
+        effective_user_id = current_user_id.get() if user_id is None else user_id
+        if effective_user_id is None or effective_user_id == USER_SCOPE_ALL:
+            return await self.clear_all_cache()
+
+        try:
+            # Multi-worker processes: refresh filesystem index so new uploads/deletes are visible across workers.
+            await asyncio.get_event_loop().run_in_executor(None, self.cache_manager._load_cache_index)
+
+            deleted_count = 0
+            prefix = f"u{effective_user_id}_"
+            cache_keys = list(self.cache_manager._cache_index.keys())
+            for cache_key in cache_keys:
+                if not cache_key.startswith(prefix):
+                    continue
+                await self.cache_manager.remove_from_cache(cache_key)
+                deleted_count += 1
+
+            logger.info(
+                "Cleared user-scoped image cache for user %s, deleted %s images",
+                effective_user_id,
+                deleted_count,
+            )
+            return deleted_count
+        except Exception as e:
+            logger.error(f"Failed to clear user cache for user {effective_user_id}: {e}")
             raise
 
     async def deduplicate_cache(self) -> Dict[str, int]:

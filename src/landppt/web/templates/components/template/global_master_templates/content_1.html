@@ -1,0 +1,339 @@
+<!-- 页头 — 标题 + 操作按钮 -->
+<div style="max-width: 1400px; margin: 0 auto; padding: 0 var(--spacing-md);">
+    <div class="page-header">
+        <div class="page-header-left">
+            <h2>
+                <i class="fas fa-palette"></i> 模板管理
+                <a href="https://landppt-template.52yyds.top" target="_blank" class="header-link">模板广场 →</a>
+            </h2>
+            <p>创建、编辑和管理您的 PPT 模板</p>
+        </div>
+        <div class="page-header-actions">
+            <button id="createTemplateBtn" class="btn btn-primary"><i class="fas fa-plus"></i> 新建模板</button>
+            <button id="generateWithAIBtn" class="btn btn-success"><i class="fas fa-wand-magic-sparkles"></i> AI生成</button>
+            <input type="file" id="importTemplateInput" accept=".html,.json" style="display: none;">
+            <button id="importTemplateBtn" class="btn btn-outline"><i class="fas fa-file-import"></i> 导入</button>
+        </div>
+    </div>
+
+    <!-- 控制栏 — 搜索 + 筛选 + 刷新 -->
+    <div class="controls-bar">
+        <div class="controls-search">
+            <i class="fas fa-search search-icon"></i>
+            <input type="text" id="searchInput" placeholder="搜索模板名称...">
+        </div>
+        <div class="controls-divider"></div>
+        <select id="tagFilter">
+            <option value="">所有标签</option>
+        </select>
+        <div class="controls-spacer"></div>
+        <button id="refreshBtn" class="btn btn-outline btn-sm"><i class="fas fa-sync-alt"></i> 刷新</button>
+    </div>
+
+    <!-- 模板网格 -->
+    <div id="templatesGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;">
+        <!-- 模板卡片由 JS 渲染 -->
+    </div>
+
+    <!-- 分页 -->
+    <div id="paginationContainer" style="margin-top: 16px;">
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                <span id="paginationInfo">显示第 1-6 项，共 0 项</span>
+            </div>
+            <div class="pagination-controls">
+                <button id="prevPageBtn" class="btn btn-sm btn-outline" disabled>
+                    <i class="fas fa-chevron-left"></i> 上一页
+                </button>
+                <div id="pageNumbers" class="page-numbers">
+                    <!-- 由 JS 生成 -->
+                </div>
+                <button id="nextPageBtn" class="btn btn-sm btn-outline" disabled>
+                    下一页 <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+            <div class="pagination-size">
+                <label for="pageSizeSelect">每页：</label>
+                <select id="pageSizeSelect">
+                    <option value="6" selected>6</option>
+                    <option value="12">12</option>
+                    <option value="24">24</option>
+                    <option value="48">48</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载指示器 -->
+    <div id="loadingIndicator" class="loading-container" style="display: none;">
+        <div class="loading-spinner"></div>
+        <p class="loading-text">加载中...</p>
+    </div>
+</div>
+
+<!-- 新建/编辑模板 Modal -->
+<div id="templateModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 850px; width: 90%;">
+        <div class="modal-header">
+            <h2 id="modalTitle">新建模板</h2>
+            <button class="close" id="closeModal" type="button">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="templateForm">
+                <div class="form-group">
+                    <label for="templateName">模板名称 *</label>
+                    <input type="text" id="templateName" name="template_name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="templateDescription">描述</label>
+                    <textarea id="templateDescription" name="description" rows="3"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="templateTags">标签 (逗号分隔)</label>
+                    <input type="text" id="templateTags" name="tags" placeholder="例如: 商务, 简约, 现代">
+                </div>
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; text-transform: none; letter-spacing: normal; font-size: 0.875rem; color: var(--text-primary);">
+                        <input type="checkbox" id="isDefault" name="is_default">
+                        设为默认模板
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label for="htmlTemplate">HTML 模板代码 *</label>
+                    <textarea id="htmlTemplate" name="html_template" required rows="15" style="font-family: 'Fira Code', 'Monaco', 'Consolas', monospace; font-size: 13px; line-height: 1.4;"></textarea>
+                </div>
+
+                <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;">
+                    <button type="button" id="previewTemplateBtn" class="btn btn-outline"><i class="fas fa-eye"></i> 预览</button>
+                    <button type="button" id="cancelBtn" class="btn btn-secondary">取消</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> 保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- AI 生成 Modal -->
+<div id="aiGenerationModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 850px; width: 90%;">
+        <div class="modal-header">
+            <h2>AI 生成模板</h2>
+            <button class="close" id="closeAIModal" type="button">&times;</button>
+        </div>
+        <div class="modal-body">
+            <!-- 表单区域 -->
+            <div id="aiFormContainer">
+                <form id="aiGenerationForm">
+                    <div class="form-group">
+                        <label for="aiPrompt">描述您想要的模板风格 *</label>
+                        <textarea id="aiPrompt" name="prompt" required rows="4" placeholder="例如: 创建一个现代简约风格的商务PPT模板，使用蓝色主色调，包含卡片式布局..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="aiTemplateName">模板名称 *</label>
+                        <input type="text" id="aiTemplateName" name="template_name" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="aiTemplateDescription">描述</label>
+                        <textarea id="aiTemplateDescription" name="description" rows="2"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="aiTemplateTags">标签 (逗号分隔)</label>
+                        <input type="text" id="aiTemplateTags" name="tags" placeholder="AI生成, 现代, 商务">
+                    </div>
+
+                    <!-- 生成模式 -->
+                    <div class="form-group">
+                        <label>参考图片 (可选)</label>
+                        <div class="image-upload-section">
+                            <div class="generation-mode-selector">
+                                <div class="mode-option">
+                                    <input type="radio" id="mode_text_only" name="generation_mode" value="text_only" checked>
+                                    <label for="mode_text_only">纯文本生成</label>
+                                </div>
+                                <div class="mode-option">
+                                    <input type="radio" id="mode_reference_style" name="generation_mode" value="reference_style">
+                                    <label for="mode_reference_style">参考风格 (借鉴图片设计元素)</label>
+                                </div>
+                                <div class="mode-option">
+                                    <input type="radio" id="mode_exact_replica" name="generation_mode" value="exact_replica">
+                                    <label for="mode_exact_replica">1:1还原 (尽可能准确复制图片设计)</label>
+                                </div>
+                                <div class="mode-option">
+                                    <input type="radio" id="mode_pptx_extract" name="generation_mode" value="pptx_extract">
+                                    <label for="mode_pptx_extract">从PPTX提取模板（版式/字体/配色）</label>
+                                </div>
+                            </div>
+
+                            <!-- 图片上传 -->
+                            <div id="imageUploadArea" class="image-upload-area" style="display: none;">
+                                <div class="upload-dropzone" id="uploadDropzone">
+                                    <div class="upload-content">
+                                        <div class="upload-icon"><i class="fas fa-image"></i></div>
+                                        <div class="upload-text">
+                                            <p><strong>拖拽图片到此处</strong> 或 <button type="button" class="upload-btn" id="selectImageBtn">选择文件</button></p>
+                                            <p class="upload-hint">支持 JPG、PNG、WebP 格式，最大 10MB</p>
+                                        </div>
+                                    </div>
+                                    <input type="file" id="imageFileInput" accept="image/jpeg,image/jpg,image/png,image/webp" style="display: none;">
+                                </div>
+
+                                <div id="imagePreviewContainer" class="image-preview-container" style="display: none;">
+                                    <div class="image-preview-header">
+                                        <h4><i class="fas fa-image"></i> 上传的参考图片</h4>
+                                        <button type="button" class="remove-image-btn" id="removeImageBtn" title="移除图片">✕</button>
+                                    </div>
+                                    <div class="image-preview-content">
+                                        <img id="imagePreview" class="image-preview" alt="参考图片预览">
+                                        <div class="image-info">
+                                            <div class="image-filename" id="imageFilename"></div>
+                                            <div class="image-size" id="imageSize"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- PPTX 上传 -->
+                            <div id="pptxUploadArea" class="image-upload-area" style="display: none;">
+                                <div class="upload-dropzone">
+                                    <div class="upload-content">
+                                        <div class="upload-icon"><i class="fas fa-file-powerpoint"></i></div>
+                                        <div class="upload-text">
+                                            <p><strong>上传 PPTX 文件</strong> 或 <button type="button" class="upload-btn" id="selectPptxBtn">选择 PPTX</button></p>
+                                            <p class="upload-hint">支持 .pptx 格式，最大 50MB</p>
+                                        </div>
+                                    </div>
+                                    <input type="file" id="pptxFileInput" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" style="display: none;">
+                                </div>
+
+                                <div id="pptxPreviewContainer" class="image-preview-container" style="display: none;">
+                                    <div class="image-preview-header">
+                                        <h4><i class="fas fa-file-powerpoint"></i> 已上传 PPTX</h4>
+                                        <button type="button" class="remove-image-btn" id="removePptxBtn" title="移除">✕</button>
+                                    </div>
+                                    <div class="image-preview-content">
+                                        <div class="image-info">
+                                            <div class="image-filename" id="pptxFilename"></div>
+                                            <div class="image-size" id="pptxSize"></div>
+                                            <div class="image-size" id="pptxExtractHint" style="margin-top: 4px;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;">
+                        <button type="button" id="cancelAIBtn" class="btn btn-secondary">取消</button>
+                        <button type="submit" class="btn btn-success"><i class="fas fa-wand-magic-sparkles"></i> 生成</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- AI 生成进度 -->
+            <div id="aiGenerationProgress" style="display: none;">
+                <div class="ai-generation-header">
+                    <h3 style="margin: 0; color: var(--text-primary); font-size: 1.1rem; font-weight: 700;">AI 正在生成您的模板…</h3>
+                    <div class="generation-status">
+                        <div class="status-indicator">
+                            <div class="status-dot"></div>
+                            <span id="statusText">正在分析需求...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin: 16px 0; text-align: center; color: #94a3b8; font-size: 0.82rem;">
+                    <span>⏳ 预计需要 30-60 秒，请耐心等待…</span>
+                </div>
+
+                <div class="generation-actions" style="margin-top: 16px; text-align: center;">
+                    <button type="button" id="cancelGenerationBtn" class="btn btn-secondary">取消生成</button>
+                </div>
+            </div>
+
+            <!-- 生成完成 -->
+            <div id="aiGenerationComplete" style="display: none;">
+                <div class="completion-header">
+                    <h3 style="margin: 0; color: #16a34a; font-size: 1.05rem; font-weight: 700;">✓ 模板生成完成</h3>
+                </div>
+
+                <!-- 预览 -->
+                <div style="margin: 16px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <h4 style="margin: 0; color: var(--text-primary); font-size: 0.95rem; font-weight: 600;">模板预览</h4>
+                        <button type="button" id="fullPreviewBtn" class="btn btn-sm btn-outline">全屏预览</button>
+                    </div>
+                    <div id="generatedTemplatePreview" style="border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; height: 300px; overflow: hidden; background: #f8fafc;">
+                        <iframe id="generatedTemplateIframe" style="width: 100%; height: 100%; border: none; transform: scale(0.5); transform-origin: 0 0; width: 200%; height: 200%;"></iframe>
+                    </div>
+                </div>
+
+                <!-- LLM 响应 -->
+                <div class="llm-response-section" style="margin: 16px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #f8fafc; border-bottom: 1px solid var(--border-color, #e5e7eb);">
+                        <h4 style="margin: 0; color: var(--text-primary); font-size: 0.875rem; font-weight: 600;">AI 思考过程</h4>
+                        <button type="button" id="toggleLLMResponseBtn" class="btn btn-sm btn-outline"><i class="fas fa-file-alt"></i> 查看响应</button>
+                    </div>
+                    <div id="llmResponseContainer" style="display: none;">
+                        <div style="padding: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <span style="color: #64748b; font-weight: 600; font-size: 0.82rem;">原始响应</span>
+                                <button type="button" id="copyResponseBtn" class="btn btn-sm btn-outline" title="复制"><i class="fas fa-copy"></i> 复制</button>
+                            </div>
+                            <div id="rawResponse">
+                                <pre style="background: #1e293b; color: #e2e8f0; padding: 14px; border-radius: 8px; font-size: 12px; line-height: 1.5; margin: 0; white-space: pre-wrap; word-wrap: break-word;"><code id="rawResponseCode"></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 继续调整 -->
+                <div style="margin: 16px 0;">
+                    <h4 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 0.875rem; font-weight: 600;">继续调整模板</h4>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="adjustmentInput" placeholder="描述您希望如何调整，例如：改变颜色、调整布局..." style="flex: 1;">
+                        <button type="button" id="adjustTemplateBtn" class="btn btn-primary">调整</button>
+                    </div>
+                    <div id="adjustmentProgress" style="display: none; margin-top: 8px;">
+                        <div style="height: 3px; background: #f1f5f9; border-radius: 2px; overflow: hidden;">
+                            <div style="width: 100%; height: 100%; background: #111; animation: indeterminate 1.5s ease-in-out infinite;"></div>
+                        </div>
+                        <small style="color: #94a3b8; font-size: 0.82rem;">正在调整模板…</small>
+                    </div>
+                </div>
+
+                <style>
+                    @keyframes indeterminate {
+                        0% { transform: translateX(-100%); }
+                        100% { transform: translateX(100%); }
+                    }
+                </style>
+
+                <div style="margin-top: 20px; text-align: center; display: flex; gap: 8px; justify-content: center;">
+                    <button type="button" id="saveGeneratedTemplateBtn" class="btn btn-success"><i class="fas fa-save"></i> 保存模板</button>
+                    <button type="button" id="regenerateTemplateBtn" class="btn btn-outline">重新生成</button>
+                    <button type="button" id="closeCompletionBtn" class="btn btn-secondary">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 预览 Modal -->
+<div id="previewModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 95%; width: 95%;">
+        <div class="modal-header">
+            <h2>模板预览</h2>
+            <button class="close" id="closePreviewModal" type="button">&times;</button>
+        </div>
+        <div class="modal-body" style="text-align: center; padding: 16px;">
+            <iframe id="previewFrame" style="width: 1280px; height: 720px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; transform: scale(0.8); transform-origin: top left; margin: 0 auto;"></iframe>
+        </div>
+    </div>
+</div>

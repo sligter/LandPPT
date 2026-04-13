@@ -1,7 +1,3 @@
-"""
-分块模块 - 提供各种文档分块策略
-"""
-
 from .base_chunker import BaseChunker, DocumentChunk
 from .semantic_chunker import SemanticChunker
 from .recursive_chunker import RecursiveChunker

@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>邮件设置 - LandPPT Admin</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/landppt-logo.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+
+<body class="admin-body">
+    <div class="toast-container" id="toastContainer"></div>
+
+    <div class="header">
+        <h1><i class="fas fa-envelope"></i> 邮件设置</h1>
+        <div class="header-links">
+            <span class="header-user"><i class="fas fa-user-shield"></i> {{ user.username }}</span>
+            <a href="/admin/users"><i class="fas fa-users"></i> 用户</a>
+            {% if credits_enabled %}
+            <a href="/admin/credits"><i class="fas fa-coins"></i> 积分</a>
+            {% endif %}
+            <a href="/admin/community"><i class="fas fa-compass-drafting"></i> 运营</a>
+            <a href="/admin/oauth"><i class="fas fa-right-to-bracket"></i> OAuth</a>
+            <a href="/admin/smtp" aria-current="page"><i class="fas fa-envelope"></i> SMTP</a>
+            <a href="/dashboard"><i class="fas fa-home"></i> 首页</a>
+            <a href="/auth/logout" onclick="return confirm('确定要退出登录吗？')"><i
+                    class="fas fa-arrow-right-from-bracket"></i> 退出</a>
+        </div>
+    </div>
+
+    <div class="container container--narrow">
+        <div class="card">
+            <h2 class="card-title"><i class="fas fa-paper-plane"></i> 发信方式</h2>
+
+            <div class="form-group">
+                <label>邮件服务</label>
+                <div class="checkbox-group" style="gap: 18px;">
+                    <label style="margin: 0; font-weight: 600; letter-spacing: 0; text-transform: none; color: inherit;">
+                        <input type="radio" name="email_provider" value="smtp" checked>
+                        SMTP
+                    </label>
+                    <label style="margin: 0; font-weight: 600; letter-spacing: 0; text-transform: none; color: inherit;">
+                        <input type="radio" name="email_provider" value="resend">
+                        Resend
+                    </label>
+                </div>
+                <p class="form-hint">Resend 需要配置 API Key，并使用已验证域名的发件人邮箱。</p>
+            </div>
+        </div>
+
+        <div id="smtpConfigSection">
+            <div class="card">
+                <h2 class="card-title"><i class="fas fa-server"></i> SMTP 服务器配置</h2>
+
+                <form id="smtpForm">
+                    <div class="form-row form-row--2">
+                        <div class="form-group">
+                            <label for="smtp_host">SMTP 服务器地址</label>
+                            <input type="text" id="smtp_host" name="smtp_host" placeholder="smtp.gmail.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="smtp_port">端口</label>
+                            <input type="number" id="smtp_port" name="smtp_port" value="465">
+                            <p class="form-hint">SSL 通常使用 465，TLS 使用 587</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="smtp_user">SMTP 用户名</label>
+                        <input type="text" id="smtp_user" name="smtp_user">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="smtp_password">SMTP 密码 / 授权码</label>
+                        <div class="password-toggle">
+                            <input type="password" id="smtp_password" name="smtp_password">
+                            <button type="button" onclick="toggleSecret('smtp_password', this)"><i class="fas fa-eye"></i></button>
+                        </div>
+                        <p class="form-hint">部分邮箱服务（如 QQ、163）需要使用授权码而非登录密码</p>
+                    </div>
+
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="smtp_use_ssl" name="smtp_use_ssl" checked>
+                        <label for="smtp_use_ssl" style="margin-bottom: 0;">使用 SSL 加密</label>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card">
+                <h2 class="card-title"><i class="fas fa-user-circle"></i> 发件人信息</h2>
+
+                <form id="senderForm">
+                    <div class="form-group">
+                        <label for="smtp_from_email">发件人邮箱</label>
+                        <input type="email" id="smtp_from_email" name="smtp_from_email">
+                        <p class="form-hint">留空则使用 SMTP 用户名</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="smtp_from_name">发件人名称</label>
+                        <input type="text" id="smtp_from_name" name="smtp_from_name" value="LandPPT">
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="resendConfigSection" style="display: none;">
+            <div class="card">
+                <h2 class="card-title"><i class="fas fa-key"></i> Resend 配置</h2>
+
+                <form id="resendForm">
+                    <div class="form-group">
+                        <label for="resend_api_key">Resend API Key</label>
+                        <div class="password-toggle">
+                            <input type="password" id="resend_api_key" name="resend_api_key" placeholder="re_...">
+                            <button type="button" onclick="toggleSecret('resend_api_key', this)"><i class="fas fa-eye"></i></button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="resend_from_email">发件人邮箱</label>
+                        <input type="email" id="resend_from_email" name="resend_from_email">
+                        <p class="form-hint">必须是 Resend 中已验证的域名邮箱。</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="resend_from_name">发件人名称</label>
+                        <input type="text" id="resend_from_name" name="resend_from_name" value="LandPPT">
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title"><i class="fas fa-vial"></i> 测试连接</h2>
+
+            <div class="form-group">
+                <label for="test_email">测试收件邮箱</label>
+                <input type="email" id="test_email" placeholder="输入您的邮箱地址用于测试">
+            </div>
+
+            <div id="testResult" class="test-result"></div>
+
+            <div class="btn-group">
+                <button type="button" class="btn btn-outline" onclick="testConnection()">
+                    <i class="fas fa-paper-plane"></i> 发送测试邮件
+                </button>
+                <button type="button" class="btn" onclick="saveSettings()">
+                    <i class="fas fa-save"></i> 保存设置
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle';
+            toast.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('toast-out');
+                setTimeout(() => toast.remove(), 250);
+            }, 3500);
+        }
+
+        async function loadSettings() {
+            try {
+                const res = await fetch('/admin/api/smtp');
+                const data = await res.json();
+                if (data.success) {
+                    const provider = (data.config.email_provider || 'smtp').toLowerCase();
+                    const providerRadio = document.querySelector(`input[name="email_provider"][value="${provider}"]`);
+                    if (providerRadio) providerRadio.checked = true;
+
+                    document.getElementById('smtp_host').value = data.config.smtp_host || '';
+                    document.getElementById('smtp_port').value = data.config.smtp_port || 465;
+                    document.getElementById('smtp_user').value = data.config.smtp_user || '';
+                    document.getElementById('smtp_password').value = data.config.smtp_password || '';
+                    document.getElementById('smtp_use_ssl').checked = data.config.smtp_use_ssl !== false;
+                    document.getElementById('smtp_from_email').value = data.config.smtp_from_email || '';
+                    document.getElementById('smtp_from_name').value = data.config.smtp_from_name || 'LandPPT';
+
+                    document.getElementById('resend_api_key').value = data.config.resend_api_key || '';
+                    document.getElementById('resend_from_email').value = data.config.resend_from_email || '';
+                    document.getElementById('resend_from_name').value = data.config.resend_from_name || 'LandPPT';
+
+                    applyProviderUI();
+                }
+            } catch (_) {}
+        }
+
+        function getSelectedProvider() {
+            const el = document.querySelector('input[name="email_provider"]:checked');
+            return (el ? el.value : 'smtp').toLowerCase();
+        }
+
+        function applyProviderUI() {
+            const provider = getSelectedProvider();
+            const smtpSection = document.getElementById('smtpConfigSection');
+            const resendSection = document.getElementById('resendConfigSection');
+            smtpSection.style.display = provider === 'smtp' ? '' : 'none';
+            resendSection.style.display = provider === 'resend' ? '' : 'none';
+        }
+
+        async function saveSettings() {
+            const config = {
+                email_provider: getSelectedProvider(),
+                smtp_host: document.getElementById('smtp_host').value,
+                smtp_port: parseInt(document.getElementById('smtp_port').value) || 465,
+                smtp_user: document.getElementById('smtp_user').value,
+                smtp_password: document.getElementById('smtp_password').value,
+                smtp_use_ssl: document.getElementById('smtp_use_ssl').checked,
+                smtp_from_email: document.getElementById('smtp_from_email').value,
+                smtp_from_name: document.getElementById('smtp_from_name').value,
+                resend_api_key: document.getElementById('resend_api_key').value,
+                resend_from_email: document.getElementById('resend_from_email').value,
+                resend_from_name: document.getElementById('resend_from_name').value
+            };
+
+            try {
+                const res = await fetch('/admin/api/smtp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const data = await res.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+            } catch (err) {
+                showToast('保存失败: ' + err.message, 'error');
+            }
+        }
+
+        async function testConnection() {
+            const testEmail = document.getElementById('test_email').value;
+            if (!testEmail) {
+                showToast('请输入测试收件邮箱', 'error');
+                return;
+            }
+
+            const provider = getSelectedProvider();
+            if (provider === 'smtp') {
+                if (!document.getElementById('smtp_host').value || !document.getElementById('smtp_user').value) {
+                    showToast('请填写 SMTP 服务器和用户名', 'error');
+                    return;
+                }
+            } else if (provider === 'resend') {
+                if (!document.getElementById('resend_api_key').value) {
+                    showToast('请填写 Resend API Key', 'error');
+                    return;
+                }
+                if (!document.getElementById('resend_from_email').value) {
+                    showToast('请填写 Resend 发件人邮箱', 'error');
+                    return;
+                }
+            }
+
+            const testResult = document.getElementById('testResult');
+            testResult.style.display = 'block';
+            testResult.className = 'test-result alert-info';
+            testResult.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在发送测试邮件...';
+
+            const config = {
+                email_provider: provider,
+                smtp_host: document.getElementById('smtp_host').value,
+                smtp_port: parseInt(document.getElementById('smtp_port').value) || 465,
+                smtp_user: document.getElementById('smtp_user').value,
+                smtp_password: document.getElementById('smtp_password').value,
+                smtp_use_ssl: document.getElementById('smtp_use_ssl').checked,
+                smtp_from_email: document.getElementById('smtp_from_email').value,
+                smtp_from_name: document.getElementById('smtp_from_name').value,
+                resend_api_key: document.getElementById('resend_api_key').value,
+                resend_from_email: document.getElementById('resend_from_email').value,
+                resend_from_name: document.getElementById('resend_from_name').value,
+                test_email: testEmail
+            };
+
+            try {
+                const res = await fetch('/admin/api/smtp/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    testResult.className = 'test-result alert-success';
+                    testResult.innerHTML = '<i class="fas fa-check-circle"></i> ' + data.message;
+                } else {
+                    testResult.className = 'test-result alert-error';
+                    testResult.innerHTML = '<i class="fas fa-times-circle"></i> ' + data.message;
+                }
+            } catch (err) {
+                testResult.className = 'test-result alert-error';
+                testResult.innerHTML = '<i class="fas fa-times-circle"></i> 测试失败: ' + err.message;
+            }
+        }
+
+        function toggleSecret(inputId, buttonEl) {
+            const input = document.getElementById(inputId);
+            const icon = buttonEl.querySelector('i');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.className = 'fas fa-eye-slash';
+            } else {
+                input.type = 'password';
+                icon.className = 'fas fa-eye';
+            }
+        }
+
+        document.querySelectorAll('input[name="email_provider"]').forEach((el) => {
+            el.addEventListener('change', applyProviderUI);
+        });
+
+        applyProviderUI();
+        loadSettings();
+    </script>
+</body>
+
+</html>

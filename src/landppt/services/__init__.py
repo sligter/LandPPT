@@ -1,3 +1,0 @@
-"""
-Service modules for LandPPT
-"""

@@ -3,32 +3,55 @@ Configuration management for LandPPT AI features
 """
 
 import os
-from pathlib import Path
-from typing import Optional, Dict, Any, ClassVar
-from pydantic import Field
+from typing import Optional, Dict, Any, ClassVar, List, Tuple
+from pydantic import Field as PydanticField, field_validator
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 # Load environment variables with error handling
-try:
-    # 1) Try default behavior (usually searches from CWD)
-    loaded = load_dotenv()
-    # 2) If not found, try project root (directory that contains pyproject.toml)
-    if not loaded:
-        for parent in Path(__file__).resolve().parents:
-            if (parent / "pyproject.toml").exists():
-                env_path = parent / ".env"
-                if env_path.exists():
-                    load_dotenv(env_path)
-                break
-except (PermissionError, FileNotFoundError) as e:
-    # Silently continue if .env file is not accessible
-    # This allows the application to work with system environment variables
-    pass
-except Exception as e:
-    # Log other errors but continue
-    import logging
-    logging.getLogger(__name__).warning(f"Could not load .env file: {e}")
+# Try multiple paths for Docker and local development
+env_paths = [
+    '/app/.env',  # Docker container path
+    '.env',       # Current directory
+]
+
+for env_path in env_paths:
+    try:
+        if os.path.exists(env_path):
+            load_dotenv(env_path, override=True)
+            break
+    except (PermissionError, FileNotFoundError):
+        continue
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not load {env_path}: {e}")
+
+
+def resolve_timeout_seconds(value: Any, default: int = 600, minimum: int = 1) -> int:
+    """Normalize timeout values loaded from env/DB/UI into a positive integer."""
+    try:
+        if value is None or value == "":
+            raise ValueError
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        try:
+            parsed = int(float(default))
+        except (TypeError, ValueError):
+            parsed = 600
+    return max(int(minimum), parsed)
+
+
+def Field(*args, env: Optional[str] = None, **kwargs):
+    """
+    Backward-compatible settings field wrapper.
+
+    Pydantic v2 deprecated passing `env=` directly into `Field`. This wrapper
+    keeps the existing declarations intact while translating the setting name
+    into `validation_alias`.
+    """
+    if env is not None and "validation_alias" not in kwargs:
+        kwargs["validation_alias"] = env
+    return PydanticField(*args, **kwargs)
 
 class AIConfig(BaseSettings):
     """AI configuration settings"""
@@ -41,18 +64,11 @@ class AIConfig(BaseSettings):
     openai_enable_reasoning: bool = Field(default=False, env="OPENAI_ENABLE_REASONING")
     openai_reasoning_effort: str = Field(default="medium", env="OPENAI_REASONING_EFFORT")
 
-    # OpenAI-Compatible Providers
-    deepseek_api_key: Optional[str] = Field(default=None, env="DEEPSEEK_API_KEY")
-    deepseek_base_url: str = Field(default="https://api.deepseek.com/v1", env="DEEPSEEK_BASE_URL")
-    deepseek_model: str = Field(default="deepseek-chat", env="DEEPSEEK_MODEL")
-
-    kimi_api_key: Optional[str] = Field(default=None, env="KIMI_API_KEY")
-    kimi_base_url: str = Field(default="https://api.moonshot.cn/v1", env="KIMI_BASE_URL")
-    kimi_model: str = Field(default="kimi-k2.5", env="KIMI_MODEL")
-
-    minimax_api_key: Optional[str] = Field(default=None, env="MINIMAX_API_KEY")
-    minimax_base_url: str = Field(default="https://api.minimax.io/v1", env="MINIMAX_BASE_URL")
-    minimax_model: str = Field(default="MiniMax-M2.7", env="MINIMAX_MODEL")
+    # Azure OpenAI Configuration
+    azure_openai_api_key: Optional[str] = Field(default=None, env="AZURE_OPENAI_API_KEY")
+    azure_openai_endpoint: Optional[str] = Field(default=None, env="AZURE_OPENAI_ENDPOINT")
+    azure_openai_api_version: str = Field(default="2024-02-15-preview", env="AZURE_OPENAI_API_VERSION")
+    azure_openai_deployment_name: Optional[str] = Field(default=None, env="AZURE_OPENAI_DEPLOYMENT_NAME")
     
     # Anthropic Configuration
     anthropic_api_key: Optional[str] = Field(default=None, env="ANTHROPIC_API_KEY")
@@ -66,13 +82,7 @@ class AIConfig(BaseSettings):
     
     # Ollama Configuration
     ollama_base_url: str = Field(default="http://localhost:11434", env="OLLAMA_BASE_URL")
-    # Use "auto" to let the runtime pick an installed local model.
-    ollama_model: str = Field(default="auto", env="OLLAMA_MODEL")
-    
-    # 302.AI Configuration
-    ai_302ai_api_key: Optional[str] = Field(default=None, env="302AI_API_KEY", alias="302ai_api_key")
-    ai_302ai_base_url: str = Field(default="https://api.302.ai/v1", env="302AI_BASE_URL", alias="302ai_base_url")
-    ai_302ai_model: str = Field(default="gpt-4o", env="302AI_MODEL", alias="302ai_model")
+    ollama_model: str = Field(default="llama2", env="OLLAMA_MODEL")
     
     # Hugging Face Configuration
     huggingface_api_token: Optional[str] = Field(default=None, env="HUGGINGFACE_API_TOKEN")
@@ -96,12 +106,9 @@ class AIConfig(BaseSettings):
     research_max_content_length: int = Field(default=5000, env="RESEARCH_MAX_CONTENT_LENGTH")
     research_extraction_timeout: int = Field(default=30, env="RESEARCH_EXTRACTION_TIMEOUT")
 
-    # MinerU API Configuration (for high-quality PDF parsing)
-    mineru_api_key: Optional[str] = Field(default=None, env="MINERU_API_KEY")
-    mineru_base_url: str = Field(default="https://mineru.net/api/v4", env="MINERU_BASE_URL")
-
     # Apryse SDK Configuration (for PPTX export functionality)
     apryse_license_key: Optional[str] = Field(default=None, env="APRYSE_LICENSE_KEY")
+    enable_apryse_pptx_export: bool = Field(default=False, env="ENABLE_APRYSE_PPTX_EXPORT")
 
     # Provider Selection
     default_ai_provider: str = Field(default="openai", env="DEFAULT_AI_PROVIDER")
@@ -125,14 +132,19 @@ class AIConfig(BaseSettings):
     speech_script_model_name: Optional[str] = Field(default=None, env="SPEECH_SCRIPT_MODEL_NAME")
     vision_analysis_model_provider: Optional[str] = Field(default=None, env="VISION_ANALYSIS_MODEL_PROVIDER")
     vision_analysis_model_name: Optional[str] = Field(default=None, env="VISION_ANALYSIS_MODEL_NAME")
+    polish_model_provider: Optional[str] = Field(default=None, env="POLISH_MODEL_PROVIDER")
+    polish_model_name: Optional[str] = Field(default=None, env="POLISH_MODEL_NAME")
 
     # Generation Parameters
+    # NOTE: `MAX_TOKENS` is used as the maximum *chunk/splitting* tokens in this project.
+    # Do not forward it to model providers as an output length limit.
     max_tokens: int = Field(default=16384, env="MAX_TOKENS")
     temperature: float = Field(default=0.7, env="TEMPERATURE")
     top_p: float = Field(default=1.0, env="TOP_P")
+    llm_timeout_seconds: int = Field(default=600, env="LLM_TIMEOUT_SECONDS")
     
     # Parallel Generation Configuration
-    enable_parallel_generation: bool = Field(default=False, env="ENABLE_PARALLEL_GENERATION")
+    enable_parallel_generation: bool = Field(default=True, env="ENABLE_PARALLEL_GENERATION")
     parallel_slides_count: int = Field(default=3, env="PARALLEL_SLIDES_COUNT")
     
     # Feature Flags
@@ -148,7 +160,8 @@ class AIConfig(BaseSettings):
     model_config = {
         "env_file": ".env",
         "case_sensitive": False,
-        "extra": "ignore"
+        "extra": "ignore",
+        "populate_by_name": True,
     }
 
 
@@ -163,6 +176,7 @@ class AIConfig(BaseSettings):
         "template": ("template_generation_model_provider", "template_generation_model_name"),
         "speech_script": ("speech_script_model_provider", "speech_script_model_name"),
         "vision_analysis": ("vision_analysis_model_provider", "vision_analysis_model_name"),
+        "polish": ("polish_model_provider", "polish_model_name"),
     }
 
     MODEL_ROLE_LABELS: ClassVar[dict[str, str]] = {
@@ -175,6 +189,7 @@ class AIConfig(BaseSettings):
         "template": "AI模板生成模型",
         "speech_script": "演讲稿生成模型",
         "vision_analysis": "多模态视觉分析模型",
+        "polish": "AI雕琢模型",
     }
 
 
@@ -196,18 +211,10 @@ class AIConfig(BaseSettings):
         provider_key = self._normalize_provider(provider)
         if provider_key == "openai":
             return self._normalize_optional_str(self.openai_model)
-        if provider_key == "deepseek":
-            return self._normalize_optional_str(self.deepseek_model)
-        if provider_key == "kimi":
-            return self._normalize_optional_str(self.kimi_model)
-        if provider_key == "minimax":
-            return self._normalize_optional_str(self.minimax_model)
         if provider_key == "anthropic":
             return self._normalize_optional_str(self.anthropic_model)
         if provider_key in ("google", "gemini"):
             return self._normalize_optional_str(self.google_model)
-        if provider_key == "302ai":
-            return self._normalize_optional_str(self.ai_302ai_model)
         if provider_key == "ollama":
             return self._normalize_optional_str(self.ollama_model)
         return self._normalize_optional_str(self.openai_model)
@@ -266,28 +273,22 @@ class AIConfig(BaseSettings):
                 "temperature": self.temperature,
                 "top_p": self.top_p,
             },
-            "deepseek": {
-                "api_key": self.deepseek_api_key,
-                "base_url": self.deepseek_base_url,
-                "model": self.deepseek_model,
+            "azure_openai": {
+                "api_key": self.azure_openai_api_key,
+                "azure_endpoint": self.azure_openai_endpoint,
+                "api_version": self.azure_openai_api_version,
+                "model": self.azure_openai_deployment_name,
                 "max_tokens": self.max_tokens,
                 "temperature": self.temperature,
                 "top_p": self.top_p,
             },
-            "kimi": {
-                "api_key": self.kimi_api_key,
-                "base_url": self.kimi_base_url,
-                "model": self.kimi_model,
+            "azure": {  # Alias for azure_openai
+                "api_key": self.azure_openai_api_key,
+                "azure_endpoint": self.azure_openai_endpoint,
+                "api_version": self.azure_openai_api_version,
+                "model": self.azure_openai_deployment_name,
                 "max_tokens": self.max_tokens,
                 "temperature": self.temperature,
-                "top_p": self.top_p,
-            },
-            "minimax": {
-                "api_key": self.minimax_api_key,
-                "base_url": self.minimax_base_url,
-                "model": self.minimax_model,
-                "max_tokens": self.max_tokens,
-                "temperature": min(self.temperature, 1.0),
                 "top_p": self.top_p,
             },
             "anthropic": {
@@ -320,16 +321,12 @@ class AIConfig(BaseSettings):
                 "max_tokens": self.max_tokens,
                 "temperature": self.temperature,
                 "top_p": self.top_p,
-            },
-            "302ai": {
-                "api_key": self.ai_302ai_api_key,
-                "base_url": self.ai_302ai_base_url,
-                "model": self.ai_302ai_model,
-                "max_tokens": self.max_tokens,
-                "temperature": self.temperature,
-                "top_p": self.top_p,
             }
         }
+
+        timeout_seconds = resolve_timeout_seconds(self.llm_timeout_seconds, 600)
+        for provider_config in configs.values():
+            provider_config["llm_timeout_seconds"] = timeout_seconds
 
         return configs.get(provider, configs.get("openai", {}))
     
@@ -340,20 +337,14 @@ class AIConfig(BaseSettings):
         # Built-in providers
         if provider == "openai":
             return bool(config.get("api_key"))
-        elif provider == "deepseek":
-            return bool(config.get("api_key"))
-        elif provider == "kimi":
-            return bool(config.get("api_key"))
-        elif provider == "minimax":
-            return bool(config.get("api_key"))
+        elif provider in ("azure_openai", "azure"):
+            return bool(config.get("api_key") and config.get("azure_endpoint") and config.get("model"))
         elif provider == "anthropic":
             return bool(config.get("api_key"))
         elif provider == "google" or provider == "gemini":
             return bool(config.get("api_key"))
         elif provider == "ollama":
             return self.enable_local_models
-        elif provider == "302ai":
-            return bool(config.get("api_key"))
 
         return False
     
@@ -364,11 +355,12 @@ class AIConfig(BaseSettings):
 
         # Add built-in providers. Note: "gemini" is an alias for "google" (same config),
         # so we only expose a single canonical provider name here to avoid duplicates in UIs.
-        for provider in ["openai", "deepseek", "kimi", "minimax", "anthropic", "google", "gemini", "ollama", "302ai"]:
+        for provider in ["openai", "azure_openai", "azure", "anthropic", "google", "gemini", "ollama"]:
             if not self.is_provider_available(provider):
                 continue
 
             canonical = "google" if provider == "gemini" else provider
+            canonical = "azure_openai" if provider == "azure" else canonical
             if canonical in seen:
                 continue
 
@@ -422,24 +414,16 @@ def reload_ai_config():
         'OPENAI_REASONING_EFFORT',
         ai_config.openai_reasoning_effort,
     )
+    ai_config.azure_openai_api_key = os.environ.get('AZURE_OPENAI_API_KEY', ai_config.azure_openai_api_key)
+    ai_config.azure_openai_endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT', ai_config.azure_openai_endpoint)
+    ai_config.azure_openai_api_version = os.environ.get('AZURE_OPENAI_API_VERSION', ai_config.azure_openai_api_version)
+    ai_config.azure_openai_deployment_name = os.environ.get('AZURE_OPENAI_DEPLOYMENT_NAME', ai_config.azure_openai_deployment_name)
     ai_config.anthropic_api_key = os.environ.get('ANTHROPIC_API_KEY', ai_config.anthropic_api_key)
     ai_config.anthropic_base_url = os.environ.get('ANTHROPIC_BASE_URL', ai_config.anthropic_base_url)
     ai_config.anthropic_model = os.environ.get('ANTHROPIC_MODEL', ai_config.anthropic_model)
     ai_config.google_api_key = os.environ.get('GOOGLE_API_KEY', ai_config.google_api_key)
     ai_config.google_base_url = os.environ.get('GOOGLE_BASE_URL', ai_config.google_base_url)
     ai_config.google_model = os.environ.get('GOOGLE_MODEL', ai_config.google_model)
-    ai_config.ai_302ai_api_key = os.environ.get('302AI_API_KEY', ai_config.ai_302ai_api_key)
-    ai_config.ai_302ai_base_url = os.environ.get('302AI_BASE_URL', ai_config.ai_302ai_base_url)
-    ai_config.ai_302ai_model = os.environ.get('302AI_MODEL', ai_config.ai_302ai_model)
-    ai_config.minimax_api_key = os.environ.get('MINIMAX_API_KEY', ai_config.minimax_api_key)
-    ai_config.minimax_base_url = os.environ.get('MINIMAX_BASE_URL', ai_config.minimax_base_url)
-    ai_config.minimax_model = os.environ.get('MINIMAX_MODEL', ai_config.minimax_model)
-    ai_config.deepseek_api_key = os.environ.get('DEEPSEEK_API_KEY', ai_config.deepseek_api_key)
-    ai_config.deepseek_base_url = os.environ.get('DEEPSEEK_BASE_URL', ai_config.deepseek_base_url)
-    ai_config.deepseek_model = os.environ.get('DEEPSEEK_MODEL', ai_config.deepseek_model)
-    ai_config.kimi_api_key = os.environ.get('KIMI_API_KEY', ai_config.kimi_api_key)
-    ai_config.kimi_base_url = os.environ.get('KIMI_BASE_URL', ai_config.kimi_base_url)
-    ai_config.kimi_model = os.environ.get('KIMI_MODEL', ai_config.kimi_model)
     ai_config.default_ai_provider = os.environ.get('DEFAULT_AI_PROVIDER', ai_config.default_ai_provider)
     model_provider_env = os.environ.get('DEFAULT_MODEL_PROVIDER')
     ai_config.default_model_provider = (ai_config._normalize_optional_str(model_provider_env)
@@ -504,14 +488,26 @@ def reload_ai_config():
     ai_config.vision_analysis_model_name = (ai_config._normalize_optional_str(vision_model_env)
                                             if vision_model_env is not None else ai_config.vision_analysis_model_name)
 
+    polish_provider_env = os.environ.get('POLISH_MODEL_PROVIDER')
+    ai_config.polish_model_provider = (ai_config._normalize_optional_str(polish_provider_env)
+                                       if polish_provider_env is not None else ai_config.polish_model_provider)
+    polish_model_env = os.environ.get('POLISH_MODEL_NAME')
+    ai_config.polish_model_name = (ai_config._normalize_optional_str(polish_model_env)
+                                   if polish_model_env is not None else ai_config.polish_model_name)
+
     ai_config.max_tokens = int(os.environ.get('MAX_TOKENS', str(ai_config.max_tokens)))
     ai_config.temperature = float(os.environ.get('TEMPERATURE', str(ai_config.temperature)))
     ai_config.top_p = float(os.environ.get('TOP_P', str(ai_config.top_p)))
+    ai_config.llm_timeout_seconds = resolve_timeout_seconds(
+        os.environ.get('LLM_TIMEOUT_SECONDS', ai_config.llm_timeout_seconds),
+        ai_config.llm_timeout_seconds,
+    )
     
     # Update parallel generation configuration
     ai_config.enable_parallel_generation = os.environ.get('ENABLE_PARALLEL_GENERATION', str(ai_config.enable_parallel_generation)).lower() == 'true'
     ai_config.parallel_slides_count = int(os.environ.get('PARALLEL_SLIDES_COUNT', str(ai_config.parallel_slides_count)))
     ai_config.enable_auto_layout_repair = os.environ.get('ENABLE_AUTO_LAYOUT_REPAIR', str(ai_config.enable_auto_layout_repair)).lower() == 'true'
+    ai_config.enable_apryse_pptx_export = os.environ.get('ENABLE_APRYSE_PPTX_EXPORT', str(ai_config.enable_apryse_pptx_export)).lower() == 'true'
 
     # Update Tavily configuration
     ai_config.tavily_api_key = os.environ.get('TAVILY_API_KEY', ai_config.tavily_api_key)
@@ -536,6 +532,9 @@ def reload_ai_config():
 
 class AppConfig(BaseSettings):
     """Application configuration"""
+
+    BOOL_TRUE_VALUES: ClassVar[set[str]] = {"1", "true", "yes", "on", "debug", "dev", "development"}
+    BOOL_FALSE_VALUES: ClassVar[set[str]] = {"0", "false", "no", "off", "release", "prod", "production"}
     
     # Server Configuration
     host: str = Field(default="0.0.0.0", env="HOST")
@@ -543,24 +542,159 @@ class AppConfig(BaseSettings):
     debug: bool = Field(default=True, env="DEBUG")
     reload: bool = Field(default=True, env="RELOAD")
     
-    # Database Configuration (for future use)
+    # Database Configuration - default to SQLite for standalone/local startup
     database_url: str = Field(default="sqlite:///./landppt.db", env="DATABASE_URL")
+    auto_migrate_on_startup: bool = Field(default=True, env="LANDPPT_AUTO_MIGRATE_ON_STARTUP")
+    auto_migrate_fail_fast: bool = Field(default=True, env="LANDPPT_AUTO_MIGRATE_FAIL_FAST")
+    auto_migrate_lock_timeout_seconds: int = Field(default=300, env="LANDPPT_AUTO_MIGRATE_LOCK_TIMEOUT_SECONDS")
+    auto_migrate_lock_stale_seconds: int = Field(default=900, env="LANDPPT_AUTO_MIGRATE_LOCK_STALE_SECONDS")
+
     
     # Security Configuration
     secret_key: str = Field(default="your-secret-key-here", env="SECRET_KEY")
-    access_token_expire_minutes: int = Field(default=30, env="ACCESS_TOKEN_EXPIRE_MINUTES")
+    access_token_expire_minutes: int = Field(default=20160, env="ACCESS_TOKEN_EXPIRE_MINUTES")  # 2 weeks
+    enable_api_docs: bool = Field(default=True, env="LANDPPT_ENABLE_API_DOCS")
+    bootstrap_admin_enabled: bool = Field(default=False, env="LANDPPT_BOOTSTRAP_ADMIN_ENABLED")
+    bootstrap_admin_username: Optional[str] = Field(default=None, env="LANDPPT_BOOTSTRAP_ADMIN_USERNAME")
+    bootstrap_admin_password: Optional[str] = Field(default=None, env="LANDPPT_BOOTSTRAP_ADMIN_PASSWORD")
+
+    # Machine-to-machine API authentication (for n8n / automation)
+    # Single key mode: LANDPPT_API_KEY + LANDPPT_API_KEY_USER
+    # Multi key mode: LANDPPT_API_KEYS="user1:key1,user2:key2" (also supports user=key)
+    api_key: Optional[str] = Field(default=None, env="LANDPPT_API_KEY")
+    api_key_user: str = Field(default="admin", env="LANDPPT_API_KEY_USER")
+    api_keys: Optional[str] = Field(default=None, env="LANDPPT_API_KEYS")
+    allow_header_session_auth: bool = Field(default=False, env="LANDPPT_ALLOW_HEADER_SESSION_AUTH")
     
     # File Upload Configuration
     max_file_size: int = Field(default=10 * 1024 * 1024, env="MAX_FILE_SIZE")  # 10MB
     upload_dir: str = Field(default="uploads", env="UPLOAD_DIR")
+
+    # ComfyUI (optional, for TTS via ComfyUI API)
+    comfyui_base_url: str = Field(default="http://127.0.0.1:8188", env="COMFYUI_BASE_URL")
+    comfyui_tts_workflow_path: str = Field(default="tests/Qwen3-TD-TTS.json", env="COMFYUI_TTS_WORKFLOW_PATH")
+    comfyui_tts_timeout_seconds: int = Field(default=600, env="COMFYUI_TTS_TIMEOUT_SECONDS")
     
     # Cache Configuration
     cache_ttl: int = Field(default=3600, env="CACHE_TTL")  # 1 hour
+    cache_backend: str = Field(default="memory", env="CACHE_BACKEND")  # memory, valkey
+    valkey_url: str = Field(default="valkey://localhost:6379", env="VALKEY_URL")
+    
+    # Credits System Configuration
+    enable_credits_system: bool = Field(default=False, env="ENABLE_CREDITS_SYSTEM")
+    default_credits_for_new_users: int = Field(default=100, env="DEFAULT_CREDITS_FOR_NEW_USERS")
+
+    # Email SMTP Configuration
+    email_provider: str = Field(default="smtp", env="EMAIL_PROVIDER")  # smtp | resend
+    smtp_host: str = Field(default="", env="SMTP_HOST")
+    smtp_port: int = Field(default=465, env="SMTP_PORT")
+    smtp_user: str = Field(default="", env="SMTP_USER")
+    smtp_password: str = Field(default="", env="SMTP_PASSWORD")
+    smtp_from_email: str = Field(default="", env="SMTP_FROM_EMAIL")
+    smtp_from_name: str = Field(default="LandPPT", env="SMTP_FROM_NAME")
+    smtp_use_ssl: bool = Field(default=True, env="SMTP_USE_SSL")
+
+    # Resend Email Configuration (https://resend.com/)
+    resend_api_key: str = Field(default="", env="RESEND_API_KEY")
+    resend_from_email: str = Field(default="", env="RESEND_FROM_EMAIL")
+    resend_from_name: str = Field(default="LandPPT", env="RESEND_FROM_NAME")
+    
+    # User Registration Configuration
+    enable_user_registration: bool = Field(default=True, env="ENABLE_USER_REGISTRATION")
+    verification_code_expire_minutes: int = Field(default=10, env="VERIFICATION_CODE_EXPIRE_MINUTES")
+    registration_ip_rate_limit_per_hour: int = Field(default=100, env="REGISTRATION_IP_RATE_LIMIT_PER_HOUR")
+
+    # Cloudflare Turnstile (anti-bot) for registration flow
+    turnstile_enabled: bool = Field(default=False, env="TURNSTILE_ENABLED")
+    turnstile_site_key: Optional[str] = Field(default=None, env="TURNSTILE_SITE_KEY")
+    turnstile_secret_key: Optional[str] = Field(default=None, env="TURNSTILE_SECRET_KEY")
+    
+    # GitHub OAuth Configuration (with PKCE)
+    github_oauth_enabled: bool = Field(default=False, env="GITHUB_OAUTH_ENABLED")
+    github_client_id: Optional[str] = Field(default=None, env="GITHUB_CLIENT_ID")
+    github_client_secret: Optional[str] = Field(default=None, env="GITHUB_CLIENT_SECRET")
+    github_callback_url: Optional[str] = Field(default=None, env="GITHUB_CALLBACK_URL")  # e.g. https://yourdomain.com/auth/github/callback
+    github_callback_use_request_host: bool = Field(default=False, env="GITHUB_CALLBACK_USE_REQUEST_HOST")
+    
+    # Linux Do OAuth Configuration
+    linuxdo_oauth_enabled: bool = Field(default=False, env="LINUXDO_OAUTH_ENABLED")
+    linuxdo_client_id: Optional[str] = Field(default=None, env="LINUXDO_CLIENT_ID")
+    linuxdo_client_secret: Optional[str] = Field(default=None, env="LINUXDO_CLIENT_SECRET")
+    linuxdo_callback_url: Optional[str] = Field(default=None, env="LINUXDO_CALLBACK_URL")  # e.g. https://yourdomain.com/auth/linuxdo/callback
     
     model_config = {
         "case_sensitive": False,
-        "extra": "ignore"
+        "extra": "ignore",
+        "populate_by_name": True,
     }
+
+    @classmethod
+    def _normalize_bool_env(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in cls.BOOL_TRUE_VALUES:
+                return True
+            if normalized in cls.BOOL_FALSE_VALUES:
+                return False
+        return value
+
+    @field_validator(
+        "debug",
+        "reload",
+        "auto_migrate_on_startup",
+        "auto_migrate_fail_fast",
+        "enable_api_docs",
+        "bootstrap_admin_enabled",
+        "allow_header_session_auth",
+        "enable_credits_system",
+        "turnstile_enabled",
+        "github_oauth_enabled",
+        "linuxdo_oauth_enabled",
+        "smtp_use_ssl",
+        "enable_user_registration",
+        mode="before",
+    )
+    @classmethod
+    def normalize_bool_fields(cls, value: Any) -> Any:
+        return cls._normalize_bool_env(value)
+
+    def get_api_key_bindings(self) -> List[Tuple[str, str]]:
+        """
+        Return configured API key bindings as (username, api_key) pairs.
+        Supports:
+        - LANDPPT_API_KEY + LANDPPT_API_KEY_USER
+        - LANDPPT_API_KEYS="user1:key1,user2:key2" (also accepts user=key)
+        """
+        bindings: List[Tuple[str, str]] = []
+        default_user = str(self.api_key_user or "admin").strip() or "admin"
+
+        def _append_binding(username: Optional[str], key: Optional[str]) -> None:
+            user = str(username or "").strip() or default_user
+            token = str(key or "").strip()
+            if not token:
+                return
+            pair = (user, token)
+            if pair not in bindings:
+                bindings.append(pair)
+
+        raw_multi = str(self.api_keys or "").strip()
+        if raw_multi:
+            normalized = raw_multi.replace("\n", ",").replace(";", ",")
+            for item in normalized.split(","):
+                token_spec = item.strip()
+                if not token_spec:
+                    continue
+                if "=" in token_spec:
+                    user, key = token_spec.split("=", 1)
+                    _append_binding(user, key)
+                elif ":" in token_spec:
+                    user, key = token_spec.split(":", 1)
+                    _append_binding(user, key)
+                else:
+                    _append_binding(default_user, token_spec)
+
+        _append_binding(default_user, self.api_key)
+        return bindings
 
 # Global app configuration instance
 app_config = AppConfig()

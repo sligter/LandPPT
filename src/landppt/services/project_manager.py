@@ -25,6 +25,20 @@ class ProjectManager:
     def __init__(self):
         self.projects: Dict[str, PPTProject] = {}
         self.todo_boards: Dict[str, TodoBoard] = {}
+
+    @staticmethod
+    def _normalize_progress(progress: Any) -> float:
+        try:
+            value = float(progress)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, min(100.0, value))
+
+    @classmethod
+    def calculate_overall_progress(cls, stages: List[TodoStage]) -> float:
+        if not stages:
+            return 0.0
+        return sum(cls._normalize_progress(stage.progress) for stage in stages) / len(stages)
     
     async def create_project(self, request: PPTGenerationRequest) -> PPTProject:
         """Create a new PPT project with TODO board"""
@@ -106,8 +120,7 @@ class ProjectManager:
             todo_board.updated_at = time.time()
 
             # Recalculate overall progress correctly
-            completed_stages = sum(1 for s in stages if s.status == "completed")
-            todo_board.overall_progress = (completed_stages / len(stages)) * 100
+            todo_board.overall_progress = self.calculate_overall_progress(stages)
 
             # Set current stage index to the first non-completed stage
             todo_board.current_stage_index = 0
@@ -177,7 +190,9 @@ class ProjectManager:
                 stage.updated_at = time.time()
                 
                 if progress is not None:
-                    stage.progress = progress
+                    stage.progress = self._normalize_progress(progress)
+                elif status == "completed":
+                    stage.progress = 100.0
                 
                 if result is not None:
                     stage.result = result
@@ -187,8 +202,7 @@ class ProjectManager:
                     todo_board.current_stage_index = min(i + 1, len(todo_board.stages) - 1)
 
                 # Update overall progress
-                completed_stages = sum(1 for s in todo_board.stages if s.status == "completed")
-                todo_board.overall_progress = (completed_stages / len(todo_board.stages)) * 100
+                todo_board.overall_progress = self.calculate_overall_progress(todo_board.stages)
                 todo_board.updated_at = time.time()
 
                 # Also update the project's TODO board reference

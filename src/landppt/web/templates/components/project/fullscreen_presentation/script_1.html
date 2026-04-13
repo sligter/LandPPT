@@ -1,0 +1,1301 @@
+        // 全局变量
+        let currentSlideIndex = 0;
+        let totalSlides = {{ slides_count }};
+        let slidesData = {{ project.slides_data | tojson }};
+        let autoPlayInterval = null;
+        let isAutoPlaying = false;
+        let thumbnailsVisible = false;
+        let keyboardHintsVisible = false;
+        const SLIDE_BASE_WIDTH = 1280;
+        const SLIDE_BASE_HEIGHT = 720;
+
+        let slideDisplayResizeObserver = null;
+
+        // UI auto-hide (avoid overlays blocking slides)
+        const UI_AUTO_HIDE_MS = 2200;
+        let uiHideTimer = null;
+        let uiHoverCount = 0;
+
+        function setUiHidden(hidden) {
+            if (thumbnailsVisible) hidden = false;
+            document.body.classList.toggle('ui-hidden', Boolean(hidden));
+        }
+
+        function scheduleUiHide() {
+            if (uiHideTimer) clearTimeout(uiHideTimer);
+            uiHideTimer = setTimeout(() => {
+                if (uiHoverCount > 0) return;
+                if (thumbnailsVisible) return;
+                setUiHidden(true);
+            }, UI_AUTO_HIDE_MS);
+        }
+
+        function revealUiTemporarily() {
+            setUiHidden(false);
+            scheduleUiHide();
+        }
+
+        function bindUiAutoHide() {
+            const uiSelectors = [
+                '.presentation-controls',
+                '.presentation-header',
+                '.exit-btn',
+                '.toggle-thumbnails',
+                '#narrationTopControls',
+                '#slideThumbnails',
+                '#keyboardHints',
+                '#cacheStatus',
+            ];
+
+            uiSelectors.forEach((sel) => {
+                document.querySelectorAll(sel).forEach((el) => {
+                    el.addEventListener('mouseenter', () => {
+                        uiHoverCount += 1;
+                        setUiHidden(false);
+                        if (uiHideTimer) clearTimeout(uiHideTimer);
+                    });
+                    el.addEventListener('mouseleave', () => {
+                        uiHoverCount = Math.max(0, uiHoverCount - 1);
+                        scheduleUiHide();
+                    });
+                });
+            });
+
+            // Pointer/touch/keyboard activity reveals UI.
+            document.addEventListener('mousemove', () => revealUiTemporarily(), { passive: true });
+            document.addEventListener('mousedown', () => revealUiTemporarily(), { passive: true });
+            document.addEventListener('touchstart', () => revealUiTemporarily(), { passive: true });
+            document.addEventListener('keydown', () => revealUiTemporarily(), { passive: true });
+
+            // Initial: show UI then hide after idle.
+            setUiHidden(false);
+            scheduleUiHide();
+        }
+
+        function getSlideFrameBaseSize(frame) {
+            if (!frame || !frame.contentDocument) {
+                return { width: SLIDE_BASE_WIDTH, height: SLIDE_BASE_HEIGHT };
+            }
+
+            try {
+                const doc = frame.contentDocument;
+                const body = doc.body;
+                const html = doc.documentElement;
+                const bodyStyle = body ? getComputedStyle(body) : null;
+                const htmlStyle = html ? getComputedStyle(html) : null;
+                const bodyRect = body ? body.getBoundingClientRect() : null;
+                const htmlRect = html ? html.getBoundingClientRect() : null;
+                const width = parseFloat(bodyStyle?.width || '0')
+                    || parseFloat(htmlStyle?.width || '0')
+                    || bodyRect?.width
+                    || htmlRect?.width
+                    || SLIDE_BASE_WIDTH;
+                const height = parseFloat(bodyStyle?.height || '0')
+                    || parseFloat(htmlStyle?.height || '0')
+                    || bodyRect?.height
+                    || htmlRect?.height
+                    || SLIDE_BASE_HEIGHT;
+                return {
+                    width: width > 0 ? width : SLIDE_BASE_WIDTH,
+                    height: height > 0 ? height : SLIDE_BASE_HEIGHT,
+                };
+            } catch (e) {
+                return { width: SLIDE_BASE_WIDTH, height: SLIDE_BASE_HEIGHT };
+            }
+        }
+
+        function buildUnionBox(elements, baseSize, padding = 0) {
+            if (!elements || elements.length === 0) return null;
+            let left = Infinity;
+            let top = Infinity;
+            let right = -Infinity;
+            let bottom = -Infinity;
+
+            elements.forEach((el) => {
+                const rect = el.getBoundingClientRect();
+                if (!rect || rect.width <= 0 || rect.height <= 0) return;
+                left = Math.min(left, rect.left);
+                top = Math.min(top, rect.top);
+                right = Math.max(right, rect.right);
+                bottom = Math.max(bottom, rect.bottom);
+            });
+
+            if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)) {
+                return null;
+            }
+
+            const clampedLeft = Math.max(0, left - padding);
+            const clampedTop = Math.max(0, top - padding);
+            const clampedRight = Math.min(baseSize.width, right + padding);
+            const clampedBottom = Math.min(baseSize.height, bottom + padding);
+
+            return {
+                left: clampedLeft,
+                top: clampedTop,
+                width: Math.max(1, clampedRight - clampedLeft),
+                height: Math.max(1, clampedBottom - clampedTop),
+            };
+        }
+
+        function collectMeaningfulSlideElements(elements, baseSize) {
+            const baseArea = Math.max(1, baseSize.width * baseSize.height);
+            return (elements || []).filter((el) => {
+                if (!el || !el.getBoundingClientRect) return false;
+                const rect = el.getBoundingClientRect();
+                if (!rect || rect.width < 24 || rect.height < 24) return false;
+
+                const style = getComputedStyle(el);
+                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') < 0.05) {
+                    return false;
+                }
+
+                const area = rect.width * rect.height;
+                if (area >= baseArea * 0.95) return false;
+
+                const tag = (el.tagName || '').toUpperCase();
+                if (['HEADER', 'MAIN', 'FOOTER', 'SECTION', 'ARTICLE', 'ASIDE', 'NAV'].includes(tag)) {
+                    return true;
+                }
+
+                const textLength = ((el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim()).length;
+                const hasText = textLength >= 12;
+                const hasMedia = !!el.querySelector('img, svg, canvas, video, picture');
+                const className = typeof el.className === 'string' ? el.className : '';
+                const nameHint = `${el.id || ''} ${className}`.toLowerCase();
+                const looksDecorative = /(grid-bg|energy-line|background|backdrop|glow|noise|particle|spark|beam|halo|flare|ornament|decor)/.test(nameHint)
+                    && !hasText
+                    && !hasMedia;
+
+                if (looksDecorative) return false;
+
+                const hasStructuralHint = /(container|content|card|panel|box|hero|title|subtitle|footer|header|objective|presenter|agenda|summary|layout|column|row|grid|list|chart)/.test(nameHint);
+                if (hasStructuralHint && area <= baseArea * 0.9) return true;
+                if (hasMedia && area >= baseArea * 0.005) return true;
+                return hasText && area >= baseArea * 0.004;
+            });
+        }
+
+        function getAdaptiveContentBox(frame, baseSize) {
+            if (!frame || !frame.contentDocument) return null;
+
+            try {
+                const doc = frame.contentDocument;
+                const body = doc.body;
+                if (!body) return null;
+
+                const directCandidates = collectMeaningfulSlideElements(Array.from(body.children || []), baseSize);
+                let contentBox = buildUnionBox(directCandidates, baseSize, 28);
+
+                const looksLikeFullCanvas = !contentBox
+                    || (
+                        contentBox.width >= baseSize.width * 0.96
+                        && contentBox.height >= baseSize.height * 0.96
+                    );
+
+                if (looksLikeFullCanvas) {
+                    const descendantPool = Array.from(
+                        body.querySelectorAll('header, main, footer, section, article, aside, nav, img, svg, canvas, video, picture, [class], [id]')
+                    ).slice(0, 180);
+                    const descendantCandidates = collectMeaningfulSlideElements(descendantPool, baseSize);
+                    const descendantBox = buildUnionBox(descendantCandidates, baseSize, 18);
+                    if (descendantBox) {
+                        contentBox = descendantBox;
+                    }
+                }
+
+                if (!contentBox) return null;
+
+                const baseArea = Math.max(1, baseSize.width * baseSize.height);
+                const contentArea = contentBox.width * contentBox.height;
+                const isEffectivelyFullSlide = contentArea >= baseArea * 0.94
+                    && contentBox.width >= baseSize.width * 0.98
+                    && contentBox.height >= baseSize.height * 0.95;
+
+                return isEffectivelyFullSlide ? null : contentBox;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function applySlideFrameScale(frame) {
+            if (!frame) return;
+            const container = frame.parentElement || document.querySelector('.slide-display');
+            if (!container) return;
+
+            const rect = container.getBoundingClientRect();
+            const containerWidth = rect && rect.width ? rect.width : container.clientWidth;
+            const containerHeight = rect && rect.height ? rect.height : container.clientHeight;
+            const baseSize = getSlideFrameBaseSize(frame);
+            const isFullscreen = document.body.classList.contains('fullscreen-mode');
+            const targetBox = isFullscreen
+                ? (getAdaptiveContentBox(frame, baseSize) || { left: 0, top: 0, width: baseSize.width, height: baseSize.height })
+                : { left: 0, top: 0, width: baseSize.width, height: baseSize.height };
+            const scaleX = containerWidth / targetBox.width;
+            const scaleY = containerHeight / targetBox.height;
+            const scale = Math.min(scaleX, scaleY);
+            const left = (containerWidth - targetBox.width * scale) / 2 - targetBox.left * scale;
+            const top = (containerHeight - targetBox.height * scale) / 2 - targetBox.top * scale;
+
+            frame.style.width = `${baseSize.width}px`;
+            frame.style.height = `${baseSize.height}px`;
+            frame.style.left = `${left}px`;
+            frame.style.top = `${top}px`;
+            frame.style.transform = `scale(${scale})`;
+            frame.style.transformOrigin = 'top left';
+            frame.style.willChange = 'transform, top, left, opacity';
+        }
+
+        function scheduleSlideFrameScale(frame = currentVisibleFrame) {
+            if (!frame) return;
+            applySlideFrameScale(frame);
+            requestAnimationFrame(() => {
+                if (frame.isConnected) {
+                    applySlideFrameScale(frame);
+                }
+            });
+        }
+
+        function applySlideIframeOverrides(frame) {
+            if (!frame) return;
+            try {
+                const doc = frame.contentDocument;
+                if (!doc) return;
+
+                // Forward pointer activity from inside iframe to the parent UI auto-hide controller.
+                // (Mouse/touch events inside an iframe don't bubble to the parent document.)
+                try {
+                    const flag = 'lpUiAutoHideBound';
+                    if (!doc.documentElement.dataset[flag]) {
+                        doc.documentElement.dataset[flag] = '1';
+                        doc.addEventListener('mousemove', () => revealUiTemporarily(), { passive: true });
+                        doc.addEventListener('mousedown', () => revealUiTemporarily(), { passive: true });
+                        doc.addEventListener('touchstart', () => revealUiTemporarily(), { passive: true });
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            } catch (e) {
+                // Ignore cross-origin or document access errors (should be same-origin for srcdoc).
+            }
+        }
+
+        window.addEventListener('resize', function () {
+            if (currentVisibleFrame) {
+                scheduleSlideFrameScale(currentVisibleFrame);
+            }
+        });
+
+        // 讲解（音频 + 字幕）
+        let narrationEnabled = false;
+        let narrationAvailable = {{ has_speech_scripts | default(false) | tojson }};
+        let narrationAudioEl = null;
+        let narrationLanguage = 'zh';
+        let narrationCuesCache = new Map(); // slide_index -> { duration_ms, cues[] }
+        let narrationCurrentCues = [];
+        let narrationCurrentCueIndex = 0;
+        let narrationSubtitleEl = null;
+        let narrationSubtitleSyncRafId = 0;
+        const narrationAvailableLanguages = {{ narration_languages | default(['zh','en']) | tojson }};
+        const narrationIsSharedView = {{ is_shared | default(false) | tojson }};
+        const narrationShareToken = '{{ share_token | default("") }}';
+        const narrationApiBase = (narrationIsSharedView && narrationShareToken)
+            ? `/api/share/${narrationShareToken}`
+            : `/api/projects/{{ project.project_id }}`;
+
+        // 缓存机制相关变量
+        let slideFrameCache = new Map(); // 缓存已渲染的iframe: slideIndex -> iframe元素
+        let currentVisibleFrame = null; // 当前显示的iframe
+        let isTransitioning = false; // 是否正在切换中
+        let loadingSlides = new Set(); // 正在加载的幻灯片索引
+        let frameIdCounter = 0; // iframe ID计数器
+
+        // 初始化演示
+        document.addEventListener('DOMContentLoaded', function () {
+            initializePresentation();
+            updateControls();
+            initNarration();
+            bindUiAutoHide();
+
+            // 只有非分享视图才启动定期检查数据更新
+            // 分享视图数据已从数据库实时读取，无需定期刷新
+            const display = document.querySelector('.slide-display');
+            if (display && window.ResizeObserver) {
+                slideDisplayResizeObserver = new ResizeObserver(() => {
+                    if (currentVisibleFrame) scheduleSlideFrameScale(currentVisibleFrame);
+                });
+                slideDisplayResizeObserver.observe(display);
+            }
+
+            const isSharedView = {{ is_shared | default(false) | tojson }};
+            if (!isSharedView) {
+                startDataRefreshCheck();
+            }
+        });
+
+        // 初始化演示系统
+        function initializePresentation() {
+            // 加载第一张幻灯片
+            loadSlideWithCache(0, true);
+
+            // 预加载前几张幻灯片以提升体验
+            setTimeout(() => {
+                preloadAdjacentSlides(0);
+            }, 1000);
+        }
+
+        function showNarrationToast(message, type = 'info') {
+            const notification = document.createElement('div');
+            const bg = type === 'error'
+                ? 'rgba(220, 53, 69, 0.9)'
+                : (type === 'warning' ? 'rgba(255, 193, 7, 0.92)' : 'rgba(33, 150, 243, 0.9)');
+            notification.style.cssText = `
+                position: fixed;
+                top: 80px;
+                right: 20px;
+                background: ${bg};
+                color: ${type === 'warning' ? '#111' : 'white'};
+                padding: 10px 14px;
+                border-radius: 8px;
+                z-index: 2000;
+                font-size: 14px;
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255,255,255,0.2);
+                max-width: 420px;
+                box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 2800);
+        }
+
+        function setNarrationSubtitle(text) {
+            if (!narrationSubtitleEl) return;
+            const content = (text || '').toString().replace(/\s+/g, ' ').trim();
+            narrationSubtitleEl.textContent = content;
+            if (content) narrationSubtitleEl.classList.add('show');
+            else narrationSubtitleEl.classList.remove('show');
+        }
+
+        function updateNarrationButton() {
+            const btn = document.getElementById('narrationBtn');
+            const label = document.getElementById('narrationBtnLabel');
+            if (!btn || !label) return;
+            btn.classList.toggle('active', narrationEnabled);
+            label.textContent = narrationEnabled ? '停止讲解' : '讲解';
+        }
+
+        async function loadNarrationCues(slideIndex) {
+            const key = Number(slideIndex);
+            if (narrationCuesCache.has(key)) return narrationCuesCache.get(key);
+
+            const autogenQuery = narrationIsSharedView ? '' : '&autogen=1';
+            const resp = await fetch(
+                `${narrationApiBase}/narration/cues/${key}?language=${encodeURIComponent(narrationLanguage)}${autogenQuery}`,
+                { credentials: 'same-origin' }
+            );
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || !data || data.success !== true) {
+                const msg = (data && (data.detail || data.error || data.message)) || `HTTP ${resp.status}`;
+                throw new Error(msg);
+            }
+
+            const cues = Array.isArray(data.cues) ? data.cues : [];
+            const normalized = cues
+                .map((c) => ({
+                    start_ms: Number(c.start_ms || c.start || 0),
+                    end_ms: Number(c.end_ms || c.end || 0),
+                    text: (c.text || '').toString()
+                }))
+                .filter((c) => c.text && c.end_ms > c.start_ms)
+                .sort((a, b) => a.start_ms - b.start_ms || a.end_ms - b.end_ms);
+
+            const entry = { duration_ms: Number(data.duration_ms || 0), cues: normalized };
+            narrationCuesCache.set(key, entry);
+            return entry;
+        }
+
+        function setCurrentNarrationCues(entry) {
+            narrationCurrentCues = (entry && Array.isArray(entry.cues)) ? entry.cues : [];
+            narrationCurrentCueIndex = 0;
+            setNarrationSubtitle('');
+        }
+
+        function stopNarrationSubtitleSyncLoop() {
+            if (narrationSubtitleSyncRafId) {
+                cancelAnimationFrame(narrationSubtitleSyncRafId);
+                narrationSubtitleSyncRafId = 0;
+            }
+        }
+
+        function startNarrationSubtitleSyncLoop() {
+            stopNarrationSubtitleSyncLoop();
+            const tick = () => {
+                if (!narrationEnabled || !narrationAudioEl) {
+                    narrationSubtitleSyncRafId = 0;
+                    return;
+                }
+                updateNarrationSubtitleFromAudioTime();
+                if (!narrationAudioEl.paused && !narrationAudioEl.ended) {
+                    narrationSubtitleSyncRafId = requestAnimationFrame(tick);
+                } else {
+                    narrationSubtitleSyncRafId = 0;
+                }
+            };
+            narrationSubtitleSyncRafId = requestAnimationFrame(tick);
+        }
+
+        function updateNarrationSubtitleFromAudioTime() {
+            if (!narrationEnabled || !narrationAudioEl) return;
+            const cues = narrationCurrentCues || [];
+            if (!cues.length) {
+                setNarrationSubtitle('');
+                return;
+            }
+            const tMs = Math.max(0, Math.floor((narrationAudioEl.currentTime || 0) * 1000));
+
+            // Clamp index to a valid range.
+            if (narrationCurrentCueIndex < 0) narrationCurrentCueIndex = 0;
+            if (narrationCurrentCueIndex >= cues.length) narrationCurrentCueIndex = cues.length - 1;
+
+            // Fast forward
+            while (narrationCurrentCueIndex < cues.length && tMs >= (cues[narrationCurrentCueIndex].end_ms || 0)) {
+                narrationCurrentCueIndex++;
+            }
+            // Rewind
+            if (narrationCurrentCueIndex >= cues.length) narrationCurrentCueIndex = cues.length - 1;
+            while (narrationCurrentCueIndex > 0 && tMs < (cues[narrationCurrentCueIndex].start_ms || 0)) {
+                narrationCurrentCueIndex--;
+            }
+
+            const cue = cues[narrationCurrentCueIndex];
+            if (cue && tMs >= cue.start_ms && tMs < cue.end_ms) {
+                setNarrationSubtitle(cue.text);
+            } else {
+                setNarrationSubtitle('');
+            }
+        }
+
+        function preloadNarrationAhead(fromIndex) {
+            const base = Number(fromIndex);
+            for (let i = 1; i <= 2; i++) {
+                const idx = base + i;
+                if (idx >= 0 && idx < totalSlides) {
+                    loadNarrationCues(idx).catch(() => { });
+                }
+            }
+        }
+
+        function stopNarration() {
+            narrationEnabled = false;
+            stopNarrationSubtitleSyncLoop();
+            updateNarrationButton();
+            setNarrationSubtitle('');
+            if (narrationAudioEl) {
+                try {
+                    narrationAudioEl.pause();
+                    narrationAudioEl.currentTime = 0;
+                    narrationAudioEl.removeAttribute('src');
+                    narrationAudioEl.load();
+                } catch (_) { }
+            }
+        }
+
+        async function playNarrationForSlide(index) {
+            if (!narrationEnabled) return;
+            let entry = null;
+            try {
+                entry = await loadNarrationCues(index);
+            } catch (e) {
+                stopNarration();
+                showNarrationToast(`无法加载字幕/音频（${narrationLanguage}）：${e && e.message ? e.message : e}`, 'error');
+                return;
+            }
+            setCurrentNarrationCues(entry);
+            if (!narrationAudioEl) {
+                narrationAudioEl = new Audio();
+                narrationAudioEl.preload = 'auto';
+                narrationAudioEl.addEventListener('timeupdate', updateNarrationSubtitleFromAudioTime);
+                narrationAudioEl.addEventListener('seeking', updateNarrationSubtitleFromAudioTime);
+                narrationAudioEl.addEventListener('play', () => {
+                    updateNarrationSubtitleFromAudioTime();
+                    startNarrationSubtitleSyncLoop();
+                });
+                narrationAudioEl.addEventListener('playing', startNarrationSubtitleSyncLoop);
+                narrationAudioEl.addEventListener('seeked', () => {
+                    updateNarrationSubtitleFromAudioTime();
+                    if (!narrationAudioEl.paused) startNarrationSubtitleSyncLoop();
+                });
+                narrationAudioEl.addEventListener('pause', () => {
+                    stopNarrationSubtitleSyncLoop();
+                    updateNarrationSubtitleFromAudioTime();
+                });
+                narrationAudioEl.addEventListener('waiting', stopNarrationSubtitleSyncLoop);
+                narrationAudioEl.addEventListener('ended', () => {
+                    stopNarrationSubtitleSyncLoop();
+                    if (!narrationEnabled) return;
+                    if (currentSlideIndex < totalSlides - 1) {
+                        nextSlide();
+                    } else {
+                        stopNarration();
+                    }
+                });
+                narrationAudioEl.addEventListener('error', () => {
+                    if (!narrationEnabled) return;
+                    stopNarration();
+                    showNarrationToast('讲解音频加载失败（可能未生成音频）', 'warning');
+                });
+            }
+
+            try {
+                narrationAudioEl.pause();
+                narrationAudioEl.currentTime = 0;
+            } catch (_) { }
+            stopNarrationSubtitleSyncLoop();
+
+            const autogenQuery = narrationIsSharedView ? '' : '&autogen=1';
+            const url = `${narrationApiBase}/narration/audio/${index}?language=${encodeURIComponent(narrationLanguage)}${autogenQuery}`;
+            narrationAudioEl.src = url;
+            try {
+                await narrationAudioEl.play();
+                updateNarrationSubtitleFromAudioTime();
+                startNarrationSubtitleSyncLoop();
+                preloadNarrationAhead(index);
+            } catch (e) {
+                stopNarration();
+                showNarrationToast('浏览器限制自动播放，请点击右上角“讲解”按钮开始', 'warning');
+            }
+        }
+
+        function onSlideChangedForNarration(index) {
+            if (!narrationEnabled) return;
+            // slide change should follow narration (manual next/prev also restarts audio)
+            playNarrationForSlide(index);
+        }
+
+        async function toggleNarration() {
+            if (!narrationAvailable) {
+                showNarrationToast('暂无演讲稿，无法讲解', 'warning');
+                return;
+            }
+            if (narrationEnabled) {
+                stopNarration();
+                return;
+            }
+
+            // avoid conflicts with timed auto play
+            if (isAutoPlaying) {
+                toggleAutoPlay();
+            }
+
+            narrationEnabled = true;
+            updateNarrationButton();
+            await playNarrationForSlide(currentSlideIndex);
+        }
+
+        function initNarration() {
+            narrationSubtitleEl = document.getElementById('narrationSubtitle');
+
+            const topControls = document.getElementById('narrationTopControls');
+            if (!narrationAvailable) {
+                if (topControls) topControls.style.display = 'none';
+                return;
+            }
+            if (topControls) topControls.style.display = '';
+
+            const params = new URLSearchParams(window.location.search);
+            const langParam = (params.get('language') || 'zh').toLowerCase();
+            const wantedLang = (langParam === 'en') ? 'en' : 'zh';
+            narrationLanguage = (Array.isArray(narrationAvailableLanguages) && narrationAvailableLanguages.length)
+                ? (narrationAvailableLanguages.includes(wantedLang)
+                    ? wantedLang
+                    : (narrationAvailableLanguages[0] || 'zh'))
+                : wantedLang;
+
+            const langSelect = document.getElementById('narrationLanguageSelect');
+            if (langSelect) {
+                if (Array.isArray(narrationAvailableLanguages) && narrationAvailableLanguages.length) {
+                    for (const opt of Array.from(langSelect.options || [])) {
+                        const v = (opt && opt.value ? String(opt.value) : '').toLowerCase();
+                        if (v === 'zh' || v === 'en') {
+                            opt.disabled = !narrationAvailableLanguages.includes(v);
+                        }
+                    }
+                }
+                langSelect.value = narrationLanguage;
+                langSelect.addEventListener('change', async () => {
+                    narrationLanguage = (langSelect.value || 'zh').toLowerCase() === 'en' ? 'en' : 'zh';
+                    narrationCuesCache = new Map();
+                    narrationCurrentCues = [];
+                    narrationCurrentCueIndex = 0;
+                    if (narrationEnabled) {
+                        await playNarrationForSlide(currentSlideIndex);
+                    }
+                });
+            }
+
+            updateNarrationButton();
+
+            // Optional auto-start (may be blocked by browser autoplay policies)
+            const autoStart = params.get('narration') === '1';
+            if (autoStart) {
+                setTimeout(() => {
+                    toggleNarration();
+                }, 600);
+            }
+        }
+
+        // 定期检查数据更新
+        function startDataRefreshCheck() {
+            // 判断是否是分享视图，使用对应的API端点
+            const isShared = {{ is_shared | default(false) | tojson }};
+            const shareToken = '{{ share_token | default("") }}';
+
+            // 分享视图使用分享API，否则使用项目API
+            const apiUrl = isShared && shareToken
+                ? `/api/share/${shareToken}/slides-data`
+                : `/api/projects/{{ project.project_id }}/slides-data`;
+
+            setInterval(async () => {
+                try {
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        // 分享视图的API调用失败时静默处理（可能是未登录）
+                        return;
+                    }
+                    const data = await response.json();
+
+                    if (data.status === 'success' && data.updated_at > {{ project.updated_at }}) {
+                        // 数据已更新，刷新幻灯片数据
+                        slidesData = data.slides_data;
+                        totalSlides = data.total_slides;
+
+                        // 清空所有缓存
+                        clearAllCache();
+
+                        // 重新加载当前幻灯片
+                        loadSlideWithCache(currentSlideIndex, true);
+
+                        // 更新缩略图
+                        updateThumbnailsContent();
+
+                        // 显示更新提示
+                        showUpdateNotification();
+                    }
+                } catch (error) {
+                    // 检查数据更新失败，静默处理
+                }
+            }, 10000); // 每10秒检查一次
+        }
+
+        // 更新缩略图内容
+        function updateThumbnailsContent() {
+            const thumbnailsContainer = document.getElementById('slideThumbnails');
+            thumbnailsContainer.innerHTML = '';
+
+            slidesData.forEach((slide, index) => {
+                const thumbnailDiv = document.createElement('div');
+                thumbnailDiv.className = `thumbnail ${index === currentSlideIndex ? 'active' : ''}`;
+                thumbnailDiv.onclick = () => goToSlide(index);
+                thumbnailDiv.setAttribute('data-slide-index', index);
+
+                thumbnailDiv.innerHTML = `
+                    <iframe srcdoc="${slide.html_content.replace(/"/g, '&quot;')}" title="Slide ${index + 1}"></iframe>
+                    <div class="thumbnail-number">${index + 1}</div>
+                `;
+
+                thumbnailsContainer.appendChild(thumbnailDiv);
+            });
+        }
+
+        // 显示更新通知
+        function showUpdateNotification() {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 80px;
+                right: 20px;
+                background: rgba(40, 167, 69, 0.9);
+                color: white;
+                padding: 10px 15px;
+                border-radius: 5px;
+                z-index: 2000;
+                font-size: 14px;
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255,255,255,0.2);
+            `;
+            notification.innerHTML = '<i class="fas fa-sync"></i> 幻灯片内容已更新';
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // 使用缓存机制加载幻灯片
+        function loadSlideWithCache(index, isInitial = false) {
+            if (index < 0 || index >= totalSlides || isTransitioning) return;
+
+            // 如果是相同的幻灯片，直接返回
+            if (index === currentSlideIndex && !isInitial) return;
+
+            isTransitioning = true;
+
+            // 检查是否已缓存
+            if (slideFrameCache.has(index)) {
+                // 使用缓存的iframe
+                const cachedFrame = slideFrameCache.get(index);
+                switchToFrame(cachedFrame, index);
+            } else {
+                // 创建新的iframe并渲染
+                createAndLoadFrame(index, isInitial);
+            }
+        }
+
+        // 创建并加载新的iframe
+        function createAndLoadFrame(index, isInitial = false) {
+            if (loadingSlides.has(index)) return; // 防止重复加载
+
+            loadingSlides.add(index);
+
+            if (isInitial) {
+                showLoadingOverlay();
+            }
+
+            const frameId = `slideFrame_${frameIdCounter++}`;
+            const iframe = document.createElement('iframe');
+            iframe.id = frameId;
+            iframe.className = 'slide-frame hidden not-loaded';
+            iframe.title = `PPT Slide ${index + 1}`;
+
+            // 设置内容
+            if (slidesData[index] && slidesData[index].html_content) {
+                iframe.srcdoc = slidesData[index].html_content;
+
+                // 监听加载完成
+                iframe.onload = function () {
+                    // 缓存iframe
+                    slideFrameCache.set(index, iframe);
+                    loadingSlides.delete(index);
+
+                    // 更新样式
+                    iframe.classList.remove('not-loaded');
+                    iframe.classList.add('cached');
+                    applySlideIframeOverrides(iframe);
+                    scheduleSlideFrameScale(iframe);
+
+                    // 延迟一点确保内容完全渲染
+                    setTimeout(() => {
+                        switchToFrame(iframe, index);
+                    }, 100);
+                };
+
+                iframe.onerror = function () {
+                    loadingSlides.delete(index);
+                    isTransitioning = false;
+                    hideLoadingOverlay();
+                };
+
+                // 添加到容器
+                document.getElementById('slideFrameContainer').appendChild(iframe);
+            } else {
+                loadingSlides.delete(index);
+                isTransitioning = false;
+                hideLoadingOverlay();
+            }
+        }
+
+        // 切换到指定的iframe
+        function switchToFrame(targetFrame, index) {
+            // 隐藏当前显示的iframe
+            if (currentVisibleFrame) {
+                currentVisibleFrame.classList.remove('visible');
+                currentVisibleFrame.classList.add('hidden');
+            }
+
+            // 显示目标iframe
+            targetFrame.classList.remove('hidden');
+            targetFrame.classList.add('visible');
+            applySlideIframeOverrides(targetFrame);
+            scheduleSlideFrameScale(targetFrame);
+
+            // 更新状态
+            currentVisibleFrame = targetFrame;
+            currentSlideIndex = index;
+            isTransitioning = false;
+
+            // 更新UI
+            updateControls();
+            updateThumbnails();
+            hideLoadingOverlay();
+            onSlideChangedForNarration(index);
+
+            // 预加载相邻幻灯片
+            setTimeout(() => {
+                preloadAdjacentSlides(index);
+                // 管理缓存大小
+                manageCacheSize();
+            }, 300);
+        }
+
+        // 预加载相邻幻灯片
+        function preloadAdjacentSlides(currentIndex) {
+            const preloadIndices = [];
+
+            // 预加载策略：当前页前后各2页
+            for (let i = Math.max(0, currentIndex - 2); i <= Math.min(totalSlides - 1, currentIndex + 2); i++) {
+                if (i !== currentIndex && !slideFrameCache.has(i) && !loadingSlides.has(i)) {
+                    preloadIndices.push(i);
+                }
+            }
+
+            // 分批预加载，避免同时加载太多
+            preloadIndices.forEach((index, i) => {
+                setTimeout(() => {
+                    preloadSlide(index);
+                }, i * 200); // 每200ms预加载一个
+            });
+        }
+
+        // 预加载单个幻灯片
+        function preloadSlide(index) {
+            if (index < 0 || index >= totalSlides || slideFrameCache.has(index) || loadingSlides.has(index)) {
+                return;
+            }
+
+            loadingSlides.add(index);
+
+            const frameId = `slideFrame_${frameIdCounter++}`;
+            const iframe = document.createElement('iframe');
+            iframe.id = frameId;
+            iframe.className = 'slide-frame hidden not-loaded';
+            iframe.title = `PPT Slide ${index + 1}`;
+
+            if (slidesData[index] && slidesData[index].html_content) {
+                iframe.srcdoc = slidesData[index].html_content;
+
+                iframe.onload = function () {
+                    slideFrameCache.set(index, iframe);
+                    loadingSlides.delete(index);
+
+                    iframe.classList.remove('not-loaded');
+                    iframe.classList.add('cached');
+                    applySlideIframeOverrides(iframe);
+                    scheduleSlideFrameScale(iframe);
+                };
+
+                iframe.onerror = function () {
+                    loadingSlides.delete(index);
+                };
+
+                // 添加到容器
+                document.getElementById('slideFrameContainer').appendChild(iframe);
+            } else {
+                loadingSlides.delete(index);
+            }
+        }
+
+        // 显示加载动画
+        function showLoadingOverlay() {
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            loadingOverlay.classList.add('show');
+        }
+
+        // 隐藏加载动画
+        function hideLoadingOverlay() {
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            loadingOverlay.classList.remove('show');
+        }
+
+        // 清空所有缓存
+        function clearAllCache() {
+            // 移除所有缓存的iframe
+            slideFrameCache.forEach((iframe, index) => {
+                if (iframe.parentNode) {
+                    iframe.parentNode.removeChild(iframe);
+                }
+            });
+
+            // 清空缓存映射
+            slideFrameCache.clear();
+            loadingSlides.clear();
+            currentVisibleFrame = null;
+        }
+
+        // 获取缓存统计信息
+        function getCacheStats() {
+            return {
+                cachedSlides: slideFrameCache.size,
+                loadingSlides: loadingSlides.size,
+                totalSlides: totalSlides,
+                cacheRatio: (slideFrameCache.size / totalSlides * 100).toFixed(1) + '%'
+            };
+        }
+
+        // 智能缓存管理 - 限制缓存数量以节省内存
+        function manageCacheSize() {
+            const maxCacheSize = Math.min(10, totalSlides); // 最多缓存10个幻灯片
+
+            if (slideFrameCache.size > maxCacheSize) {
+                // 移除距离当前页面最远的缓存
+                const sortedIndices = Array.from(slideFrameCache.keys()).sort((a, b) => {
+                    const distA = Math.abs(a - currentSlideIndex);
+                    const distB = Math.abs(b - currentSlideIndex);
+                    return distB - distA; // 距离远的排在前面
+                });
+
+                // 移除最远的缓存
+                const toRemove = sortedIndices.slice(0, slideFrameCache.size - maxCacheSize + 1);
+                toRemove.forEach(index => {
+                    const iframe = slideFrameCache.get(index);
+                    if (iframe && iframe !== currentVisibleFrame) {
+                        if (iframe.parentNode) {
+                            iframe.parentNode.removeChild(iframe);
+                        }
+                        slideFrameCache.delete(index);
+                    }
+                });
+            }
+        }
+
+        // 兼容旧的loadSlide函数
+        function loadSlide(index) {
+            loadSlideWithCache(index);
+        }
+
+        // 更新控制按钮状态
+        function updateControls() {
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            const slideCounter = document.getElementById('slideCounter');
+
+            prevBtn.disabled = currentSlideIndex === 0;
+            nextBtn.disabled = currentSlideIndex === totalSlides - 1;
+            slideCounter.textContent = `${currentSlideIndex + 1} / ${totalSlides}`;
+        }
+
+        // 更新缩略图状态
+        function updateThumbnails() {
+            const thumbnails = document.querySelectorAll('.thumbnail');
+            thumbnails.forEach((thumb, index) => {
+                thumb.classList.toggle('active', index === currentSlideIndex);
+            });
+        }
+
+        // 上一页
+        function previousSlide() {
+            if (currentSlideIndex > 0 && !isTransitioning) {
+                loadSlideWithCache(currentSlideIndex - 1);
+            }
+        }
+
+        // 下一页
+        function nextSlide() {
+            if (currentSlideIndex < totalSlides - 1 && !isTransitioning) {
+                loadSlideWithCache(currentSlideIndex + 1);
+            }
+        }
+
+        // 跳转到指定幻灯片
+        function goToSlide(index) {
+            if (!isTransitioning && index !== currentSlideIndex && index >= 0 && index < totalSlides) {
+                loadSlideWithCache(index);
+            }
+        }
+
+        // 切换自动播放
+        function toggleAutoPlay() {
+            const autoPlayBtn = document.getElementById('autoPlayBtn');
+
+            if (isAutoPlaying) {
+                clearInterval(autoPlayInterval);
+                autoPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+                autoPlayBtn.title = '自动播放';
+                isAutoPlaying = false;
+            } else {
+                autoPlayInterval = setInterval(() => {
+                    if (currentSlideIndex < totalSlides - 1) {
+                        nextSlide();
+                    } else {
+                        // 到达最后一页，停止自动播放
+                        toggleAutoPlay();
+                    }
+                }, 5000); // 5秒间隔
+
+                autoPlayBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                autoPlayBtn.title = '暂停自动播放';
+                isAutoPlaying = true;
+            }
+        }
+
+        // 全屏模式控制相关
+        let isFullscreenMode = false;
+
+        // 切换全屏
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    // 无法进入全屏模式
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        // 切换缩略图显示
+        function toggleThumbnails() {
+            const thumbnails = document.getElementById('slideThumbnails');
+            thumbnailsVisible = !thumbnailsVisible;
+            thumbnails.classList.toggle('show', thumbnailsVisible);
+            if (thumbnailsVisible) {
+                setUiHidden(false);
+                if (uiHideTimer) clearTimeout(uiHideTimer);
+            } else {
+                scheduleUiHide();
+            }
+        }
+
+        // 切换键盘快捷键提示
+        function toggleKeyboardHints() {
+            const hints = document.getElementById('keyboardHints');
+            keyboardHintsVisible = !keyboardHintsVisible;
+            hints.classList.toggle('show', keyboardHintsVisible);
+        }
+
+        // 切换缓存状态显示
+        let cacheStatusVisible = false;
+        function toggleCacheStatus() {
+            const cacheStatus = document.getElementById('cacheStatus');
+            cacheStatusVisible = !cacheStatusVisible;
+            cacheStatus.classList.toggle('show', cacheStatusVisible);
+
+            if (cacheStatusVisible) {
+                updateCacheStatusDisplay();
+                // 定期更新缓存状态
+                const updateInterval = setInterval(() => {
+                    if (cacheStatusVisible) {
+                        updateCacheStatusDisplay();
+                    } else {
+                        clearInterval(updateInterval);
+                    }
+                }, 1000);
+            }
+        }
+
+        // 更新缓存状态显示
+        function updateCacheStatusDisplay() {
+            const stats = getCacheStats();
+            document.getElementById('cachedCount').textContent = stats.cachedSlides;
+            document.getElementById('loadingCount').textContent = stats.loadingSlides;
+            document.getElementById('cacheRatio').textContent = stats.cacheRatio;
+            document.getElementById('totalCount').textContent = stats.totalSlides;
+        }
+
+        // 退出演示
+        function exitPresentation() {
+            // 停止自动播放
+            if (isAutoPlaying) {
+                toggleAutoPlay();
+            }
+            stopNarration();
+
+            // 退出全屏
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            }
+
+            // 关闭浏览器标签页
+            window.close();
+        }
+
+        // 键盘事件处理（防抖）
+        let keyboardDebounce = false;
+        document.addEventListener('keydown', function (e) {
+            // 防止在切换过程中重复触发
+            if (isTransitioning) return;
+
+            // 使用 keyCode 作为备选方案，确保兼容性
+            const key = e.key || String.fromCharCode(e.keyCode);
+
+            switch (e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    if (!keyboardDebounce) {
+                        keyboardDebounce = true;
+                        previousSlide();
+                        setTimeout(() => keyboardDebounce = false, 200);
+                    }
+                    break;
+                case 'ArrowRight':
+                case ' ':
+                    e.preventDefault();
+                    if (!keyboardDebounce) {
+                        keyboardDebounce = true;
+                        nextSlide();
+                        setTimeout(() => keyboardDebounce = false, 200);
+                    }
+                    break;
+                case 'f':
+                case 'F':
+                    e.preventDefault();
+                    toggleFullscreen();
+                    break;
+                case 't':
+                case 'T':
+                    e.preventDefault();
+                    if (!isFullscreenMode) {
+                        toggleThumbnails();
+                    }
+                    break;
+                case 'h':
+                case 'H':
+                    e.preventDefault();
+                    toggleKeyboardHints();
+                    break;
+                case 'c':
+                case 'C':
+                    e.preventDefault();
+                    toggleCacheStatus();
+                    break;
+                case 'n':
+                case 'N':
+                    e.preventDefault();
+                    toggleNarration();
+                    break;
+                case 'Escape':
+                    e.preventDefault();
+                    exitPresentation();
+                    break;
+                case 'Home':
+                    e.preventDefault();
+                    if (!keyboardDebounce) {
+                        keyboardDebounce = true;
+                        goToSlide(0);
+                        setTimeout(() => keyboardDebounce = false, 200);
+                    }
+                    break;
+                case 'End':
+                    e.preventDefault();
+                    if (!keyboardDebounce) {
+                        keyboardDebounce = true;
+                        goToSlide(totalSlides - 1);
+                        setTimeout(() => keyboardDebounce = false, 200);
+                    }
+                    break;
+            }
+        }, true); // 使用捕获阶段，确保事件优先处理
+
+        // 鼠标滚轮事件（防抖）- 优化灵敏度
+        let wheelDebounce = false;
+        let wheelTimeout = null;
+        document.addEventListener('wheel', function (e) {
+            // 检查是否在缩略图上滚动
+            const thumbnails = document.getElementById('slideThumbnails');
+            if (thumbnails && thumbnails.classList.contains('show') && e.target.closest('.slide-thumbnails')) {
+                // 允许缩略图区域正常滚动
+                return;
+            }
+
+            if (isTransitioning || wheelDebounce) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            wheelDebounce = true;
+
+            // 向下滚动翻到下一页，向上滚动翻到上一页
+            if (e.deltaY > 0) {
+                nextSlide();
+            } else if (e.deltaY < 0) {
+                previousSlide();
+            }
+
+            // 使用较短的防抖时间，提升响应速度
+            setTimeout(() => wheelDebounce = false, 400);
+        }, { passive: false, capture: true });
+
+        // 触摸事件支持（移动设备）
+        let touchStartX = 0;
+        let touchEndX = 0;
+        let touchDebounce = false;
+
+        document.addEventListener('touchstart', function (e) {
+            if (isTransitioning) return;
+            touchStartX = e.changedTouches[0].screenX;
+        });
+
+        document.addEventListener('touchend', function (e) {
+            if (isTransitioning || touchDebounce) return;
+            touchEndX = e.changedTouches[0].screenX;
+            handleSwipe();
+        });
+
+        function handleSwipe() {
+            const swipeThreshold = 50;
+            const diff = touchStartX - touchEndX;
+
+            if (Math.abs(diff) > swipeThreshold) {
+                touchDebounce = true;
+
+                if (diff > 0) {
+                    // 向左滑动，下一页
+                    nextSlide();
+                } else {
+                    // 向右滑动，上一页
+                    previousSlide();
+                }
+
+                setTimeout(() => touchDebounce = false, 300);
+            }
+        }
+
+        // 全屏状态变化监听
+        document.addEventListener('fullscreenchange', function () {
+            const fullscreenBtn = document.querySelector('[onclick="toggleFullscreen()"]');
+            if (document.fullscreenElement) {
+                // 进入全屏模式
+                if (fullscreenBtn) {
+                    fullscreenBtn.innerHTML = '<i class="fas fa-compress"></i>';
+                    fullscreenBtn.title = '退出全屏';
+                }
+                document.body.classList.add('fullscreen-mode');
+                isFullscreenMode = true;
+                if (currentVisibleFrame) scheduleSlideFrameScale(currentVisibleFrame);
+            } else {
+                // 退出全屏模式
+                if (fullscreenBtn) {
+                    fullscreenBtn.innerHTML = '<i class="fas fa-expand"></i>';
+                    fullscreenBtn.title = '全屏';
+                }
+                document.body.classList.remove('fullscreen-mode');
+                isFullscreenMode = false;
+                if (currentVisibleFrame) scheduleSlideFrameScale(currentVisibleFrame);
+            }
+        });
+
+        // 防止右键菜单
+        document.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+        }, true);
+
+        // 防止点击事件干扰键盘事件
+        document.addEventListener('click', function (e) {
+            // 确保焦点在文档上，以便键盘事件正常工作
+            if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
+                document.body.focus();
+            }
+        }, true);
+
+        // 页面加载完成后立即获取焦点
+        window.addEventListener('load', function () {
+            document.body.setAttribute('tabindex', '-1');
+            document.body.focus();
+        });
+
+        // 页面可见性变化时暂停自动播放
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden && isAutoPlaying) {
+                toggleAutoPlay();
+            }
+        });

@@ -64,9 +64,18 @@ class DocumentProcessor:
         '.json': 'json',
     }
     
-    def __init__(self, save_markdown: bool = False, temp_dir: Optional[str] = None,
-                 use_magic_pdf: bool = True, enable_cache: bool = True, cache_ttl_hours: int = 24 * 7,
-                 cache_dir: Optional[str] = None, processing_mode: Optional[str] = None):
+    def __init__(
+        self,
+        save_markdown: bool = False,
+        temp_dir: Optional[str] = None,
+        use_magic_pdf: bool = True,
+        enable_cache: bool = True,
+        cache_ttl_hours: int = 24 * 7,
+        cache_dir: Optional[str] = None,
+        processing_mode: Optional[str] = None,
+        mineru_api_key: Optional[str] = None,
+        mineru_base_url: Optional[str] = None,
+    ):
         self.encoding_detectors = ['utf-8', 'gbk', 'gb2312', 'ascii', 'latin-1']
 
         # 初始化分块器（延迟初始化以避免循环导入）
@@ -75,6 +84,8 @@ class DocumentProcessor:
         # 初始化MarkItDown转换器（延迟初始化）
         self._markitdown_converter = None
         self.use_magic_pdf = use_magic_pdf
+        self.mineru_api_key = mineru_api_key
+        self.mineru_base_url = mineru_base_url
 
         # Markdown保存配置
         self.save_markdown = save_markdown
@@ -83,14 +94,17 @@ class DocumentProcessor:
         # 文件缓存配置
         self.enable_cache = enable_cache
         self._cache_manager = None
+        # 根据use_magic_pdf确定处理模式（用于区分缓存目录/策略）
+        if processing_mode is None:
+            processing_mode = "magic_pdf" if use_magic_pdf else "markitdown"
+        self.processing_mode = processing_mode
+        self.cache_dir = cache_dir
+
         if enable_cache:
-            # 根据use_magic_pdf确定处理模式
-            if processing_mode is None:
-                processing_mode = "magic_pdf" if use_magic_pdf else "markitdown"
             self._cache_manager = FileCacheManager(
                 cache_dir=cache_dir,
                 cache_ttl_hours=cache_ttl_hours,
-                processing_mode=processing_mode
+                processing_mode=processing_mode,
             )
 
         # 创建temp目录
@@ -130,8 +144,11 @@ class DocumentProcessor:
 
         logger.info(f"开始处理文档: {file_path}")
 
-        # 检查缓存
-        if self.enable_cache and self._cache_manager:
+        file_type = self.SUPPORTED_EXTENSIONS[file_extension]
+        file_size = path.stat().st_size
+
+        # 检查缓存（markitdown 类型由 MarkItDownConverter 自己负责缓存，避免覆盖其元数据）
+        if file_type != 'markitdown' and self.enable_cache and self._cache_manager:
             is_cached, md5_hash = self._cache_manager.is_cached(file_path)
             if is_cached and md5_hash:
                 logger.info(f"使用缓存的文件处理结果: {md5_hash}")
@@ -160,13 +177,10 @@ class DocumentProcessor:
                         size=file_size,
                     )
 
-        file_type = self.SUPPORTED_EXTENSIONS[file_extension]
-        file_size = path.stat().st_size
-
         # 提取文本内容
         content, detected_encoding = self._extract_text(file_path, file_type, encoding)
         # 保存到缓存
-        if self.enable_cache and self._cache_manager and content.strip():
+        if file_type != 'markitdown' and self.enable_cache and self._cache_manager and content.strip():
             try:
                 processing_metadata = {
                     'file_type': file_type,
@@ -336,7 +350,12 @@ class DocumentProcessor:
             if self._markitdown_converter is None:
                 self._markitdown_converter = MarkItDownConverter(
                     enable_plugins=False,
-                    use_magic_pdf=self.use_magic_pdf
+                    use_magic_pdf=self.use_magic_pdf,
+                    enable_cache=self.enable_cache,
+                    cache_dir=self.cache_dir,
+                    processing_mode=self.processing_mode,
+                    mineru_api_key=self.mineru_api_key,
+                    mineru_base_url=self.mineru_base_url,
                 )
 
             content, encoding = self._markitdown_converter.convert_file(file_path)
@@ -376,7 +395,12 @@ class DocumentProcessor:
         if self._markitdown_converter is None:
             self._markitdown_converter = MarkItDownConverter(
                 enable_plugins=False,
-                use_magic_pdf=self.use_magic_pdf
+                use_magic_pdf=self.use_magic_pdf,
+                enable_cache=self.enable_cache,
+                cache_dir=self.cache_dir,
+                processing_mode=self.processing_mode,
+                mineru_api_key=self.mineru_api_key,
+                mineru_base_url=self.mineru_base_url,
             )
         return self._markitdown_converter
 

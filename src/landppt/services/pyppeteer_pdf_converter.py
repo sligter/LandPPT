@@ -4,8 +4,10 @@ Replaces the Pyppeteer implementation with Python Playwright for better stabilit
 """
 
 import asyncio
+import json
 import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
@@ -38,6 +40,10 @@ class PlaywrightPDFConverter:
         self.context: Optional[BrowserContext] = None
         self.playwright = None
         self._browser_lock = asyncio.Lock()
+        # Cache additional contexts by device_scale_factor to avoid paying context creation
+        # cost on each screenshot call (e.g. dsf=1 for video export, dsf=2 for PDFs).
+        self._contexts_by_scale: Dict[float, BrowserContext] = {}
+        self._default_context_scale: float = 2.0
 
     def is_available(self) -> bool:
         """Check if Playwright is available"""
@@ -268,17 +274,48 @@ class PlaywrightPDFConverter:
             raise ImportError(error_msg)
 
     async def _get_or_create_browser(self) -> Browser:
-        """Get existing browser or create a new one (with thread safety)"""
+        """Get existing browser or create a new one (with thread safety)."""
         async with self._browser_lock:
             if self.browser is None:
                 self.browser = await self._launch_browser()
                 # Create a browser context for better isolation
                 self.context = await self.browser.new_context(
                     viewport={'width': 1280, 'height': 720},
-                    device_scale_factor=2,
+                    device_scale_factor=self._default_context_scale,
                     ignore_https_errors=True
                 )
+                self._contexts_by_scale = {float(self._default_context_scale): self.context}
             return self.browser
+
+    async def _get_or_create_context(
+        self,
+        *,
+        device_scale_factor: float,
+    ) -> BrowserContext:
+        """
+        Get a cached BrowserContext for a given device_scale_factor (dsf).
+        This keeps screenshots fast by reusing contexts across calls.
+        """
+        try:
+            scale = float(device_scale_factor)
+        except Exception:
+            scale = float(self._default_context_scale)
+
+        await self._get_or_create_browser()
+        async with self._browser_lock:
+            existing = self._contexts_by_scale.get(scale)
+            if existing is not None:
+                return existing
+
+            # Create an additional context with the requested scale.
+            assert self.browser is not None
+            ctx = await self.browser.new_context(
+                viewport={"width": 1280, "height": 720},
+                device_scale_factor=scale,
+                ignore_https_errors=True,
+            )
+            self._contexts_by_scale[scale] = ctx
+            return ctx
     
     async def _wait_for_charts_and_dynamic_content(self, page: Page, max_wait_time: int = 15000):
         """
@@ -291,8 +328,12 @@ class PlaywrightPDFConverter:
         attempts = 0
         max_attempts = 30  # 进一步增加尝试次数以确保所有动态内容完全加载
 
-        # 首先等待基础DOM和资源加载
-        await page.wait_for_selector('body', timeout=5000)
+        # 首先等待基础DOM和资源加载（部分复杂页面在容器内首次渲染可能 >5s）
+        try:
+            await page.wait_for_selector("body", timeout=max(5_000, min(30_000, int(max_wait_time))))
+        except Exception as e:
+            logger.warning(f"?? 等待 body 超时/失败，将跳过图表渲染等待以避免中断导出: {e}")
+            return
 
         # 等待所有图片加载完成
         await page.evaluate('''() => {
@@ -569,7 +610,337 @@ class PlaywrightPDFConverter:
         }''')
 
         total_time = time.time() * 1000 - start_time
-        logger.debug(f"✨ 图表和动态内容等待完成，总耗时: {total_time:.0f}ms")
+        logger.debug(f"🎬 動画等待完成，總耗時: {total_time:.0f}ms")
+
+    async def _wait_for_page_fully_loaded(self, page: Page) -> bool:
+        """
+        等待页面完全加载，包括所有资源（DOM、网络、字体、图片、iframe）
+        Returns: True if loaded successfully, False if timeout
+        """
+        try:
+            logger.debug("📄 Waiting for page to fully load...")
+            
+            # 1. 等待 DOM ready
+            try:
+                await page.wait_for_load_state('domcontentloaded', timeout=10000)
+                logger.debug("  ✓ DOM content loaded")
+            except Exception as e:
+                logger.warning(f"DOM load timeout: {e}")
+            
+            # 2. 等待所有网络请求完成
+            try:
+                await page.wait_for_load_state('networkidle', timeout=15000)
+                logger.debug("  ✓ Network idle")
+            except Exception as e:
+                logger.warning(f"Network idle timeout: {e}")
+            
+            # 3. 等待字体加载
+            try:
+                await page.evaluate("""
+                    async () => {
+                        if (document.fonts) {
+                            await document.fonts.ready;
+                        }
+                    }
+                """)
+                logger.debug("  ✓ Fonts ready")
+            except Exception as e:
+                logger.warning(f"Fonts ready failed: {e}")
+            
+            # 4. 等待所有图片加载
+            try:
+                await page.evaluate("""
+                    async () => {
+                        const images = Array.from(document.images);
+                        await Promise.all(
+                            images.map(img => {
+                                if (img.complete) return Promise.resolve();
+                                return new Promise((resolve) => {
+                                    img.addEventListener('load', resolve, {once: true});
+                                    img.addEventListener('error', resolve, {once: true});
+                                });
+                            })
+                        );
+                    }
+                """)
+                logger.debug("  ✓ All images loaded")
+            except Exception as e:
+                logger.warning(f"Image loading failed: {e}")
+            
+            # 5. 等待 iframe 内容加载
+            try:
+                await page.evaluate("""
+                    async () => {
+                        const frames = document.querySelectorAll('iframe');
+                        for (const frame of frames) {
+                            try {
+                                const doc = frame.contentDocument;
+                                if (doc && doc.fonts) {
+                                    await doc.fonts.ready;
+                                }
+                                // 等待 iframe 内的图片
+                                const imgs = doc?.querySelectorAll('img') || [];
+                                await Promise.all(
+                                    Array.from(imgs).map(img => {
+                                        if (img.complete) return Promise.resolve();
+                                        return new Promise(r => {
+                                            img.onload = img.onerror = r;
+                                        });
+                                    })
+                                );
+                            } catch (e) {
+                                // Cross-origin iframe, skip
+                            }
+                        }
+                    }
+                """)
+                logger.debug("  ✓ Iframe content loaded")
+            except Exception as e:
+                logger.warning(f"Iframe content loading failed: {e}")
+            
+            logger.info("✅ Page fully loaded")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Page load check failed: {e}")
+            return False
+
+    async def _verify_page_content(self, page: Page) -> bool:
+        """
+        通过截图验证页面不是白屏/黑屏
+        Returns: True if content is visible
+        """
+        try:
+            logger.debug("🔍 Verifying page content via screenshot...")
+            
+            # 截取缩略图（降低处理开销）
+            screenshot = await page.screenshot(type='png', scale='css')
+            
+            # 分析像素，检测是否全白/全黑
+            try:
+                from PIL import Image
+                import io
+                import statistics
+                
+                img = Image.open(io.BytesIO(screenshot))
+                # 转换为灰度
+                gray = img.convert('L')
+                # 计算平均亮度
+                pixels = list(gray.getdata())
+                avg_brightness = sum(pixels) / len(pixels)
+                variance = statistics.variance(pixels) if len(pixels) > 1 else 0.0
+
+                # 检查是否过亮（白屏）或过暗（黑屏）
+                # NOTE: many slides use mostly white/black backgrounds; use variance to avoid false positives.
+                if avg_brightness > 250 and variance < 10:  # 几乎全白 + 几乎无变化
+                    logger.warning(
+                        f"❌ Page appears blank (brightness: {avg_brightness:.1f}, variance: {variance:.1f})"
+                    )
+                    return False
+                if avg_brightness < 5 and variance < 10:  # 几乎全黑 + 几乎无变化
+                    logger.warning(
+                        f"❌ Page appears black (brightness: {avg_brightness:.1f}, variance: {variance:.1f})"
+                    )
+                    return False
+
+                # 检查颜色方差（内容应该有变化）
+                if variance < 10:  # 颜色过于单一
+                    logger.warning(f"❌ Page has low variance (variance: {variance:.1f})")
+                    return False
+                
+                logger.info(f"✅ Page content verified (brightness: {avg_brightness:.1f}, variance: {variance:.1f})")
+                return True
+                
+            except ImportError:
+                # PIL not available, skip validation
+                logger.warning("PIL not available, skipping screenshot validation")
+                return True
+            
+        except Exception as e:
+            logger.warning(f"Screenshot validation failed: {e}")
+            # 验证失败时仍然继续，避免阻塞
+            return True
+
+    async def _wait_for_animations_complete(self, page: Page, timeout_ms: int = 10000) -> None:
+        """
+        等待页面中的动画完成（CSS animations、transitions、RAF loops、canvas）
+        """
+        import time
+        start_time = time.time() * 1000
+        settle_ms = int(os.environ.get("LANDPPT_ANIMATION_SETTLE_MS", "0"))
+        
+        logger.debug(f"⏳ Waiting for animations to complete (timeout: {timeout_ms}ms)...")
+        
+        try:
+            await page.evaluate(f'''async () => {{
+                const timeout = {timeout_ms};
+                const startTime = performance.now();
+                const settleTime = {settle_ms};
+                
+                // Monitor animations
+                while (performance.now() - startTime < timeout) {{
+                    let hasAnimations = false;
+                    
+                    // Check CSS animations
+                    if (document.getAnimations) {{
+                        const anims = document.getAnimations();
+                        const running = anims.filter(a => a.playState === 'running' || a.playState === 'pending');
+                        if (running.length > 0) {{
+                            hasAnimations = true;
+                        }}
+                    }}
+                    
+                    // Check CSS transitions
+                    const elsWithTransition = document.querySelectorAll('*');
+                    for (const el of elsWithTransition) {{
+                        const style = window.getComputedStyle(el);
+                        if (style.transition && style.transition !== 'none' && style.transition !== 'all 0s ease 0s') {{
+                            hasAnimations = true;
+                            break;
+                        }}
+                    }}
+                    
+                    if (!hasAnimations) {{
+                        // Wait extra settle time
+                        if (settleTime > 0) {{
+                            await new Promise(r => setTimeout(r, settleTime));
+                        }}
+                        break;
+                    }}
+                    
+                    await new Promise(r => setTimeout(r, 100));
+                }}
+            }}''')
+        except Exception as e:
+            logger.warning(f"Animation wait failed: {e}")
+        
+        total_time = time.time() * 1000 - start_time
+        logger.debug(f"🎬 Animation wait complete, total time: {total_time:.0f}ms")
+
+    async def _wait_for_stable_render(self, page: Page, max_wait_ms: int = 3000, check_interval_ms: int = 100) -> bool:
+        """
+        Wait for page to stabilize (no layout changes, no running animations).
+
+        Uses event-driven approach instead of fixed timeouts for better performance.
+        Returns True if page stabilized, False if timeout was reached.
+
+        Args:
+            page: The Playwright page to wait on
+            max_wait_ms: Maximum wait time in milliseconds
+            check_interval_ms: Interval between stability checks
+        """
+        import time
+        start_time = time.time() * 1000
+        stable_count = 0
+        required_stable_checks = 3  # Need 3 consecutive stable checks
+        last_layout_hash = None
+
+        logger.debug(f"⏳ Waiting for stable render (max: {max_wait_ms}ms)...")
+
+        while (time.time() * 1000 - start_time) < max_wait_ms:
+            try:
+                # Get current layout fingerprint
+                layout_info = await page.evaluate('''() => {
+                    // Check running animations
+                    const anims = document.getAnimations ? document.getAnimations() : [];
+                    const runningAnims = anims.filter(a =>
+                        a.playState === 'running' || a.playState === 'pending'
+                    ).length;
+
+                    // Get layout fingerprint
+                    const body = document.body;
+                    const html = document.documentElement;
+                    const scrollH = Math.max(body.scrollHeight, html.scrollHeight);
+                    const scrollW = Math.max(body.scrollWidth, html.scrollWidth);
+
+                    // Count visible elements
+                    const visibleCount = document.querySelectorAll('*:not([hidden])').length;
+
+                    // Check iframes
+                    let iframeHash = '';
+                    try {
+                        const frames = document.querySelectorAll('iframe');
+                        frames.forEach(f => {
+                            if (f.contentDocument) {
+                                iframeHash += f.contentDocument.body?.innerHTML?.length || 0;
+                            }
+                        });
+                    } catch (e) {}
+
+                    return {
+                        runningAnims,
+                        hash: `${runningAnims}:${scrollW}:${scrollH}:${visibleCount}:${iframeHash}`
+                    };
+                }''')
+
+                current_hash = layout_info.get('hash', '')
+                running_anims = layout_info.get('runningAnims', 0)
+
+                # Check if stable (no animations and same layout)
+                if running_anims == 0 and current_hash == last_layout_hash:
+                    stable_count += 1
+                    if stable_count >= required_stable_checks:
+                        total_time = time.time() * 1000 - start_time
+                        logger.debug(f"✅ Page stabilized after {total_time:.0f}ms")
+                        return True
+                else:
+                    stable_count = 0
+                    last_layout_hash = current_hash
+
+                await asyncio.sleep(check_interval_ms / 1000.0)
+
+            except Exception as e:
+                logger.warning(f"Stability check failed: {e}")
+                await asyncio.sleep(check_interval_ms / 1000.0)
+
+        total_time = time.time() * 1000 - start_time
+        logger.warning(f"⚠️ Stability timeout after {total_time:.0f}ms")
+        return False
+
+    async def _preheat_animations(self, page: Page, duration_ms: int = 3000) -> None:
+        """
+        预热动画：让所有动画播放一次，确保渲染器就绪
+        """
+        preheat_duration = int(os.environ.get("LANDPPT_VIDEO_PREHEAT_DURATION_MS", str(duration_ms)))
+        logger.info(f"🔥 Preheating animations for {preheat_duration}ms...")
+        
+        try:
+            # 注入动画监控
+            await page.evaluate("""
+                () => {
+                    window.__animationsPreheat = true;
+                    
+                    // 强制触发所有动画
+                    const elements = document.querySelectorAll('*');
+                    elements.forEach(el => {
+                        const style = window.getComputedStyle(el);
+                        if (style.animation !== 'none' || style.transition !== 'none') {
+                            // 触发重排，确保动画开始
+                            el.offsetHeight;
+                        }
+                    });
+                    
+                    // 检查 iframe
+                    const frames = document.querySelectorAll('iframe');
+                    frames.forEach(frame => {
+                        try {
+                            const doc = frame.contentDocument;
+                            if (doc) {
+                                const els = doc.querySelectorAll('*');
+                                els.forEach(el => el.offsetHeight);
+                            }
+                        } catch (e) {}
+                    });
+                }
+            """)
+            
+            # 等待动画播放
+            await asyncio.sleep(preheat_duration / 1000.0)
+            
+            logger.info("✅ Animation preheat complete")
+            
+        except Exception as e:
+            logger.warning(f"Animation preheat failed: {e}")
 
     async def _perform_final_chart_verification(self, page: Page) -> Optional[Dict]:
         """Enhanced final verification for Chart.js, ECharts, and D3.js charts"""
@@ -1445,8 +1816,33 @@ class PlaywrightPDFConverter:
 
         await page.add_style_tag(content=pdf_styles)
 
-    async def _inject_javascript_optimizations(self, page: Page):
-        """Enhanced JavaScript optimizations for Chart.js, ECharts, and D3.js"""
+    async def _inject_javascript_optimizations(self, page: Page, *, for_video: bool = False):
+        """Enhanced JavaScript optimizations for Chart.js, ECharts, and D3.js
+
+        Args:
+            page: The Playwright page to inject optimizations into
+            for_video: If True, preserve animations for smooth video recording.
+                       If False (default), disable animations for static PDF export.
+        """
+        if for_video:
+            # Video recording mode: preserve native requestAnimationFrame for smooth 60fps animations
+            # Only ensure charts initialize properly without disabling their animations
+            await page.add_init_script('''() => {
+                // Do NOT override requestAnimationFrame - we need smooth animations for video!
+
+                // Ensure Chart.js charts are responsive but keep animations
+                if (typeof Chart !== 'undefined' && Chart.defaults) {
+                    Chart.defaults.responsive = true;
+                    Chart.defaults.maintainAspectRatio = false;
+                    // Keep animation enabled for video
+                }
+
+                // Ensure ECharts charts are responsive but keep animations
+                // No overrides needed - default behavior is what we want
+            }''')
+            return
+
+        # PDF mode: disable all animations for instant rendering
         # Pre-load optimizations
         await page.add_init_script('''() => {
             // Override animation-related functions globally
@@ -1965,23 +2361,31 @@ class PlaywrightPDFConverter:
                 await context.close()
 
     async def convert_multiple_html_to_pdf(self, html_files: List[str], output_dir: str,
-                                         merged_pdf_path: Optional[str] = None) -> List[str]:
+                                         merged_pdf_path: Optional[str] = None,
+                                         progress_callback: Optional[callable] = None) -> List[str]:
         """
         Convert multiple HTML files to PDFs and optionally merge them
-        Optimized version with shared browser instance and parallel processing
+        Optimized version with shared browser instance and crash recovery
+        
+        Args:
+            html_files: List of HTML file paths to convert
+            output_dir: Directory to save individual PDFs
+            merged_pdf_path: Optional path for merged PDF output
+            progress_callback: Optional async callback for progress updates (receives current_index, total)
         """
         logger.info(f"🚀 Starting batch PDF conversion for {len(html_files)} files")
 
         pdf_files = []
         browser = None
+        total_files = len(html_files)
 
         try:
-            # Launch browser once for all conversions with enhanced chart rendering support
+            # Launch browser once for all conversions
             browser = await self._launch_browser()
 
-            # Process files in smaller batches to avoid memory issues
-            # Adjust batch size based on total number of files
-            batch_size = 3 if len(html_files) > 20 else 4 if len(html_files) > 10 else 5
+            # Reduced batch size for better stability in Docker (was 10, now 3)
+            # Smaller batches prevent memory exhaustion and Chromium crashes
+            batch_size = 3
 
             for i in range(0, len(html_files), batch_size):
                 batch = html_files[i:i + batch_size]
@@ -1996,20 +2400,50 @@ class PlaywrightPDFConverter:
                     base_name = Path(html_file).stem
                     pdf_file = os.path.join(output_dir, f"{base_name}.pdf")
 
-                    logger.info(f"📄 Converting {global_index + 1}/{len(html_files)}: {html_file}")
+                    logger.info(f"📄 Converting {global_index + 1}/{total_files}: {html_file}")
+                    
+                    # Report progress if callback is provided
+                    if progress_callback:
+                        try:
+                            await progress_callback(global_index, total_files)
+                        except Exception as cb_error:
+                            logger.debug(f"Progress callback error: {cb_error}")
 
-                    # Try conversion with retry mechanism
+                    # Try conversion with retry mechanism and exponential backoff
                     success = False
                     retry_count = 0
-                    max_retries = 5
-
+                    max_retries = 3  # Reduced from 5 for faster failure detection
+                    
                     while not success and retry_count <= max_retries:
                         if retry_count > 0:
-                            logger.info(f"🔄 Retry {retry_count}/{max_retries} for: {html_file}")
-                            # Wait a bit before retry
-                            await asyncio.sleep(2)
+                            # Exponential backoff: 1s, 2s, 4s
+                            wait_time = 2 ** (retry_count - 1)
+                            logger.info(f"🔄 Retry {retry_count}/{max_retries} for: {html_file} (waiting {wait_time}s)")
+                            await asyncio.sleep(wait_time)
+                            
+                            # On second retry, restart browser to recover from potential crash
+                            if retry_count >= 2 and browser:
+                                logger.info("🔄 Restarting browser after multiple failures...")
+                                try:
+                                    await browser.close()
+                                except Exception:
+                                    pass
+                                browser = await self._launch_browser()
 
-                        success = await self.html_to_pdf_with_browser(browser, html_file, pdf_file)
+                        try:
+                            success = await self.html_to_pdf_with_browser(browser, html_file, pdf_file)
+                        except Exception as conv_error:
+                            logger.warning(f"⚠️ Conversion error: {conv_error}")
+                            success = False
+                            # Browser might have crashed, try to restart it
+                            if "Target closed" in str(conv_error) or "Connection closed" in str(conv_error):
+                                logger.info("🔄 Browser connection lost, restarting...")
+                                try:
+                                    await browser.close()
+                                except Exception:
+                                    pass
+                                browser = await self._launch_browser()
+                        
                         retry_count += 1
 
                     if success:
@@ -2019,12 +2453,19 @@ class PlaywrightPDFConverter:
 
                 pdf_files.extend(batch_results)
 
-                # Small delay between batches to prevent overwhelming the system
+                # Cleanup between batches to prevent memory buildup
                 if i + batch_size < len(html_files):
-                    logger.info("💾 Memory cleanup between batches...")
-                    await asyncio.sleep(2)
+                    logger.debug("💾 Memory cleanup between batches...")
+                    await asyncio.sleep(0.5)  # Reduced wait time
 
-            logger.info(f"✅ Batch conversion completed. Generated {len(pdf_files)} PDF files.")
+            logger.info(f"✅ Batch conversion completed. Generated {len(pdf_files)}/{total_files} PDF files.")
+
+            # Final progress update
+            if progress_callback:
+                try:
+                    await progress_callback(total_files, total_files)
+                except Exception as cb_error:
+                    logger.debug(f"Final progress callback error: {cb_error}")
 
             # If merging is requested and we have PDFs
             if merged_pdf_path and len(pdf_files) > 0:
@@ -2050,11 +2491,16 @@ class PlaywrightPDFConverter:
 
         except Exception as error:
             logger.error(f"❌ Error during batch PDF conversion: {error}")
-            return []
+            import traceback
+            traceback.print_exc()
+            return pdf_files  # Return any successfully converted files
         finally:
             if browser:
-                await browser.close()
-                logger.debug("🔒 Shared browser closed.")
+                try:
+                    await browser.close()
+                    logger.debug("🔒 Shared browser closed.")
+                except Exception:
+                    pass
 
     def _merge_pdfs_sync(self, pdf_files: List[str], output_path: str) -> bool:
         """Synchronous PDF merging function to be run in thread pool"""
@@ -2101,19 +2547,35 @@ class PlaywrightPDFConverter:
         from ..utils.thread_pool import run_blocking_io
         return await run_blocking_io(self._merge_pdfs_sync, pdf_files, output_path)
 
+
+    async def _close_unlocked(self):
+        """Close shared browser/context without acquiring the lock (caller must hold _browser_lock)."""
+        # Close cached contexts first (includes default self.context).
+        for ctx in list(self._contexts_by_scale.values()):
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+        self._contexts_by_scale = {}
+        self.context = None
+        if self.browser:
+            try:
+                await self.browser.close()
+            except Exception:
+                pass
+            self.browser = None
+        if self.playwright:
+            try:
+                await self.playwright.stop()
+            except Exception:
+                pass
+            self.playwright = None
+
     async def close(self):
         """Close the browser if it's still open"""
         async with self._browser_lock:
-            if self.context:
-                await self.context.close()
-                self.context = None
-            if self.browser:
-                await self.browser.close()
-                self.browser = None
-            if self.playwright:
-                await self.playwright.stop()
-                self.playwright = None
-                logger.debug("🔒 Shared browser and Playwright closed.")
+            await self._close_unlocked()
+            logger.debug("🔒 Shared browser and Playwright closed.")
 
     async def screenshot_html(
         self,
@@ -2121,9 +2583,12 @@ class PlaywrightPDFConverter:
         screenshot_path: str,
         width: int = 1280,
         height: int = 720,
+        crop_to_content: bool = False,
         wait_for_stable: bool = True,
         stability_checks: int = 3,
         stability_interval: float = 0.75,
+        device_scale_factor: Optional[float] = None,
+        optimize_for_static: bool = False,
     ) -> bool:
         """
         Take a high-quality screenshot of an HTML file using Playwright
@@ -2146,54 +2611,174 @@ class PlaywrightPDFConverter:
         page = None
         try:
             # Get or create browser
-            browser = await self._get_or_create_browser()
-            page = await self.context.new_page()
+            await self._get_or_create_browser()
+            ctx: Optional[BrowserContext]
+            if device_scale_factor is None:
+                ctx = self.context
+            else:
+                ctx = await self._get_or_create_context(device_scale_factor=device_scale_factor)
+            if ctx is None:
+                raise RuntimeError("Playwright context is not initialized")
+            page = await ctx.new_page()
 
             # Set viewport
             await page.set_viewport_size({'width': width, 'height': height})
 
             # Navigate to HTML file
             absolute_html_path = Path(html_file_path).resolve()
+            navigation_wait_until = 'domcontentloaded' if optimize_for_static else 'networkidle'
+            navigation_timeout = 20000 if optimize_for_static else 60000
             await page.goto(f"file://{absolute_html_path}",
-                          wait_until='networkidle',
-                          timeout=60000)
+                          wait_until=navigation_wait_until,
+                          timeout=navigation_timeout)
 
-            # Wait for content to be ready (similar to PDF generation)
-            await asyncio.sleep(0.75)
+            needs_extended_dynamic_wait = True
+            if optimize_for_static:
+                try:
+                    await page.wait_for_load_state('load', timeout=5000)
+                except Exception:
+                    logger.debug("Quick screenshot load-state wait timed out, continuing")
+
+                try:
+                    render_profile = await page.evaluate(
+                        """() => {
+                            const chartCanvas = document.querySelector('canvas[id*="chart" i], canvas[class*="chart" i], [data-chart], [data-echart], [data-echarts]');
+                            const chartScript = document.querySelector('script[src*="chart"], script[src*="echarts"], script[src*="d3"]');
+                            const animated = document.querySelector('[class*="animate"], [class*="transition"], [style*="animation"], [style*="transition"]');
+                            const iframe = document.querySelector('iframe');
+                            const svg = document.querySelector('svg');
+                            return {
+                                hasChartLikeContent: Boolean(chartCanvas || chartScript),
+                                hasAnimatedContent: Boolean(animated),
+                                hasIframe: Boolean(iframe),
+                                hasSvg: Boolean(svg),
+                                imageCount: document.images ? document.images.length : 0
+                            };
+                        }"""
+                    )
+                except Exception:
+                    render_profile = {}
+
+                needs_extended_dynamic_wait = bool(
+                    render_profile.get('hasChartLikeContent')
+                    or render_profile.get('hasAnimatedContent')
+                    or render_profile.get('hasIframe')
+                )
+                resource_wait_ms = 12000 if (render_profile.get('imageCount', 0) or 0) > 0 else 8000
+            else:
+                # Wait for the page and any same-origin iframe content to become available.
+                loaded = await self._wait_for_page_fully_loaded(page)
+                if not loaded:
+                    logger.warning("Page load validation had timeouts before screenshot, continuing with best effort")
+                resource_wait_ms = 30000
 
             # Wait for fonts and resources
-            await self._wait_for_fonts_and_resources(page, max_wait_time=30000)
+            await self._wait_for_fonts_and_resources(page, max_wait_time=resource_wait_ms)
 
-            # Force chart initialization
-            await self._force_chart_initialization(page)
+            if (not optimize_for_static) or needs_extended_dynamic_wait:
+                # Force chart initialization
+                await self._force_chart_initialization(page)
 
-            # Wait for charts and dynamic content
-            await self._wait_for_charts_and_dynamic_content(page, max_wait_time=60000)
+                # Wait for charts and dynamic content
+                await self._wait_for_charts_and_dynamic_content(
+                    page,
+                    max_wait_time=12000 if optimize_for_static else 60000
+                )
+            elif optimize_for_static:
+                await asyncio.sleep(0.15)
+
+            # Some export wrappers keep the page hidden until a custom ready flag flips.
+            # Respect that signal when it exists so screenshots don't capture early frames.
+            try:
+                has_ready_signal = await page.evaluate(
+                    "() => typeof window !== 'undefined' && typeof window.__lpSlideReady !== 'undefined'"
+                )
+            except Exception:
+                has_ready_signal = False
+            if has_ready_signal:
+                try:
+                    await page.wait_for_function(
+                        "window.__lpSlideReady === true",
+                        timeout=8000 if optimize_for_static else 15000
+                    )
+                except Exception:
+                    logger.warning("Optional slide ready signal timed out before screenshot")
 
             if wait_for_stable:
-                last_snapshot = None
-                stable_count = 0
+                effective_stability_checks = min(stability_checks, 2) if optimize_for_static else stability_checks
+                effective_stability_interval = min(stability_interval, 0.25) if optimize_for_static else stability_interval
+                await self._wait_for_stable_render(
+                    page,
+                    max_wait_ms=max(
+                        800 if optimize_for_static else 2000,
+                        int(effective_stability_checks * effective_stability_interval * 1000)
+                    ),
+                    check_interval_ms=max(100, int(effective_stability_interval * 1000)),
+                )
 
-                while stable_count < stability_checks:
-                    layout_snapshot = await page.evaluate(
-                        "document.body ? document.body.innerHTML : ''"
+            verified = False
+            verify_retries = 1 if optimize_for_static else (3 if wait_for_stable else 2)
+            for attempt in range(verify_retries):
+                if await self._verify_page_content(page):
+                    verified = True
+                    break
+                if attempt < verify_retries - 1:
+                    await asyncio.sleep(0.35)
+                    await self._wait_for_page_fully_loaded(page)
+            if not verified:
+                logger.warning("Screenshot content verification did not fully pass; capturing latest frame anyway")
+
+            clip = {'x': 0, 'y': 0, 'width': width, 'height': height}
+            if crop_to_content:
+                try:
+                    rect = await page.evaluate(
+                        """
+                        () => {
+                          const vw = window.innerWidth;
+                          const vh = window.innerHeight;
+                          const viewportArea = vw * vh;
+                          const els = Array.from(document.body ? document.body.children : []);
+                          const candidates = [];
+                          for (const el of els) {
+                            const r = el.getBoundingClientRect();
+                            if (!r || r.width < 120 || r.height < 120) continue;
+                            const area = r.width * r.height;
+                            candidates.push({ r, area });
+                          }
+                          if (!candidates.length) return null;
+                          candidates.sort((a, b) => b.area - a.area);
+
+                          // Prefer the largest element that isn't basically full-viewport.
+                          let chosen = candidates.find(c => c.area < viewportArea * 0.95);
+                          if (!chosen) chosen = candidates[0];
+                          const best = chosen.r;
+
+                          const pad = 2;
+                          const x = Math.max(0, Math.floor(best.left - pad));
+                          const y = Math.max(0, Math.floor(best.top - pad));
+                          const w = Math.min(vw - x, Math.ceil(best.width + pad * 2));
+                          const h = Math.min(vh - y, Math.ceil(best.height + pad * 2));
+                          if (w < 2 || h < 2) return null;
+                          return { x, y, width: w, height: h };
+                        }
+                        """
                     )
-
-                    if last_snapshot is not None and layout_snapshot == last_snapshot:
-                        stable_count += 1
-                    else:
-                        stable_count = 1
-                        last_snapshot = layout_snapshot
-
-                    if stable_count < stability_checks:
-                        await asyncio.sleep(stability_interval)
+                    if rect and rect.get("width") and rect.get("height"):
+                        clip = {
+                            'x': int(rect['x']),
+                            'y': int(rect['y']),
+                            'width': int(rect['width']),
+                            'height': int(rect['height']),
+                        }
+                except Exception:
+                    pass
 
             # Take screenshot
             await page.screenshot(
                 path=screenshot_path,
                 type='png',
                 full_page=False,
-                clip={'x': 0, 'y': 0, 'width': width, 'height': height}
+                clip=clip
             )
 
             logger.info(f"✅ Screenshot saved: {screenshot_path}")
@@ -2210,6 +2795,328 @@ class PlaywrightPDFConverter:
                     await page.close()
                 except Exception:  # noqa: BLE001
                     logger.debug("Page already closed or closing failed, ignoring.")
+
+    async def record_html_video(
+        self,
+        html_file_path: str,
+        output_video_path: str,
+        *,
+        width: int = 1920,
+        height: int = 1080,
+        duration_ms: int = 5_000,
+        start_delay_ms: int = 0,
+        wait_until: str = "domcontentloaded",
+        ready_timeout_ms: int = 15000,
+    ) -> bool:
+        """
+        Record a video of an HTML file using 4-phase approach to eliminate white/black screens.
+        
+        Phase 1: Preload page in non-recording context
+        Phase 2: Validate page content via screenshot
+        Phase 3: Preheat animations
+        Phase 4: Record with perfect timing
+        
+        Notes:
+        - This captures real-time rendering (CSS animations, canvas, JS effects).
+        - Playwright's video recorder does not include audio; audio is merged later via ffmpeg.
+        - The resulting file is typically .webm; the caller can transcode to mp4.
+        """
+        if not os.path.exists(html_file_path):
+            logger.error(f"HTML file not found: {html_file_path}")
+            return False
+
+        duration_ms = max(250, int(duration_ms))
+        try:
+            start_delay_ms = int(start_delay_ms)
+        except Exception:
+            start_delay_ms = 0
+        start_delay_ms = max(0, min(60_000, start_delay_ms))
+        output_video_path = str(Path(output_video_path).resolve())
+        Path(os.path.dirname(output_video_path)).mkdir(parents=True, exist_ok=True)
+
+        browser = await self._get_or_create_browser()
+        record_dir = tempfile.mkdtemp(prefix="landppt_record_")
+        absolute_html_path = Path(html_file_path).resolve()
+        
+        # ==================== PHASE 1: Preload Page (No Recording) ====================
+        logger.info("📄 Phase 1/4: Preloading page without recording...")
+        
+        preview_context = None
+        preview_page = None
+        ready_at_ms = 0
+        
+        try:
+            # Create preview context without recording
+            preview_context = await browser.new_context(
+                viewport={"width": int(width), "height": int(height)},
+                device_scale_factor=1,
+                ignore_https_errors=True,
+            )
+            preview_page = await preview_context.new_page()
+            
+            # Load page
+            await preview_page.goto(
+                f"file://{absolute_html_path}",
+                wait_until=wait_until,
+                timeout=120_000,
+            )
+            
+            # Wait for full page load
+            loaded = await self._wait_for_page_fully_loaded(preview_page)
+            if not loaded:
+                logger.warning("⚠️ Page load validation had timeouts, continuing anyway")
+            
+            # Wait for custom ready signal
+            try:
+                await preview_page.wait_for_function(
+                    "window.__lpSlideReady === true",
+                    timeout=max(500, int(ready_timeout_ms)),
+                )
+                ready_at_ms = await preview_page.evaluate("Number(window.__lpReadyAt || 0)") or 0
+                try:
+                    ready_at_ms = int(ready_at_ms)
+                except Exception:
+                    ready_at_ms = 0
+                logger.debug(f"  ✓ Custom ready signal at {ready_at_ms}ms")
+            except Exception:
+                logger.warning("⚠️ Custom ready signal timeout")
+                ready_at_ms = 0
+            
+            # Wait for animations to complete
+            try:
+                await self._wait_for_animations_complete(preview_page, timeout_ms=15000)
+            except Exception as e:
+                logger.warning(f"Animation wait failed: {e}")
+            
+            logger.info("✅ Phase 1 complete: Page fully loaded")
+            
+            # ==================== PHASE 2: Validate Content ====================
+            logger.info("🔍 Phase 2/4: Validating page content...")
+            
+            # Additional stability wait
+            await asyncio.sleep(1.0)
+            
+            # Screenshot validation with retries
+            max_retries = 3
+            verified = False
+            for attempt in range(max_retries):
+                if await self._verify_page_content(preview_page):
+                    verified = True
+                    break
+                logger.warning(f"❌ Content verification failed (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(1.0)
+            
+            if not verified:
+                # Don't abort, but log warning
+                logger.warning("⚠️ Content verification failed after retries, proceeding anyway")
+            else:
+                logger.info("✅ Phase 2 complete: Content verified")
+            
+            # ==================== PHASE 3: Preheat Animations ====================
+            logger.info("🔥 Phase 3/4: Preheating animations...")
+            await self._preheat_animations(preview_page, duration_ms=3000)
+            logger.info("✅ Phase 3 complete: Animations preheated")
+            
+            # Close preview - we're done with validation
+            await preview_page.close()
+            await preview_context.close()
+            preview_page = None
+            preview_context = None
+            
+        except Exception as e:
+            logger.error(f"Preload/validation phase failed: {e}")
+            if preview_page:
+                try:
+                    await preview_page.close()
+                except Exception:
+                    pass
+            if preview_context:
+                try:
+                    await preview_context.close()
+                except Exception:
+                    pass
+            return False
+        
+        # ==================== PHASE 4: Actual Recording ====================
+        logger.info("🎬 Phase 4/4: Starting actual recording...")
+        
+        context: Optional[BrowserContext] = None
+        page: Optional[Page] = None
+        try:
+            # Create recording context
+            context = await browser.new_context(
+                viewport={"width": int(width), "height": int(height)},
+                device_scale_factor=1,
+                ignore_https_errors=True,
+                record_video_dir=record_dir,
+                record_video_size={"width": int(width), "height": int(height)},
+            )
+            page = await context.new_page()
+            
+            # Reload page (this time recording)
+            await page.goto(
+                f"file://{absolute_html_path}",
+                wait_until="networkidle",  # Use stricter wait since we know it works
+                timeout=120_000,
+            )
+
+            loaded = await self._wait_for_page_fully_loaded(page)
+            if not loaded:
+                logger.warning("Recording page load validation had timeouts, continuing with best effort")
+            
+            # Quick wait for ready (should be fast since page was preheated)
+            recorded_ready_at_ms = 0
+            try:
+                await page.wait_for_function(
+                    "window.__lpSlideReady === true",
+                    timeout=max(500, int(ready_timeout_ms)),
+                )
+                try:
+                    recorded_ready_at_ms = await page.evaluate("Number(window.__lpReadyAt || 0)") or 0
+                    recorded_ready_at_ms = int(recorded_ready_at_ms)
+                except Exception:
+                    recorded_ready_at_ms = 0
+            except Exception:
+                logger.warning("Ready signal timeout in recording phase")
+                recorded_ready_at_ms = 0
+
+            # Verify content in the recording context too (this one affects the recorded frames).
+            # Use it to compute a safer trim point and avoid capturing initialization white/black screens.
+            content_ready_at_ms = 0
+            try:
+                max_retries = int(os.environ.get("LANDPPT_RECORD_VERIFY_RETRIES", "3") or 3)
+                max_retries = max(0, min(10, max_retries))
+                for _ in range(max_retries):
+                    if await self._verify_page_content(page):
+                        try:
+                            content_ready_at_ms = await page.evaluate("Math.floor(performance.now())") or 0
+                            content_ready_at_ms = int(content_ready_at_ms)
+                        except Exception:
+                            content_ready_at_ms = 0
+                        break
+                    await asyncio.sleep(0.5)
+            except Exception:
+                content_ready_at_ms = 0
+
+            try:
+                await self._wait_for_stable_render(page, max_wait_ms=2500, check_interval_ms=150)
+            except Exception:
+                logger.debug("Stable render wait failed in recording phase", exc_info=True)
+
+            trim_leadin_ms = 120
+            try:
+                trim_leadin_ms = int(os.environ.get("LANDPPT_RECORD_TRIM_LEADIN_MS", "120") or 120)
+            except Exception:
+                trim_leadin_ms = 120
+            trim_leadin_ms = max(0, min(1000, trim_leadin_ms))
+
+            trim_at_ms = max(0, recorded_ready_at_ms)
+            if content_ready_at_ms > 0:
+                trim_at_ms = max(trim_at_ms, max(0, content_ready_at_ms - trim_leadin_ms))
+
+            # Optional: wait a bit longer (e.g. 8s) before considering frames "usable",
+            # then trim to that timestamp. This helps skip init/blank frames while keeping full animations.
+            if start_delay_ms:
+                await asyncio.sleep(start_delay_ms / 1000.0)
+                try:
+                    now_ms = await page.evaluate("Math.floor(performance.now())") or 0
+                    now_ms = int(now_ms)
+                except Exception:
+                    now_ms = 0
+                if now_ms > 0:
+                    trim_at_ms = max(trim_at_ms, max(0, now_ms - trim_leadin_ms))
+            
+            # Store metadata for callers
+            try:
+                await page.evaluate(f"window.__lpRecordedReadyAt = {int(trim_at_ms)};")
+            except Exception:
+                pass
+            try:
+                if webgl_info:
+                    await page.evaluate("window.__lpRecordedWebgl = arguments[0];", webgl_info)
+            except Exception:
+                pass
+            
+            # Extra stability wait before we start counting the "usable" segment.
+            # (Video recording already started with the context; we will trim later using trim_at_ms.)
+            await asyncio.sleep(0.2)
+            
+            # Record for specified duration
+            await asyncio.sleep(max(0.25, duration_ms / 1000.0))
+            
+            # Close page to flush video
+            try:
+                await page.close()
+            except Exception:
+                pass
+
+            video_path = None
+            try:
+                if page and page.video:
+                    video_path = await page.video.path()
+            except Exception:
+                video_path = None
+
+            # Ensure recorder flush
+            try:
+                await context.close()
+            except Exception:
+                pass
+
+            # Fallback: pick the newest file under record_dir
+            if not video_path:
+                try:
+                    candidates = list(Path(record_dir).rglob("*"))
+                    files = [c for c in candidates if c.is_file()]
+                    if files:
+                        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                        video_path = str(files[0])
+                except Exception:
+                    video_path = None
+
+            if not video_path or not os.path.exists(video_path):
+                logger.error("Playwright did not produce a video file")
+                return False
+
+            try:
+                # Copy can be large; run in a thread to avoid blocking the event loop (prevents worker watchdog SIGTERM).
+                await asyncio.to_thread(shutil.copyfile, video_path, output_video_path)
+            except Exception:
+                # Cross-device copy fallback
+                import shutil as _shutil
+                await asyncio.to_thread(_shutil.copy, video_path, output_video_path)
+
+            # Write sidecar with metadata
+            try:
+                sidecar = output_video_path + ".json"
+                with open(sidecar, "w", encoding="utf-8") as f:
+                    payload = {"ready_at_ms": int(trim_at_ms)}
+                    f.write(json.dumps(payload, ensure_ascii=False))
+            except Exception:
+                pass
+
+            logger.info("✅ Phase 4 complete: Video recorded successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Recording phase failed: {e}")
+            return False
+        finally:
+            try:
+                if page and not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass
+            try:
+                if context:
+                    await context.close()
+            except Exception:
+                pass
+            try:
+                import shutil as _shutil
+                _shutil.rmtree(record_dir, ignore_errors=True)
+            except Exception:
+                pass
 
 
 # Global converter instance

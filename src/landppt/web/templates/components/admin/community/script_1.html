@@ -1,0 +1,1059 @@
+        let sponsorEditingId = null;
+        let sponsorCache = [];
+        let inviteCodesLoaded = false;
+        let sponsorsLoaded = false;
+        let systemDefaultsLoaded = false;
+        let systemLandPptModels = [];
+        let systemLandPptModelSignature = '';
+        let inviteCurrentPage = 1;
+        let invitePageSize = 20;
+
+        const inviteChannelLabels = {
+            universal: '通用渠道',
+            github: 'GitHub',
+            linuxdo: 'LinuxDo',
+            mail: 'Mail',
+        };
+
+        const providerLabels = {
+            landppt: 'LandPPT',
+            openai: 'OpenAI',
+            anthropic: 'Anthropic',
+            google: 'Google Gemini',
+            ollama: 'Ollama',
+        };
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            const icon = type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle';
+            toast.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('toast-out');
+                setTimeout(() => toast.remove(), 250);
+            }, 3500);
+        }
+
+        function showAlert(message, type = 'success') {
+            showToast(message, type);
+        }
+
+        function formatDateTime(ts) {
+            if (!ts) return '永久';
+            const d = new Date(ts * 1000);
+            if (Number.isNaN(d.getTime())) return '-';
+            return d.toLocaleString();
+        }
+
+        function toDatetimeLocalValue(ts) {
+            if (!ts) return '';
+            const d = new Date(Number(ts) * 1000);
+            if (Number.isNaN(d.getTime())) return '';
+            const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+            return local.toISOString().slice(0, 16);
+        }
+
+        function parseDatetimeLocalValue(value) {
+            if (!value) return null;
+            const d = new Date(value);
+            if (Number.isNaN(d.getTime())) return null;
+            return Math.floor(d.getTime() / 1000);
+        }
+
+        function formatInviteChannel(channel) {
+            return inviteChannelLabels[channel] || channel || '-';
+        }
+
+        async function requestJson(url, options = {}) {
+            const response = await fetch(url, options);
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.detail || data.message || '请求失败');
+            }
+            return data;
+        }
+
+        function getProviderLabel(provider) {
+            return providerLabels[provider] || provider || '未设置';
+        }
+
+        const researchProviderLabels = {
+            tavily: 'Tavily',
+            searxng: 'SearXNG',
+            both: '双通道',
+        };
+
+        const systemDefaultFieldDefinitions = [
+            { key: 'default_ai_provider', id: 'system_default_ai_provider', type: 'select', fallback: 'landppt' },
+            { key: 'landppt_model', id: 'system_landppt_model', type: 'text', fallback: 'MODEL1' },
+            { key: 'landppt_base_url', id: 'system_landppt_base_url', type: 'text', fallback: '' },
+            { key: 'landppt_api_key', id: 'system_landppt_api_key', type: 'text', fallback: '' },
+            { key: 'max_tokens', id: 'system_max_tokens', type: 'number', fallback: 16384 },
+            { key: 'temperature', id: 'system_temperature', type: 'number', fallback: 0.7 },
+            { key: 'top_p', id: 'system_top_p', type: 'number', fallback: 1.0 },
+            { key: 'llm_timeout_seconds', id: 'system_llm_timeout_seconds', type: 'number', fallback: 600 },
+            { key: 'parallel_slides_count', id: 'system_parallel_slides_count', type: 'number', fallback: 3 },
+            { key: 'research_provider', id: 'system_research_provider', type: 'select', fallback: 'tavily' },
+            { key: 'enable_parallel_generation', id: 'system_enable_parallel_generation', type: 'boolean', fallback: true },
+            { key: 'enable_per_slide_creative_guidance', id: 'system_enable_per_slide_creative_guidance', type: 'boolean', fallback: true },
+            { key: 'tavily_api_key', id: 'system_tavily_api_key', type: 'text', fallback: '' },
+            { key: 'tavily_max_results', id: 'system_tavily_max_results', type: 'number', fallback: 10 },
+            { key: 'tavily_search_depth', id: 'system_tavily_search_depth', type: 'select', fallback: 'advanced' },
+            { key: 'searxng_host', id: 'system_searxng_host', type: 'text', fallback: '' },
+            { key: 'searxng_max_results', id: 'system_searxng_max_results', type: 'number', fallback: 10 },
+            { key: 'searxng_language', id: 'system_searxng_language', type: 'text', fallback: 'auto' },
+            { key: 'searxng_timeout', id: 'system_searxng_timeout', type: 'number', fallback: 30 },
+            { key: 'research_max_content_length', id: 'system_research_max_content_length', type: 'number', fallback: 5000 },
+            { key: 'research_extraction_timeout', id: 'system_research_extraction_timeout', type: 'number', fallback: 30 },
+            { key: 'research_enable_content_extraction', id: 'system_research_enable_content_extraction', type: 'boolean', fallback: true },
+            { key: 'tts_voice_zh', id: 'system_tts_voice_zh', type: 'text', fallback: 'zh-CN-XiaoxiaoNeural' },
+            { key: 'tts_voice_en', id: 'system_tts_voice_en', type: 'text', fallback: 'en-US-JennyNeural' },
+            { key: 'comfyui_base_url', id: 'system_comfyui_base_url', type: 'text', fallback: 'http://127.0.0.1:8188' },
+            { key: 'comfyui_tts_workflow_path', id: 'system_comfyui_tts_workflow_path', type: 'text', fallback: 'tests/Qwen3-TD-TTS.json' },
+            { key: 'comfyui_tts_timeout_seconds', id: 'system_comfyui_tts_timeout_seconds', type: 'number', fallback: 600 },
+            { key: 'comfyui_tts_chunk_chars', id: 'system_comfyui_tts_chunk_chars', type: 'number', fallback: 120 },
+            { key: 'comfyui_tts_force_precision', id: 'system_comfyui_tts_force_precision', type: 'text', fallback: '' },
+            { key: 'mineru_base_url', id: 'system_mineru_base_url', type: 'text', fallback: 'https://mineru.net/api/v4' },
+            { key: 'mineru_api_key', id: 'system_mineru_api_key', type: 'text', fallback: '' },
+            { key: 'apryse_license_key', id: 'system_apryse_license_key', type: 'text', fallback: '' },
+            { key: 'enable_apryse_pptx_export', id: 'system_enable_apryse_pptx_export', type: 'boolean', fallback: false },
+        ];
+
+        const systemDefaultFieldIds = systemDefaultFieldDefinitions.map((field) => field.id);
+        let systemDefaultsSnapshot = {};
+
+        function toBooleanValue(value, fallback = false) {
+            if (value === undefined || value === null || value === '') {
+                return fallback;
+            }
+            if (typeof value === 'boolean') {
+                return value;
+            }
+            return ['true', '1', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+        }
+
+        function toNumberValue(value, fallback = '') {
+            if (value === undefined || value === null || value === '') {
+                return fallback;
+            }
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        }
+
+        function normalizeSystemDefaultValue(field, value, fallbackSource = {}) {
+            const sourceFallback = fallbackSource?.[field.key];
+            const fallbackValue = sourceFallback !== undefined ? sourceFallback : field.fallback;
+            let resolvedValue = value;
+
+            if (field.key === 'default_ai_provider' && resolvedValue === 'gemini') {
+                resolvedValue = 'google';
+            }
+
+            if (field.type === 'boolean') {
+                return toBooleanValue(resolvedValue, toBooleanValue(fallbackValue, false));
+            }
+
+            if (field.type === 'number') {
+                return toNumberValue(resolvedValue, toNumberValue(fallbackValue, ''));
+            }
+
+            if (resolvedValue === undefined || resolvedValue === null) {
+                resolvedValue = fallbackValue;
+            }
+
+            return String(resolvedValue ?? '').trim();
+        }
+
+        function normalizeSystemDefaults(config = {}) {
+            const normalized = {};
+            systemDefaultFieldDefinitions.forEach((field) => {
+                normalized[field.key] = normalizeSystemDefaultValue(field, config[field.key], config);
+            });
+            return normalized;
+        }
+
+        function populateSystemDefaultsForm(config = {}) {
+            const normalized = normalizeSystemDefaults(config);
+            systemDefaultsSnapshot = { ...normalized };
+
+            systemDefaultFieldDefinitions.forEach((field) => {
+                const element = document.getElementById(field.id);
+                if (!element) return;
+
+                const value = normalized[field.key];
+                if (field.type === 'boolean') {
+                    element.checked = !!value;
+                    return;
+                }
+
+                element.value = value === undefined || value === null ? '' : String(value);
+            });
+
+            if (systemLandPptModels.length > 0) {
+                renderSystemLandPptModels(systemLandPptModels);
+            }
+        }
+
+        function bindSystemSecretToggleButtons() {
+            document.querySelectorAll('[data-toggle-secret]').forEach((button) => {
+                if (button.dataset.secretBound === 'true') {
+                    return;
+                }
+
+                button.dataset.secretBound = 'true';
+                button.setAttribute('aria-pressed', 'false');
+
+                button.addEventListener('click', () => {
+                    const targetId = button.dataset.toggleSecret;
+                    const input = targetId ? document.getElementById(targetId) : null;
+                    if (!input) return;
+
+                    const nextType = input.type === 'password' ? 'text' : 'password';
+                    const isVisible = nextType === 'text';
+                    input.type = nextType;
+                    button.classList.toggle('is-visible', isVisible);
+                    button.setAttribute('aria-pressed', isVisible ? 'true' : 'false');
+
+                    const icon = button.querySelector('i');
+                    if (icon) {
+                        icon.classList.toggle('fa-eye', !isVisible);
+                        icon.classList.toggle('fa-eye-slash', isVisible);
+                    }
+                });
+            });
+        }
+
+        function collectSystemDefaultsPayload() {
+            const payload = {};
+
+            systemDefaultFieldDefinitions.forEach((field) => {
+                const element = document.getElementById(field.id);
+                if (!element) return;
+
+                if (field.type === 'boolean') {
+                    payload[field.key] = !!element.checked;
+                    return;
+                }
+
+                const rawValue = typeof element.value === 'string' ? element.value.trim() : element.value;
+
+                if (field.type === 'number') {
+                    // 数字项允许临时清空，但保存时应保持当前有效默认值，避免误写为 0。
+                    const fallbackValue = systemDefaultsSnapshot[field.key] !== undefined
+                        ? systemDefaultsSnapshot[field.key]
+                        : field.fallback;
+                    payload[field.key] = rawValue === ''
+                        ? normalizeSystemDefaultValue(field, fallbackValue)
+                        : toNumberValue(rawValue, normalizeSystemDefaultValue(field, fallbackValue));
+                    return;
+                }
+
+                if (field.type === 'select') {
+                    payload[field.key] = normalizeSystemDefaultValue(
+                        field,
+                        rawValue || systemDefaultsSnapshot[field.key] || field.fallback,
+                    );
+                    return;
+                }
+
+                payload[field.key] = rawValue;
+            });
+
+            if (!payload.landppt_model) {
+                payload.landppt_model = systemDefaultsSnapshot.landppt_model || 'MODEL1';
+            }
+
+            return payload;
+        }
+
+        function sortModelList(models = []) {
+            return Array.isArray(models)
+                ? models.filter(Boolean).map((model) => String(model)).sort((a, b) => a.localeCompare(b))
+                : [];
+        }
+
+        function preferModelFirst(models = [], preferredModel = 'MODEL1') {
+            const normalized = Array.isArray(models) ? models.slice() : [];
+            const index = normalized.findIndex((model) => model === preferredModel);
+            if (index > 0) {
+                const [preferred] = normalized.splice(index, 1);
+                normalized.unshift(preferred);
+            }
+            return normalized;
+        }
+
+        function getSystemLandPptModelSignature() {
+            const payload = collectSystemDefaultsPayload();
+            return `${payload.landppt_base_url}::${payload.landppt_api_key}`;
+        }
+
+        function setSystemLandPptDropdownOpen(isOpen) {
+            const wrapper = document.getElementById('systemLandPptModelSelect');
+            if (!wrapper) return;
+            wrapper.classList.toggle('is-open', !!isOpen);
+        }
+
+        function renderSystemLandPptDropdownState(message, type = 'info') {
+            const dropdown = document.getElementById('systemLandPptModelDropdown');
+            if (!dropdown) return;
+
+            const state = document.createElement('div');
+            state.className = `system-model-dropdown-state${type === 'error' ? ' is-error' : ''}`;
+            state.textContent = message;
+            dropdown.innerHTML = '';
+            dropdown.appendChild(state);
+        }
+
+        async function testSystemDefaults() {
+            const payload = collectSystemDefaultsPayload();
+            const data = await requestJson('/api/ai/providers/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    provider: 'landppt',
+                    api_key: payload.landppt_api_key,
+                    base_url: payload.landppt_base_url,
+                    model: payload.landppt_model,
+                }),
+            });
+
+            if (!data.success) {
+                throw new Error(data.error || data.message || 'LandPPT 测试失败');
+            }
+
+            const preview = (data.response_preview || '').trim();
+            showToast(preview ? `LandPPT 测试成功：${preview}` : 'LandPPT 测试成功');
+        }
+
+        function renderSystemLandPptModels(models = []) {
+            const dropdown = document.getElementById('systemLandPptModelDropdown');
+            const input = document.getElementById('system_landppt_model');
+            if (!dropdown) return;
+
+            systemLandPptModels = preferModelFirst(sortModelList(models), 'MODEL1');
+            dropdown.innerHTML = '';
+
+            if (systemLandPptModels.length === 0) {
+                renderSystemLandPptDropdownState('未找到可用模型，请检查当前接口配置。');
+                return;
+            }
+
+            systemLandPptModels.forEach((model) => {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'system-model-option';
+                option.dataset.model = model;
+                option.textContent = model;
+                if ((input?.value || '').trim() === model) {
+                    option.classList.add('is-active');
+                }
+                dropdown.appendChild(option);
+            });
+        }
+
+        function invalidateSystemLandPptModels(options = {}) {
+            const preserveInput = options.preserveInput === true;
+            systemLandPptModels = [];
+            systemLandPptModelSignature = '';
+
+            if (!preserveInput) {
+                renderSystemLandPptDropdownState('点击右侧箭头加载模型列表，也可以直接手动输入。');
+            } else {
+                const dropdown = document.getElementById('systemLandPptModelDropdown');
+                if (dropdown) dropdown.innerHTML = '';
+            }
+        }
+
+        function selectSystemLandPptModel(model) {
+            const input = document.getElementById('system_landppt_model');
+            if (!input) return;
+            input.value = model;
+            renderSystemLandPptModels(systemLandPptModels);
+            updateSystemDefaultSummary();
+            setSystemLandPptDropdownOpen(false);
+        }
+
+        function updateSystemDefaultSummary() {
+            const payload = collectSystemDefaultsPayload();
+            const statusEl = document.getElementById('systemLandPptStatus');
+            const hasLandPptConfig = !!payload.landppt_api_key && !!payload.landppt_base_url;
+
+            if (!statusEl) return;
+
+            if (systemLandPptModels.length > 0) {
+                statusEl.textContent = `已加载 ${systemLandPptModels.length} 个 LandPPT 模型，可直接选择，也可以继续手动输入。`;
+            } else if (hasLandPptConfig) {
+                statusEl.textContent = '当前凭据已填写，点击模型输入框右侧箭头即可拉取 LandPPT 模型列表。';
+            } else {
+                statusEl.textContent = 'LandPPT API Key 或 Base URL 可以留空；留空时不会覆盖用户自己的同名配置。';
+            }
+        }
+
+        async function loadSystemDefaults() {
+            const data = await requestJson('/api/config/system');
+            const config = data.config || {};
+            populateSystemDefaultsForm(config);
+            invalidateSystemLandPptModels();
+            updateSystemDefaultSummary();
+            systemDefaultsLoaded = true;
+
+            if (config.landppt_api_key && config.landppt_base_url) {
+                try {
+                    await loadSystemLandPptModels({ silent: true });
+                } catch (_) {
+                    // 模型列表拉取失败不阻断页面加载，管理员仍可手动重试。
+                }
+            }
+        }
+
+        async function saveSystemDefaults() {
+            const payload = collectSystemDefaultsPayload();
+            await requestJson('/api/config/system', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config: payload }),
+            });
+
+            systemDefaultsSnapshot = { ...payload };
+            systemDefaultsLoaded = true;
+            updateSystemDefaultSummary();
+            showToast('系统默认配置已保存');
+
+            if (payload.landppt_api_key && payload.landppt_base_url) {
+                try {
+                    await loadSystemLandPptModels({ silent: true, force: true });
+                } catch (_) {
+                    invalidateSystemLandPptModels({ preserveInput: true });
+                    updateSystemDefaultSummary();
+                }
+                return;
+            }
+
+            invalidateSystemLandPptModels({ preserveInput: true });
+            updateSystemDefaultSummary();
+        }
+
+        async function loadSystemLandPptModels(options = {}) {
+            const silent = options.silent === true;
+            const force = options.force === true;
+            const currentSignature = getSystemLandPptModelSignature() || '__system_saved_config__';
+
+            if (!force && systemLandPptModels.length > 0 && systemLandPptModelSignature === currentSignature) {
+                return systemLandPptModels;
+            }
+
+            renderSystemLandPptDropdownState('正在加载 LandPPT 模型列表...');
+
+            const payload = collectSystemDefaultsPayload();
+            const data = await requestJson('/admin/api/system-landppt-models', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    api_key: payload.landppt_api_key,
+                    base_url: payload.landppt_base_url,
+                }),
+            });
+
+            if (!data.success) {
+                throw new Error(data.error || '获取 LandPPT 模型列表失败');
+            }
+
+            const models = Array.isArray(data.models) ? data.models : [];
+            renderSystemLandPptModels(models);
+            systemLandPptModelSignature = currentSignature;
+
+            const modelInput = document.getElementById('system_landppt_model');
+            if (modelInput && !modelInput.value.trim() && models.length > 0) {
+                modelInput.value = models.includes('MODEL1') ? 'MODEL1' : models[0];
+            }
+
+            updateSystemDefaultSummary();
+            if (!silent) {
+                showToast(`已加载 ${models.length} 个 LandPPT 模型`);
+            }
+            return models;
+        }
+
+        async function toggleSystemLandPptModelDropdown() {
+            const wrapper = document.getElementById('systemLandPptModelSelect');
+            if (!wrapper) return;
+
+            const willOpen = !wrapper.classList.contains('is-open');
+            setSystemLandPptDropdownOpen(willOpen);
+            if (!willOpen) return;
+
+            try {
+                await loadSystemLandPptModels();
+            } catch (error) {
+                renderSystemLandPptDropdownState(error.message || String(error), 'error');
+                showToast(error.message || String(error), 'error');
+            }
+        }
+
+        function collectSettingsPayload() {
+            return {
+                daily_checkin_enabled: document.getElementById('daily_checkin_enabled').value === 'true',
+                daily_checkin_reward_mode: document.getElementById('daily_checkin_reward_mode').value,
+                daily_checkin_reward_fixed: parseInt(document.getElementById('daily_checkin_reward_fixed').value || '0', 10),
+                daily_checkin_reward_min: parseInt(document.getElementById('daily_checkin_reward_min').value || '0', 10),
+                daily_checkin_reward_max: parseInt(document.getElementById('daily_checkin_reward_max').value || '0', 10),
+                invite_code_required_for_registration: document.getElementById('invite_code_required_for_registration').value === 'true',
+                sponsor_page_enabled: document.getElementById('sponsor_page_enabled').value === 'true',
+                site_notice_enabled: document.getElementById('site_notice_enabled').value === 'true',
+                site_notice_level: document.getElementById('site_notice_level').value,
+                site_notice_title: document.getElementById('site_notice_title').value.trim(),
+                site_notice_message: document.getElementById('site_notice_message').value.trim(),
+                site_notice_start_at: parseDatetimeLocalValue(document.getElementById('site_notice_start_at').value),
+                site_notice_end_at: parseDatetimeLocalValue(document.getElementById('site_notice_end_at').value),
+            };
+        }
+
+        function updateOperationSummaries() {
+            const rewardMode = document.getElementById('daily_checkin_reward_mode').value;
+            const fixedReward = parseInt(document.getElementById('daily_checkin_reward_fixed').value || '0', 10);
+            const minReward = parseInt(document.getElementById('daily_checkin_reward_min').value || '0', 10);
+            const maxReward = parseInt(document.getElementById('daily_checkin_reward_max').value || '0', 10);
+            const checkinEnabled = document.getElementById('daily_checkin_enabled').value === 'true';
+            const inviteRequired = document.getElementById('invite_code_required_for_registration').value === 'true';
+            const sponsorEnabled = document.getElementById('sponsor_page_enabled').value === 'true';
+            const noticeEnabled = document.getElementById('site_notice_enabled').value === 'true';
+            const noticeLevel = document.getElementById('site_notice_level').value;
+            const noticeTitle = document.getElementById('site_notice_title').value.trim();
+            const noticeMessage = document.getElementById('site_notice_message').value.trim();
+            const noticeStartAt = parseDatetimeLocalValue(document.getElementById('site_notice_start_at').value);
+            const noticeEndAt = parseDatetimeLocalValue(document.getElementById('site_notice_end_at').value);
+            const nowTs = Date.now() / 1000;
+
+            const rewardText = rewardMode === 'random'
+                ? `${Math.min(minReward, maxReward)} ~ ${Math.max(minReward, maxReward)} 积分`
+                : `${fixedReward} 积分`;
+
+            document.getElementById('checkinRuleSummary').textContent = checkinEnabled
+                ? `已开启 · ${rewardText}`
+                : '当前关闭';
+
+            document.getElementById('sponsorPageSummary').textContent = sponsorEnabled
+                ? '公开展示中'
+                : '当前隐藏';
+
+            document.getElementById('inviteRegistrationSummary').textContent = inviteRequired
+                ? '新用户必须填写邀请码'
+                : '新用户可不填邀请码，填写后仍按邀请码规则发放奖励';
+
+            let noticeState = '当前关闭';
+            if (noticeEnabled) {
+                if (!noticeTitle && !noticeMessage) {
+                    noticeState = '已开启 · 待填内容';
+                } else if (noticeStartAt && nowTs < noticeStartAt) {
+                    noticeState = '已开启 · 尚未开始';
+                } else if (noticeEndAt && nowTs > noticeEndAt) {
+                    noticeState = '已开启 · 已过期';
+                } else {
+                    const levelLabels = {
+                        info: '信息',
+                        success: '成功',
+                        warning: '提醒',
+                        danger: '警告',
+                    };
+                    noticeState = `展示中 · ${levelLabels[noticeLevel] || noticeLevel}`;
+                }
+            }
+            document.getElementById('noticeSummary').textContent = noticeState;
+
+            const noticeWindow = [];
+            noticeWindow.push(noticeStartAt ? `开始 ${formatDateTime(noticeStartAt)}` : '开始 长期');
+            noticeWindow.push(noticeEndAt ? `结束 ${formatDateTime(noticeEndAt)}` : '结束 长期');
+            noticeWindow.push(
+                noticeTitle || noticeMessage
+                    ? `内容：${noticeTitle || noticeMessage.slice(0, 24)}`
+                    : '内容：暂未填写'
+            );
+            document.getElementById('noticeWindowSummary').textContent = `${noticeWindow.join(' | ')} | 展示位置：主要业务页与登录/注册/找回密码页`;
+
+            const sponsorLink = document.getElementById('sponsorPageLink');
+            sponsorLink.classList.toggle('is-disabled', !sponsorEnabled);
+            sponsorLink.setAttribute('aria-disabled', sponsorEnabled ? 'false' : 'true');
+        }
+
+        async function loadSettings() {
+            const data = await requestJson('/admin/api/community/settings');
+            const settings = data.settings || {};
+            Object.entries(settings).forEach(([key, value]) => {
+                const el = document.getElementById(key);
+                if (!el) return;
+                if (key === 'site_notice_start_at' || key === 'site_notice_end_at') {
+                    el.value = toDatetimeLocalValue(value);
+                    return;
+                }
+                el.value = typeof value === 'boolean' ? String(value) : (value ?? '');
+            });
+            updateOperationSummaries();
+        }
+
+        async function saveSettings() {
+            const payload = collectSettingsPayload();
+            await requestJson('/admin/api/community/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            updateOperationSummaries();
+            showToast('运营配置已保存');
+        }
+
+        async function loadInviteCodes(page = inviteCurrentPage) {
+            inviteCurrentPage = page;
+            const data = await requestJson(`/admin/api/invite-codes?page=${page}&page_size=${invitePageSize}`);
+            const tbody = document.getElementById('inviteTable');
+            const items = data.items || [];
+            const total = data.total || 0;
+            const totalPages = data.total_pages || Math.max(1, Math.ceil(total / invitePageSize));
+            if (!items.length && total > 0 && page > totalPages) {
+                await loadInviteCodes(totalPages);
+                return;
+            }
+            if (!items.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty">暂无邀请码</td></tr>';
+                updateInviteMeta(0, 1, 1);
+                renderInvitePagination(0, 1, 1);
+                inviteCodesLoaded = true;
+                return;
+            }
+
+            tbody.innerHTML = items.map((item) => `
+                <tr>
+                    <td class="mono">${item.code}</td>
+                    <td>${formatInviteChannel(item.channel)}</td>
+                    <td>${item.credits_amount}</td>
+                    <td>${item.used_count}/${item.max_uses}</td>
+                    <td>${item.expires_at ? formatDateTime(item.expires_at) : '永久'}</td>
+                    <td>
+                        <span class="status-pill ${item.is_active ? 'active' : 'inactive'}">
+                            <i class="fas ${item.is_active ? 'fa-check' : 'fa-ban'}"></i>
+                            ${item.is_active ? '启用中' : '已停用'}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="actions-inline">
+                            <button class="btn btn-outline" type="button" onclick="toggleInvite(${item.id}, ${item.is_active})">
+                                ${item.is_active ? '停用' : '启用'}
+                            </button>
+                            <button class="btn btn-ghost" type="button" onclick="deleteInvite(${item.id})">删除</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+            updateInviteMeta(total, page, totalPages);
+            renderInvitePagination(total, page, totalPages);
+            inviteCodesLoaded = true;
+        }
+
+        async function toggleInvite(id, currentState) {
+            await requestJson(`/admin/api/invite-codes/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: !currentState }),
+            });
+            showToast('邀请码状态已更新');
+            await loadInviteCodes(inviteCurrentPage);
+        }
+
+        async function deleteInvite(id) {
+            if (!confirm('确定删除该邀请码吗？已使用的邀请码不能删除。')) return;
+            await requestJson(`/admin/api/invite-codes/${id}`, {
+                method: 'DELETE',
+            });
+            showToast('邀请码已删除');
+            await loadInviteCodes(inviteCurrentPage);
+        }
+
+        async function createInvites(event) {
+            event.preventDefault();
+            const payload = {
+                count: parseInt(document.getElementById('invite_count').value || '1', 10),
+                channel: document.getElementById('invite_channel').value,
+                credits_amount: parseInt(document.getElementById('invite_credits').value || '0', 10),
+                max_uses: parseInt(document.getElementById('invite_max_uses').value || '1', 10),
+                description: document.getElementById('invite_desc').value.trim() || null,
+                expires_in_days: document.getElementById('invite_expires').value
+                    ? parseInt(document.getElementById('invite_expires').value, 10)
+                    : null,
+            };
+            const data = await requestJson('/admin/api/invite-codes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const createdCodes = (data.items || []).map((item) => item.code).join(', ');
+            showToast(`已生成 ${(data.items || []).length} 个邀请码：${createdCodes}`);
+            document.getElementById('inviteForm').reset();
+            document.getElementById('invite_count').value = '5';
+            document.getElementById('invite_credits').value = '0';
+            document.getElementById('invite_max_uses').value = '1';
+            await loadInviteCodes(1);
+        }
+
+        function updateInviteMeta(total, page, totalPages) {
+            const start = total === 0 ? 0 : (page - 1) * invitePageSize + 1;
+            const end = Math.min(total, page * invitePageSize);
+            document.getElementById('inviteTableMeta').textContent = `共 ${total} 个邀请码 | 显示 ${start}-${end} | 第 ${Math.max(1, page)}/${Math.max(1, totalPages)} 页`;
+        }
+
+        function renderInvitePagination(total, page, totalPages) {
+            const container = document.getElementById('invitePagination');
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            const pages = [];
+            const windowSize = 2;
+            const addPage = (value) => pages.push(value);
+            const addRange = (from, to) => {
+                for (let i = from; i <= to; i += 1) addPage(i);
+            };
+
+            addPage(1);
+            const left = Math.max(2, page - windowSize);
+            const right = Math.min(totalPages - 1, page + windowSize);
+            if (left > 2) addPage('...');
+            addRange(left, right);
+            if (right < totalPages - 1) addPage('...');
+            if (totalPages > 1) addPage(totalPages);
+
+            let html = '';
+            html += `<button ${page <= 1 ? 'disabled' : ''} onclick="loadInviteCodes(${page - 1})">上一页</button>`;
+            pages.forEach((item) => {
+                if (item === '...') {
+                    html += '<span class="pagination__sep">...</span>';
+                    return;
+                }
+                html += `<button class="${item === page ? 'active' : ''}" onclick="loadInviteCodes(${item})">${item}</button>`;
+            });
+            html += `<button ${page >= totalPages ? 'disabled' : ''} onclick="loadInviteCodes(${page + 1})">下一页</button>`;
+            container.innerHTML = html;
+        }
+
+        function exportInviteCodes() {
+            window.location.href = '/admin/api/invite-codes/export';
+        }
+
+        function resetSponsorForm() {
+            sponsorEditingId = null;
+            document.getElementById('sponsorForm').reset();
+            document.getElementById('sponsor_sort_order').value = '0';
+            document.getElementById('sponsor_is_active').value = 'true';
+            document.getElementById('saveSponsorBtn').innerHTML = '<i class="fas fa-floppy-disk"></i> 保存赞助人';
+            document.getElementById('sponsorFormHint').textContent = '当前为新增模式。';
+        }
+
+        function editSponsor(index) {
+            const item = sponsorCache[index];
+            if (!item) return;
+            activateCommunityTab('sponsors');
+            sponsorEditingId = item.id;
+            document.getElementById('sponsor_nickname').value = item.nickname || '';
+            document.getElementById('sponsor_avatar_url').value = item.avatar_url || '';
+            document.getElementById('sponsor_link_url').value = item.link_url || '';
+            document.getElementById('sponsor_amount').value = item.amount || '';
+            document.getElementById('sponsor_sort_order').value = item.sort_order || 0;
+            document.getElementById('sponsor_is_active').value = String(!!item.is_active);
+            document.getElementById('sponsor_bio').value = item.bio || '';
+            document.getElementById('sponsor_note').value = item.note || '';
+            document.getElementById('saveSponsorBtn').innerHTML = '<i class="fas fa-pen"></i> 更新赞助人';
+            document.getElementById('sponsorFormHint').textContent = `当前正在编辑：${item.nickname}`;
+            window.scrollTo({
+                top: Math.max(0, document.getElementById('sponsorForm').offsetTop - 110),
+                behavior: 'smooth',
+            });
+        }
+
+        async function deleteSponsor(id) {
+            if (!confirm('确定删除该赞助人吗？')) return;
+            await requestJson(`/admin/api/sponsors/${id}`, { method: 'DELETE' });
+            showToast('赞助人已删除');
+            await loadSponsors();
+            if (sponsorEditingId === id) resetSponsorForm();
+        }
+
+        async function loadSponsors() {
+            const data = await requestJson('/admin/api/sponsors');
+            sponsorCache = data.items || [];
+            const container = document.getElementById('sponsorList');
+            if (!sponsorCache.length) {
+                container.innerHTML = '<div class="empty">暂无赞助人信息</div>';
+                sponsorsLoaded = true;
+                return;
+            }
+
+            container.innerHTML = sponsorCache.map((item, index) => `
+                <div class="sponsor-item">
+                    <img class="sponsor-avatar" src="${item.avatar_url || '/static/images/placeholder.svg'}" alt="${item.nickname}">
+                    <div class="sponsor-meta">
+                        <h4>${item.nickname}</h4>
+                        <p>${item.bio || '暂无简介'}</p>
+                        <div class="sponsor-links">
+                            <span class="status-pill ${item.is_active ? 'active' : 'inactive'}">${item.is_active ? '展示中' : '已隐藏'}</span>
+                            <span class="helper">排序 ${item.sort_order}</span>
+                            ${item.amount ? `<span class="helper">金额 ${item.amount}</span>` : ''}
+                            ${item.note ? `<span class="helper">${item.note}</span>` : ''}
+                            ${item.link_url ? `<a href="${item.link_url}" target="_blank" class="helper-link">访问链接</a>` : ''}
+                        </div>
+                    </div>
+                    <div class="actions-inline">
+                        <button class="btn btn-outline" type="button" onclick="editSponsor(${index})">编辑</button>
+                        <button class="btn btn-ghost" type="button" onclick="deleteSponsor(${item.id})">删除</button>
+                    </div>
+                </div>
+            `).join('');
+            sponsorsLoaded = true;
+        }
+
+        async function saveSponsor(event) {
+            event.preventDefault();
+            const payload = {
+                nickname: document.getElementById('sponsor_nickname').value.trim(),
+                avatar_url: document.getElementById('sponsor_avatar_url').value.trim() || null,
+                link_url: document.getElementById('sponsor_link_url').value.trim() || null,
+                amount: document.getElementById('sponsor_amount').value.trim() || null,
+                sort_order: parseInt(document.getElementById('sponsor_sort_order').value || '0', 10),
+                is_active: document.getElementById('sponsor_is_active').value === 'true',
+                bio: document.getElementById('sponsor_bio').value.trim() || null,
+                note: document.getElementById('sponsor_note').value.trim() || null,
+            };
+
+            if (!payload.nickname) {
+                throw new Error('赞助人昵称不能为空');
+            }
+
+            const url = sponsorEditingId ? `/admin/api/sponsors/${sponsorEditingId}` : '/admin/api/sponsors';
+            const method = sponsorEditingId ? 'PUT' : 'POST';
+            await requestJson(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            showToast(sponsorEditingId ? '赞助人已更新' : '赞助人已创建');
+            resetSponsorForm();
+            await loadSponsors();
+        }
+
+        function activateCommunityTab(tabName, options = {}) {
+            const syncHash = options.syncHash !== false;
+            const target = ['system-defaults', 'notice', 'checkin', 'invites', 'sponsors'].includes(tabName)
+                ? tabName
+                : 'system-defaults';
+
+            document.querySelectorAll('.community-tab').forEach((button) => {
+                const isActive = button.dataset.tabTarget === target;
+                button.classList.toggle('is-active', isActive);
+                button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            });
+
+            document.querySelectorAll('.community-panel').forEach((panel) => {
+                panel.classList.toggle('is-active', panel.dataset.tabPanel === target);
+            });
+
+            if (syncHash) {
+                history.replaceState(null, '', `#${target}`);
+            }
+
+            if (target === 'invites' && !inviteCodesLoaded) {
+                loadInviteCodes().catch((error) => {
+                    showToast(error.message || String(error), 'error');
+                });
+            }
+
+            if (target === 'system-defaults' && !systemDefaultsLoaded) {
+                loadSystemDefaults().catch((error) => {
+                    showToast(error.message || String(error), 'error');
+                });
+            }
+
+            if (target === 'sponsors' && !sponsorsLoaded) {
+                loadSponsors().catch((error) => {
+                    showToast(error.message || String(error), 'error');
+                });
+            }
+        }
+
+        function initCommunityTabs() {
+            document.querySelectorAll('.community-tab').forEach((button) => {
+                button.addEventListener('click', () => activateCommunityTab(button.dataset.tabTarget));
+            });
+
+            const hashTab = (window.location.hash || '').replace('#', '').trim();
+            activateCommunityTab(hashTab || 'system-defaults', { syncHash: false });
+
+            window.addEventListener('hashchange', () => {
+                const nextTab = (window.location.hash || '').replace('#', '').trim();
+                activateCommunityTab(nextTab || 'system-defaults', { syncHash: false });
+            });
+        }
+
+        document.getElementById('saveSystemDefaultsBtn').addEventListener('click', async () => {
+            try {
+                await saveSystemDefaults();
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('testSystemDefaultsBtn').addEventListener('click', async () => {
+            try {
+                await testSystemDefaults();
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('systemLandPptModelToggleBtn')?.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            await toggleSystemLandPptModelDropdown();
+        });
+
+        document.getElementById('systemLandPptModelDropdown')?.addEventListener('click', (event) => {
+            const option = event.target.closest('.system-model-option');
+            if (!option) return;
+            selectSystemLandPptModel(option.dataset.model || '');
+        });
+
+        document.getElementById('system_landppt_model')?.addEventListener('keydown', async (event) => {
+            if (event.key !== 'ArrowDown') return;
+            event.preventDefault();
+            await toggleSystemLandPptModelDropdown();
+        });
+
+        document.getElementById('saveNoticeSettingsBtn').addEventListener('click', async () => {
+            try {
+                await saveSettings();
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('saveCheckinSettingsBtn').addEventListener('click', async () => {
+            try {
+                await saveSettings();
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('saveInviteSettingsBtn').addEventListener('click', async () => {
+            try {
+                await saveSettings();
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('saveSponsorSettingsBtn').addEventListener('click', async () => {
+            try {
+                await saveSettings();
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('refreshInvitesBtn').addEventListener('click', async () => {
+            try {
+                await loadInviteCodes();
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('invitePageSizeSelect').addEventListener('change', async (event) => {
+            invitePageSize = parseInt(event.target.value, 10) || 20;
+            try {
+                await loadInviteCodes(1);
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('exportInvitesBtn').addEventListener('click', () => {
+            exportInviteCodes();
+        });
+
+        document.getElementById('refreshSponsorsBtn').addEventListener('click', async () => {
+            try {
+                await loadSponsors();
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('inviteForm').addEventListener('submit', async (event) => {
+            try {
+                await createInvites(event);
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        document.getElementById('sponsorForm').addEventListener('submit', async (event) => {
+            try {
+                await saveSponsor(event);
+            } catch (error) {
+                showToast(error.message || String(error), 'error');
+            }
+        });
+
+        [
+            ...systemDefaultFieldIds,
+            'site_notice_enabled',
+            'site_notice_level',
+            'site_notice_title',
+            'site_notice_message',
+            'site_notice_start_at',
+            'site_notice_end_at',
+            'daily_checkin_enabled',
+            'daily_checkin_reward_mode',
+            'daily_checkin_reward_fixed',
+            'daily_checkin_reward_min',
+            'daily_checkin_reward_max',
+            'invite_code_required_for_registration',
+            'sponsor_page_enabled',
+        ].forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+
+            const handler = id.startsWith('system_') ? updateSystemDefaultSummary : updateOperationSummaries;
+            el.addEventListener('input', handler);
+            el.addEventListener('change', handler);
+        });
+
+        ['system_landppt_api_key', 'system_landppt_base_url'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+
+            const resetModelCache = () => {
+                invalidateSystemLandPptModels({ preserveInput: true });
+                updateSystemDefaultSummary();
+            };
+
+            el.addEventListener('input', resetModelCache);
+            el.addEventListener('change', resetModelCache);
+        });
+
+        document.getElementById('system_landppt_model')?.addEventListener('input', () => {
+            if (systemLandPptModels.length > 0) {
+                renderSystemLandPptModels(systemLandPptModels);
+            }
+        });
+
+        document.addEventListener('click', (event) => {
+            if (event.target.closest('#systemLandPptModelSelect')) return;
+            setSystemLandPptDropdownOpen(false);
+        });
+
+        bindSystemSecretToggleButtons();
+        initCommunityTabs();
+        loadSettings().catch((error) => {
+            showToast(error.message || String(error), 'error');
+        });

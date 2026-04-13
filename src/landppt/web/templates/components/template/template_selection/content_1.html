@@ -1,0 +1,130 @@
+<div style="max-width: 1400px; margin: 0 auto; padding: 0 var(--spacing-md);">
+
+    <!-- 页头 -->
+    <div class="template-selection-header">
+        <div>
+            <h1><i class="fas fa-swatchbook"></i> 选择 PPT 模板</h1>
+            <p>为您的演示文稿选择一个合适的模板</p>
+        </div>
+        <div class="project-info">
+            <strong>项目：</strong><span id="projectTopic">{{ project_topic or '未知项目' }}</span>
+        </div>
+    </div>
+
+    <!-- 搜索和筛选 -->
+    <div style="background: #fff; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); padding: 14px 16px; margin-bottom: 16px;">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+            <!-- 搜索 -->
+            <div style="flex: 1; min-width: 240px; position: relative;">
+                <input type="text" id="searchInput" placeholder="搜索模板名称或描述..."
+                    style="width: 100%; padding: 9px 14px 9px 36px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; background: #fff; font-size: 0.875rem; color: var(--text-primary); height: 38px;"
+                    onkeypress="if(event.key==='Enter') performSearch()">
+                <div style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.82rem; pointer-events: none;">
+                    <i class="fas fa-search"></i>
+                </div>
+                <button id="clearSearchBtn" onclick="clearSearch()"
+                    style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 1rem; display: none;"
+                    title="清除搜索">✕</button>
+            </div>
+
+            <!-- 分隔线 -->
+            <div style="width: 1px; height: 24px; background: var(--border-color, #e5e7eb); flex-shrink: 0;"></div>
+
+            <!-- 分类筛选 -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="color: var(--text-secondary); font-weight: 600; white-space: nowrap; font-size: 0.82rem; margin: 0; text-transform: none; letter-spacing: normal;">分类筛选:</label>
+                <select id="tagFilter" onchange="filterByTag()"
+                    style="padding: 0 36px 0 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; background: #fff; color: var(--text-primary); font-size: 0.82rem; min-width: 110px; height: 38px; cursor: pointer; appearance: none; background-image: url(&quot;data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e&quot;); background-position: right 12px center; background-repeat: no-repeat; background-size: 16px;">
+                    <option value="">全部分类</option>
+                </select>
+            </div>
+
+            <!-- 间隔 -->
+            <div style="flex: 1;"></div>
+
+            <!-- 搜索按钮 -->
+            <button onclick="performSearch()" class="btn btn-primary btn-sm" style="height: 38px; padding: 0 16px;">
+                <i class="fas fa-search"></i> 搜索
+            </button>
+        </div>
+
+        <!-- 活动筛选标签 -->
+        <div id="activeFilters" style="margin-top: 10px; display: none;">
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                <span style="color: var(--text-secondary); font-size: 0.82rem; font-weight: 600;">当前筛选:</span>
+                <div id="filterTags" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+                <button onclick="clearAllFilters()"
+                    style="background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.75rem; text-decoration: underline;">清除所有</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模板网格 -->
+    <div id="templatesGrid"
+        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;">
+        <!-- 由 JS 渲染 -->
+    </div>
+
+    <!-- 加载指示器 -->
+    <div id="loadingIndicator" style="text-align: center; padding: 48px 24px; display: none;">
+        <div
+            style="display: inline-block; width: 36px; height: 36px; border: 3px solid #f1f5f9; border-top: 3px solid #111; border-radius: 50%; animation: spin 0.8s linear infinite;">
+        </div>
+        <p style="margin-top: 12px; color: var(--text-secondary); font-weight: 600; font-size: 0.95rem;">
+            正在加载模板...</p>
+        <p style="margin-top: 4px; color: #94a3b8; font-size: 0.82rem;">请稍候</p>
+    </div>
+
+    <!-- 分页 -->
+    <div id="paginationContainer" style="display: none; margin-top: 16px; text-align: center;">
+        <div style="background: #fff; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); padding: 10px 16px; display: inline-block;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;">
+                <button id="prevPageBtn" onclick="changePage(currentPage - 1)" class="btn btn-sm btn-outline" disabled>
+                    ← 上一页
+                </button>
+                <div id="pageNumbers" style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+                </div>
+                <button id="nextPageBtn" onclick="changePage(currentPage + 1)" class="btn btn-sm btn-outline" disabled>
+                    下一页 →
+                </button>
+            </div>
+            <div id="pageInfo" style="margin-top: 8px; color: var(--text-secondary); font-size: 0.82rem;"></div>
+        </div>
+    </div>
+
+    <!-- 底部操作区 -->
+    <div style="text-align: center; margin-top: 24px; padding: 20px 16px; background: #fff; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+        <div style="margin-bottom: 12px;">
+            <span style="color: var(--text-secondary); font-size: 0.95rem; font-weight: 500;">选择模板后点击下方按钮开始生成PPT</span>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+            <button id="startGenerationBtn" class="btn btn-primary btn-lg" disabled>
+                🚀 开始生成PPT
+            </button>
+            <button id="skipSelectionBtn" class="btn btn-secondary btn-lg">
+                ⏭️ 使用默认模板
+            </button>
+        </div>
+    </div>
+
+    <!-- 已选模板信息 -->
+    <div id="selectedTemplateInfo"
+        style="display: none; margin-top: 16px; padding: 16px; background: #f0fdf4; border-radius: 12px; border: 1px solid #bbf7d0;">
+        <h4 style="margin: 0 0 8px 0; color: var(--text-primary); font-weight: 600; font-size: 0.95rem;">✅ 已选择模板</h4>
+        <div id="selectedTemplateDetails" style="color: var(--text-secondary); font-size: 0.875rem;"></div>
+    </div>
+</div>
+
+<!-- 模板预览 Modal -->
+<div id="previewModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 95%; width: 95%; max-height: 95vh;">
+        <div class="modal-header">
+            <h2 id="previewTitle">模板预览</h2>
+            <span class="close" id="closePreviewModal">&times;</span>
+        </div>
+        <div class="modal-body" style="text-align: center;">
+            <iframe id="previewFrame"
+                style="width: 1280px; height: 720px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; transform: scale(0.8); transform-origin: top left; margin: 0 auto;"></iframe>
+        </div>
+    </div>
+</div>

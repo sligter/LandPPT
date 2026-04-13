@@ -1,0 +1,1517 @@
+<div class="ai-config-page">
+    <div class="page-hero">
+        <div>
+            <p class="hero-eyebrow">配置中心</p>
+            <h2 class="page-title">系统配置管理</h2>
+            <p class="page-subtitle">
+                配置和管理 LandPPT 的所有系统参数，包括 AI 提供者、生成参数、应用配置等。
+            </p>
+            <!-- <div class="hero-meta">
+            <span class="pill pill--solid">当前提供者：{{ current_provider }}</span>
+            <span class="pill">可用提供者：{{ available_providers | length }} 个</span>
+        </div> -->
+        </div>
+        <!-- <div class="hero-actions">
+        <button onclick="testCurrentProvider()" class="btn btn-primary">
+            测试当前提供者
+        </button>
+        <button onclick="refreshProviders()" class="btn btn-secondary">
+            刷新状态
+        </button>
+    </div> -->
+    </div>
+
+    <!-- 配置导航标签 -->
+    <div style="margin-bottom: 30px;">
+        <div class="config-tabs" style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+            <button class="tab-btn active" onclick="switchTab('ai-providers')" data-tab="ai-providers">
+                AI 提供者
+            </button>
+            <button class="tab-btn" onclick="switchTab('generation-params')" data-tab="generation-params">
+                生成参数
+            </button>
+            {% if user and user.is_admin %}
+            <button class="tab-btn" onclick="switchTab('app-config')" data-tab="app-config">
+                应用配置
+            </button>
+            {% endif %}
+            <button class="tab-btn" onclick="switchTab('image-service')" data-tab="image-service">
+                图片服务
+            </button>
+        </div>
+    </div>
+
+    <!-- AI 提供者配置标签页 -->
+    <div id="ai-providers" class="tab-content active">
+        <div style="margin-top: 30px;">
+            <h3 class="section-heading" style="text-align: center; margin-bottom: 20px;">AI 提供者详情配置</h3>
+
+            <div class="card" style="padding: 0; overflow: hidden;">
+                {% for provider in ["landppt", "openai", "anthropic", "google"] %}
+                <div class="provider-accordion-item" data-provider="{{ provider }}"
+                    style="border-bottom: 1px solid #eee;">
+                    <!-- 提供者标题行 -->
+                    <div class="provider-header" onclick="toggleProviderAccordion('{{ provider }}')"
+                        style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; cursor: pointer; background: {% if current_provider == provider %}#f8f8f8{% else %}#fff{% endif %}; transition: background 0.2s;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <i class="fas fa-chevron-right provider-chevron" id="chevron_{{ provider }}"
+                                style="transition: transform 0.2s; color: #666; font-size: 12px;"></i>
+                            <span style="font-weight: 600; color: #333;">
+                                {% if provider == "landppt" %}LandPPT
+                                {% elif provider == "openai" %}OpenAI
+                                {% elif provider == "anthropic" %}Anthropic Claude
+                                {% elif provider == "google" %}Google Gemini
+                                {% endif %}
+                            </span>
+                            {% if provider != "landppt" %}
+                            {% if provider_status[provider] %}
+                            <span
+                                style="background: #0f0f0f; color: #f8f8f8; padding: 2px 10px; border-radius: 12px; font-size: 0.75em;">可用</span>
+                            {% else %}
+                            <span
+                                style="background: #e5e5e5; color: #666; padding: 2px 10px; border-radius: 12px; font-size: 0.75em;">未配置</span>
+                            {% endif %}
+                            {% endif %}
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;" onclick="event.stopPropagation();">
+                            <label
+                                style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9em; color: #555;">
+                                <input type="radio" name="default_provider" value="{{ provider }}" {% if
+                                    current_provider==provider %}checked{% endif %}
+                                    onchange="setDefaultProvider('{{ provider }}')" style="accent-color: #111;">
+                                默认
+                            </label>
+                            <button onclick="event.stopPropagation(); testProviderConnection('{{ provider }}')"
+                                class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.85em;" title="测试连接">
+                                <i class="fas fa-plug"></i>
+                            </button>
+                            <button onclick="event.stopPropagation(); saveProviderConfig('{{ provider }}')"
+                                class="btn btn-success" style="padding: 5px 12px; font-size: 0.85em;">保存</button>
+                        </div>
+                    </div>
+
+                    <!-- 提供者配置内容（默认隐藏） -->
+                    <div class="provider-content" id="provider_content_{{ provider }}"
+                        style="display: none; padding: 16px 20px; background: #fafafa; border-top: 1px solid #eee;">
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+                            {% if provider == "landppt" %}
+                            <div class="form-group" style="margin: 0; grid-column: 1 / -1;">
+                                <div
+                                    style="padding: 12px 14px; border-radius: 8px; border: 1px solid #f0d8ab; background: #fff8e8; color: #8a5a00; font-size: 0.85em; line-height: 1.65;">
+                                    {% if user and user.is_admin %}
+                                    LandPPT 系统凭据与系统默认值已迁移到
+                                    <a href="/admin/community#system-defaults"
+                                        style="color: #8a5a00; font-weight: 700;">后台管理 / 系统默认配置</a>；
+                                    这里仅保留当前账号的 LandPPT 模型覆盖设置。
+                                    {% else %}
+                                    LandPPT 的服务凭据由管理员在后台统一维护，这里仅设置当前账号使用的 LandPPT 模型覆盖值。
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin: 0; grid-column: 1 / -1;">
+                                <label
+                                    style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">默认模型</label>
+                                <div class="model-select-wrapper" style="position: relative;">
+                                    <input type="text" name="landppt_model" id="landppt_model_input"
+                                        value="{{ current_config.get('landppt_model', '') }}" placeholder="点击选择模型..."
+                                        style="width: 100%; padding: 10px 36px 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em; cursor: text; background: #fff;">
+                                    <button type="button" onclick="openModelDropdown('landppt')" aria-label="Open model list"
+                                        style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: transparent; padding: 4px; cursor: pointer; color: #999;">
+                                            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                                        </button>
+                                    <div id="landppt_model_dropdown" class="model-dropdown"
+                                        style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; z-index: 100; margin-top: 4px;">
+                                    </div>
+                                </div>
+                            </div>
+                            {% elif provider == "openai" %}
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">API
+                                    Key</label>
+                                <input type="password" name="openai_api_key" placeholder="sk-..."
+                                    value="{{ current_config.get('openai_api_key', '') }}"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">Base
+                                    URL</label>
+                                <input type="text" name="openai_base_url"
+                                    value="{{ current_config.get('openai_base_url', '') }}"
+                                    placeholder="https://api.openai.com/v1"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            <div class="form-group" style="margin: 0; grid-column: 1 / -1;">
+                                <label
+                                    style="display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.9em; color: #333;">
+                                    <input type="checkbox" name="openai_use_responses_api" {% if
+                                        current_config.get('openai_use_responses_api') %}checked{% endif %}>
+                                    <span>启用 /v1/responses 请求</span>
+                                </label>
+                                <div style="margin-top: 6px; color: #777; font-size: 0.82em;">
+                                    勾选后，OpenAI 提供商会立即切换到 Responses API。
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label
+                                    style="display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.9em; color: #333;">
+                                    <input type="checkbox" name="openai_enable_reasoning" {% if
+                                        current_config.get('openai_enable_reasoning') %}checked{% endif %}>
+                                    <span>启用思考模式</span>
+                                </label>
+                                <div style="margin-top: 6px; color: #777; font-size: 0.82em;">
+                                    开启后会在 OpenAI 请求中附带 reasoning 参数；关闭时保持模型默认行为。
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label
+                                    style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">推理程度</label>
+                                {% set openai_reasoning_effort = current_config.get('openai_reasoning_effort', 'medium') %}
+                                <select name="openai_reasoning_effort" {% if not current_config.get('openai_enable_reasoning') %}disabled{% endif %}
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em; background: #fff;">
+                                    <option value="none" {% if openai_reasoning_effort == 'none' %}selected{% endif %}>none</option>
+                                    <option value="minimal" {% if openai_reasoning_effort == 'minimal' %}selected{% endif %}>minimal</option>
+                                    <option value="low" {% if openai_reasoning_effort == 'low' %}selected{% endif %}>low</option>
+                                    <option value="medium" {% if openai_reasoning_effort == 'medium' %}selected{% endif %}>medium</option>
+                                    <option value="high" {% if openai_reasoning_effort == 'high' %}selected{% endif %}>high</option>
+                                    <option value="xhigh" {% if openai_reasoning_effort == 'xhigh' %}selected{% endif %}>xhigh</option>
+                                </select>
+                                <div style="margin-top: 6px; color: #777; font-size: 0.82em;">
+                                    不同 OpenAI 模型支持的档位不同；若模型不支持，测试或调用会返回参数错误。
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin: 0; grid-column: 1 / -1;">
+                                <label
+                                    style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">默认模型</label>
+                                <div class="model-select-wrapper" style="position: relative;">
+                                    <input type="text" name="openai_model" id="openai_model_input"
+                                        value="{{ current_config.get('openai_model', '') }}" placeholder="点击选择模型..."
+                                        style="width: 100%; padding: 10px 36px 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em; cursor: text; background: #fff;">
+                                    <button type="button" onclick="openModelDropdown('openai')" aria-label="Open model list"
+                                        style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: transparent; padding: 4px; cursor: pointer; color: #999;">
+                                            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                                        </button>
+                                    <div id="openai_model_dropdown" class="model-dropdown"
+                                        style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; z-index: 100; margin-top: 4px;">
+                                    </div>
+                                </div>
+                            </div>
+                            {% elif provider == "anthropic" %}
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">API
+                                    Key</label>
+                                <input type="password" name="anthropic_api_key" placeholder="sk-ant-..."
+                                    value="{{ current_config.get('anthropic_api_key', '') }}"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">Base
+                                    URL</label>
+                                <input type="text" name="anthropic_base_url"
+                                    value="{{ current_config.get('anthropic_base_url', '') }}"
+                                    placeholder="https://api.anthropic.com"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label
+                                    style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">默认模型</label>
+                                <input type="text" name="anthropic_model"
+                                    value="{{ current_config.get('anthropic_model', '') }}"
+                                    placeholder="claude-3-5-sonnet-20241022"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            {% elif provider == "google" %}
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">API
+                                    Key</label>
+                                <input type="password" name="google_api_key" placeholder="your-google-api-key"
+                                    value="{{ current_config.get('google_api_key', '') }}"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">Base
+                                    URL</label>
+                                <input type="text" name="google_base_url"
+                                    value="{{ current_config.get('google_base_url', '') }}"
+                                    placeholder="https://generativelanguage.googleapis.com"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label
+                                    style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">默认模型</label>
+                                <input type="text" name="google_model"
+                                    value="{{ current_config.get('google_model', '') }}" placeholder="gemini-2.5-flash"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            {% elif provider == "ollama" %}
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">Base
+                                    URL</label>
+                                <input type="text" name="ollama_base_url"
+                                    value="{{ current_config.get('ollama_base_url', '') }}"
+                                    placeholder="http://localhost:11434"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label
+                                    style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">默认模型</label>
+                                <input type="text" name="ollama_model"
+                                    value="{{ current_config.get('ollama_model', '') }}"
+                                    placeholder="llama2, mistral..."
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                            </div>
+                            {% endif %}
+                        </div>
+
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- 模型任务配置-->
+        <div id="model-roles">
+            <div style="margin: 0 auto;">
+                <div class="card" style="margin-bottom: 20px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <div>
+                            <h3 class="section-heading" style="margin-bottom: 6px;">模型任务配置</h3>
+                            <p style="color: #7f8c8d; margin: 0;">为不同功能指定专用提供者和模型，未设置时将继承默认配置。</p>
+                        </div>
+                        <button type="button" id="model-role-toggle-btn" class="btn btn-secondary"
+                            style="min-width: 140px;" onclick="toggleModelRoleSettings()">
+                            展开设置
+                        </button>
+                    </div>
+                </div>
+                <div id="model-role-settings" style="display: none;">
+                    <div class="card" style="padding: 0; overflow: hidden;">
+                        {% set model_roles = [
+                        {'label': '默认模型', 'provider_field': 'default_model_provider', 'model_field':
+                        'default_model_name'},
+                        {'label': '大纲生成', 'provider_field': 'outline_model_provider', 'model_field':
+                        'outline_model_name'},
+                        {'label': '创意指导', 'provider_field': 'creative_model_provider', 'model_field':
+                        'creative_model_name'},
+                        {'label': '配图提示词', 'provider_field': 'image_prompt_model_provider', 'model_field':
+                        'image_prompt_model_name'},
+                        {'label': '幻灯片生成', 'provider_field': 'slide_generation_model_provider', 'model_field':
+                        'slide_generation_model_name'},
+                        {'label': '演讲稿生成', 'provider_field': 'speech_script_model_provider', 'model_field':
+                        'speech_script_model_name'},
+                        {'label': 'AI编辑助手', 'provider_field': 'editor_assistant_model_provider', 'model_field':
+                        'editor_assistant_model_name'},
+                        {'label': 'AI雕琢', 'provider_field': 'polish_model_provider', 'model_field':
+                        'polish_model_name'},
+                        {'label': 'AI模板生成', 'provider_field': 'template_generation_model_provider', 'model_field':
+                        'template_generation_model_name'},
+                        {'label': '视觉分析', 'provider_field': 'vision_analysis_model_provider', 'model_field':
+                        'vision_analysis_model_name'}
+                        ] %}
+                        <table class="model-roles-table" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f5f5f5;">
+                                    <th
+                                        style="padding: 12px 16px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e0e0e0; width: 140px;">
+                                        功能</th>
+                                    <th
+                                        style="padding: 12px 16px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e0e0e0; width: 180px;">
+                                        提供者</th>
+                                    <th
+                                        style="padding: 12px 16px; text-align: left; font-weight: 600; color: #333; border-bottom: 2px solid #e0e0e0;">
+                                        模型</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for role in model_roles %}
+                                <tr data-role-model-field="{{ role.model_field }}"
+                                    style="border-bottom: 1px solid #eee;">
+                                    <td style="padding: 12px 16px; font-weight: 500; color: #333;">{{ role.label }}</td>
+                                    <td style="padding: 8px 16px;">
+                                        <select name="{{ role.provider_field }}" class="model-role-provider"
+                                            data-model-field="{{ role.model_field }}"
+                                            onchange="onRoleProviderChange(this)"
+                                            style="width: 100%; padding: 8px 10px; border: 1px solid #dcdcdc; border-radius: 6px; font-size: 0.9em;">
+                                            <option value="">默认</option>
+                                            {% if current_config.get(role.provider_field) == "ollama" %}
+                                            <option value="ollama" selected hidden>ollama</option>
+                                            {% endif %}
+                                            {% for provider in ["landppt", "openai", "anthropic", "google"] %}
+                                            <option value="{{ provider }}" {% if
+                                                current_config.get(role.provider_field)==provider %}selected{% endif %}>
+                                                {{ provider }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </td>
+                                    <td style="padding: 8px 16px;">
+                                        <div class="model-input-container" style="display: flex; gap: 8px;">
+                                            <div class="searchable-select-container role-model-searchable-select"
+                                                data-model-field="{{ role.model_field }}"
+                                                style="display: none; flex: 1;">
+                                                <input type="text" class="searchable-select-input role-model-search"
+                                                    data-model-field="{{ role.model_field }}" placeholder="搜索模型...">
+                                                <div class="searchable-select-dropdown role-model-dropdown"
+                                                    data-model-field="{{ role.model_field }}">
+                                                    <div class="searchable-select-option" data-value="">选择模型...</div>
+                                                </div>
+                                            </div>
+                                            <input type="text" name="{{ role.model_field }}"
+                                                class="model-input role-model-input"
+                                                data-model-field="{{ role.model_field }}"
+                                                value="{{ current_config.get(role.model_field, '') }}"
+                                                placeholder="使用默认模型"
+                                                style="flex: 1; padding: 8px 10px; border: 1px solid #dcdcdc; border-radius: 6px; font-size: 0.9em;">
+                                            <button type="button" class="model-fetch-btn role-fetch-btn"
+                                                data-model-field="{{ role.model_field }}"
+                                                onclick="fetchRoleModels(this)"
+                                                style="display: none; padding: 8px 12px;" title="获取可用模型列表">
+                                                <i class="fas fa-list"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <button onclick="saveModelRoleConfig()" class="btn btn-success"
+                            style="padding: 10px 24px; font-weight: 600;">保存模型任务配置</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="generation-params" class="tab-content" style="display: none;">
+        <div class="card">
+            <h3 class="section-heading" style="margin-bottom: 30px; text-align: center;">AI 生成参数配置</h3>
+
+            <!-- 主要配置区域 -->
+            <div style="display: flex; flex-direction: column; gap: 30px;">
+
+                <!-- AI 生成参数 -->
+                <div
+                    style="background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <h4 style="color: #111111; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        AI 生成参数
+                    </h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                最大分块令牌数 (MAX_TOKENS)
+                            </label>
+                            <div class="input-with-range">
+                                <input type="number" name="max_tokens" min="500" max="1000000"
+                                    value="{{ current_config.get('max_tokens', '') }}"
+                                    placeholder="{{ current_config.get('max_tokens', '8192') }}"
+                                    style="margin-bottom: 8px;">
+                                <input type="range" min="500" max="1000000" step="100"
+                                    value="{{ current_config.get('max_tokens', '8192') }}"
+                                    oninput="this.previousElementSibling.value = this.value"
+                                    style="width: 100%; accent-color: #0f0f0f;">
+                            </div>
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                用于长文本处理/深度研究等场景的“分块”上限
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                温度 (TEMPERATURE)
+                            </label>
+                            <div class="input-with-range">
+                                <input type="number" name="temperature" min="0" max="2" step="0.1"
+                                    value="{{ current_config.get('temperature', '') }}"
+                                    placeholder="{{ current_config.get('temperature', '0.7') }}"
+                                    style="margin-bottom: 8px;">
+                                <input type="range" min="0" max="2" step="0.1"
+                                    value="{{ current_config.get('temperature', '0.7') }}"
+                                    oninput="this.previousElementSibling.value = this.value"
+                                    style="width: 100%; accent-color: #0f0f0f;">
+                            </div>
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                控制生成内容的创造性。0 = 确定性输出，1 = 平衡，2 = 高创造性。
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                Top-P (TOP_P)
+                            </label>
+                            <div class="input-with-range">
+                                <input type="number" name="top_p" min="0" max="1" step="0.1"
+                                    value="{{ current_config.get('top_p', '') }}"
+                                    placeholder="{{ current_config.get('top_p', '1.0') }}" style="margin-bottom: 8px;">
+                                <input type="range" min="0" max="1" step="0.1"
+                                    value="{{ current_config.get('top_p', '1.0') }}"
+                                    oninput="this.previousElementSibling.value = this.value"
+                                    style="width: 100%; accent-color: #0f0f0f;">
+                            </div>
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                核采样参数，控制词汇选择范围。较低的值使输出更集中，较高的值增加多样性。
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                LLM 请求超时（秒）
+                            </label>
+                            <input type="number" name="llm_timeout_seconds" min="30" max="3600"
+                                value="{{ current_config.get('llm_timeout_seconds', '') }}"
+                                placeholder="{{ current_config.get('llm_timeout_seconds', '600') }}"
+                                style="margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                请求超时，默认 600 秒。
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 批量生成PPT配置 -->
+                <div
+                    style="background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <h4 style="color: #111111; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        批量生成PPT
+                    </h4>
+
+                    <div style="margin-bottom: 20px;">
+                        <label class="toggle-label" style="cursor: pointer; user-select: none;">
+                            <div class="toggle-switch">
+                                <input type="checkbox" name="enable_parallel_generation" id="enable_parallel_generation"
+                                    onchange="toggleParallelGenerationOptions()" checked>
+                                <span class="toggle-slider"></span>
+                            </div>
+                            <div>
+                                <div style="font-weight: 600; color: #495057; margin-bottom: 4px;">启用批量生成</div>
+                                <small style="color: #6c757d; font-weight: 400;">启用后可以同时生成多个幻灯片，显著提高生成速度</small>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label class="toggle-label"
+                            style="cursor: pointer; user-select: none; display: flex; align-items: center; gap: 12px;">
+                            <div class="toggle-switch">
+                                <input type="checkbox" name="enable_auto_layout_repair" id="enable_auto_layout_repair">
+                                <span class="toggle-slider"></span>
+                            </div>
+                            <div>
+                                <div style="font-weight: 600; color: #495057;">开启自动修复排版</div>
+                                <div style="font-size: 0.85em; color: #6c757d;">使用专用多模态模型检查页面视觉效果，识别遮挡/错位并输出修复后的 HTML
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label class="toggle-label"
+                            style="cursor: pointer; user-select: none; display: flex; align-items: center; gap: 12px;">
+                            <div class="toggle-switch">
+                                <input type="checkbox" name="enable_per_slide_creative_guidance"
+                                    id="enable_per_slide_creative_guidance" {% if current_config.get('enable_per_slide_creative_guidance', true) %}checked{% endif %}>
+                                <span class="toggle-slider"></span>
+                            </div>
+                            <div>
+                                <div style="font-weight: 600; color: #495057;">实时创意指导</div>
+                                <div style="font-size: 0.85em; color: #6c757d;">
+                                    对每页PPT实时进行创意指导，提升创造力
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div id="parallel-generation-options"
+                        style="display: block; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #111111;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="parallel_slides_count"
+                                style="font-weight: 600; color: #495057; display: block; margin-bottom: 12px;">
+                                批量生成页数
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 12px;">
+                                <input type="number" name="parallel_slides_count" id="parallel_slides_count"
+                                    value="{{ current_config.get('parallel_slides_count', '3') }}" min="1" max="10"
+                                    style="flex: 0 0 100px; padding: 10px 12px; border: 2px solid #dcdcdc; border-radius: 8px; font-size: 1em;"
+                                    oninput="updateParallelSlidesDisplay(this.value); document.getElementById('parallel_slides_range').value = this.value;">
+                                <input type="range" id="parallel_slides_range" min="1" max="10"
+                                    value="{{ current_config.get('parallel_slides_count', '3') }}"
+                                    style="flex: 1; accent-color: #0f0f0f;"
+                                    oninput="document.getElementById('parallel_slides_count').value = this.value; updateParallelSlidesDisplay(this.value);">
+                                <span id="parallel_slides_display"
+                                    style="flex: 0 0 80px; text-align: center; font-weight: 600; color: #111111; font-size: 1.1em; padding: 8px 12px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                    {{ current_config.get('parallel_slides_count', '3') }} 页
+                                </span>
+                            </div>
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                <strong>提示：</strong>数值越大，生成速度越快，但对AI服务的并发请求压力也越大。<br>
+                                推荐值：<span style="color: #111111; font-weight: 500;">3-5页</span>（平衡速度与稳定性）
+                            </small>
+                        </div>
+                    </div>
+
+                    <div
+                        style="margin-top: 15px; padding: 12px 16px; background: rgba(0, 0, 0, 0.06); border-radius: 8px; border-left: 4px solid #111111;">
+                        <p style="margin: 0; font-size: 0.9em; color: #495057; line-height: 1.6;">
+                            <strong>注意事项：</strong><br>
+                            • 启用批量生成可能会增加AI API的调用频率和费用<br>
+                            • 部分AI提供商可能有并发请求限制，请根据实际情况调整<br>
+                            • 如遇到频率限制错误，建议降低并行页数或关闭此功能
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 研究功能配置 -->
+                <div
+                    style="background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <h4 class="section-heading"
+                        style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        研究功能配置
+                    </h4>
+
+                    <!-- 研究提供商选择 -->
+                    <div style="margin-bottom: 25px;">
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                研究提供商 (RESEARCH_PROVIDER)
+                            </label>
+                            <select name="research_provider" style="margin-bottom: 8px;">
+                                <option value="tavily">Tavily (推荐)</option>
+                                <option value="searxng">SearXNG</option>
+                                <option value="both">两者都使用</option>
+                            </select>
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                选择用于研究的搜索提供商。Tavily 提供更准确的结果，SearXNG 是开源选择。
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- API 密钥配置 -->
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 25px;">
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                Tavily API Key
+                            </label>
+                            <input type="password" name="tavily_api_key" placeholder="tvly-..."
+                                autocomplete="off"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                用于深度研究功能的API密钥，可在 <a href="https://tavily.com" target="_blank"
+                                    style="color: #111111; text-decoration: underline;">Tavily官网</a> 获取。若管理员已在后台设置系统默认值，这里可以留空，系统会自动回退到后台默认 Tavily Key。
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                SearXNG 主机地址
+                            </label>
+                            <input type="url" name="searxng_host" placeholder="http://localhost:8888"
+                                value="{{ current_config.get('searxng_host', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                SearXNG 实例的完整URL地址，用于开源搜索引擎研究功能
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- 高级选项 -->
+                    <div
+                        style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #111111;">
+                        <h5
+                            style="color: #111111; margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            高级选项
+                        </h5>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
+                            <div class="form-group">
+                                <label class="toggle-label">
+                                    <div class="toggle-switch">
+                                        <input type="checkbox" name="research_enable_content_extraction">
+                                        <span class="toggle-slider"></span>
+                                    </div>
+                                    <div>
+                                        <div style="font-weight: 600; color: #495057; margin-bottom: 4px;">启用深度内容提取
+                                        </div>
+                                        <small
+                                            style="color: #6c757d; font-weight: 400;">从搜索结果页面提取完整内容进行深度分析，提高研究质量</small>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                    最大内容长度
+                                </label>
+                                <div class="input-with-range">
+                                    <input type="number" name="research_max_content_length" min="1000" max="20000"
+                                        value="{{ current_config.get('research_max_content_length', '') }}"
+                                        placeholder="{{ current_config.get('research_max_content_length', '5000') }}"
+                                        style="margin-bottom: 8px;">
+                                    <input type="range" min="1000" max="20000" step="500"
+                                        value="{{ current_config.get('research_max_content_length', '5000') }}"
+                                        oninput="this.previousElementSibling.value = this.value"
+                                        style="width: 100%; accent-color: #0f0f0f;">
+                                </div>
+                                <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                    每个页面提取的最大字符数，较大的值提供更多信息但消耗更多资源
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 其他配置 -->
+                <div
+                    style="background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <h4 class="section-heading"
+                        style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        其他配置
+                    </h4>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                        <!-- MinerU API 配置 -->
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                MinerU API Key (PDF高质量解析)
+                            </label>
+                            <input type="password" name="mineru_api_key" placeholder="your-mineru-api-key"
+                                value="{{ current_config.get('mineru_api_key', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                用于高质量PDF解析的MinerU API密钥，可在 <a href="https://mineru.net/apiManage" target="_blank"
+                                    style="color: #111111; text-decoration: underline;">MinerU官网</a> 获取
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                MinerU API Base URL
+                            </label>
+                            <input type="url" name="mineru_base_url" placeholder="https://mineru.net/api/v4"
+                                value="{{ current_config.get('mineru_base_url', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                MinerU API的基础URL地址，默认为官方API地址，可自定义私有部署地址
+                            </small>
+                        </div>
+
+                        <!-- TTS Voices -->
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                中文 TTS 发音人 (Edge-TTS Voice)
+                            </label>
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                <select id="tts_voice_zh_preset" style="width: 260px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;"
+                                    onchange="if (this.value) { const el = document.querySelector('input[name=&quot;tts_voice_zh&quot;]'); if (el) el.value = this.value; this.value = ''; }">
+                                    <option value="">选择常用发音人…</option>
+                                    <option value="zh-CN-XiaoxiaoNeural">zh-CN-XiaoxiaoNeural</option>
+                                    <option value="zh-CN-XiaoyiNeural">zh-CN-XiaoyiNeural</option>
+                                    <option value="zh-CN-YunxiNeural">zh-CN-YunxiNeural</option>
+                                    <option value="zh-CN-YunyangNeural">zh-CN-YunyangNeural</option>
+                                    <option value="zh-CN-YunjianNeural">zh-CN-YunjianNeural</option>
+                                    <option value="zh-CN-YunfengNeural">zh-CN-YunfengNeural</option>
+                                    <option value="zh-CN-liaoning-XiaobeiNeural">zh-CN-liaoning-XiaobeiNeural</option>
+                                    <option value="zh-CN-shaanxi-XiaoniNeural">zh-CN-shaanxi-XiaoniNeural</option>
+                                </select>
+                                <input type="text" name="tts_voice_zh" list="tts_voice_zh_list"
+                                    placeholder="zh-CN-XiaoxiaoNeural"
+                                    value="{{ current_config.get('tts_voice_zh', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px; min-width: 280px; flex: 1;">
+                                <datalist id="tts_voice_zh_list">
+                                    <option value="zh-CN-XiaoxiaoNeural"></option>
+                                    <option value="zh-CN-XiaoyiNeural"></option>
+                                    <option value="zh-CN-YunxiNeural"></option>
+                                    <option value="zh-CN-YunyangNeural"></option>
+                                    <option value="zh-CN-YunjianNeural"></option>
+                                    <option value="zh-CN-YunfengNeural"></option>
+                                    <option value="zh-CN-liaoning-XiaobeiNeural"></option>
+                                    <option value="zh-CN-shaanxi-XiaoniNeural"></option>
+                                </datalist>
+                            </div>
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                讲解音频默认发音人；留空则使用系统默认。
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                英文 TTS Voice (Edge-TTS)
+                            </label>
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                <select id="tts_voice_en_preset" style="width: 260px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;"
+                                    onchange="if (this.value) { const el = document.querySelector('input[name=&quot;tts_voice_en&quot;]'); if (el) el.value = this.value; this.value = ''; }">
+                                    <option value="">Select common voice…</option>
+                                    <option value="en-US-JennyNeural">en-US-JennyNeural</option>
+                                    <option value="en-US-GuyNeural">en-US-GuyNeural</option>
+                                    <option value="en-US-AriaNeural">en-US-AriaNeural</option>
+                                    <option value="en-US-DavisNeural">en-US-DavisNeural</option>
+                                    <option value="en-US-AmberNeural">en-US-AmberNeural</option>
+                                    <option value="en-US-AnaNeural">en-US-AnaNeural</option>
+                                    <option value="en-GB-LibbyNeural">en-GB-LibbyNeural</option>
+                                    <option value="en-GB-RyanNeural">en-GB-RyanNeural</option>
+                                </select>
+                                <input type="text" name="tts_voice_en" list="tts_voice_en_list"
+                                    placeholder="en-US-JennyNeural"
+                                    value="{{ current_config.get('tts_voice_en', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px; min-width: 280px; flex: 1;">
+                                <datalist id="tts_voice_en_list">
+                                    <option value="en-US-JennyNeural"></option>
+                                    <option value="en-US-GuyNeural"></option>
+                                    <option value="en-US-AriaNeural"></option>
+                                    <option value="en-US-DavisNeural"></option>
+                                    <option value="en-US-AmberNeural"></option>
+                                    <option value="en-US-AnaNeural"></option>
+                                    <option value="en-GB-LibbyNeural"></option>
+                                    <option value="en-GB-RyanNeural"></option>
+                                </datalist>
+                            </div>
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                Default narration voice for English; leave empty to use system default.
+                            </small>
+                        </div>
+
+                        <!-- ComfyUI TTS (optional) -->
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                ComfyUI Base URL (TTS / comfyuiapi)
+                            </label>
+                            <input type="url" name="comfyui_base_url" placeholder="http://127.0.0.1:8188"
+                                value="{{ current_config.get('comfyui_base_url', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                ComfyUI 服务地址（用于讲解音频的 ComfyUI TTS）
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                ComfyUI TTS Workflow URL / Path
+                            </label>
+                            <input type="text" name="comfyui_tts_workflow_path"
+                                placeholder="https://example.com/Qwen3-TTS.json"
+                                value="{{ current_config.get('comfyui_tts_workflow_path', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                远程 URL（可直连下载的 raw JSON）
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                ComfyUI TTS Timeout (seconds)
+                            </label>
+                            <input type="number" name="comfyui_tts_timeout_seconds" placeholder="600" min="30" max="3600"
+                                value="{{ current_config.get('comfyui_tts_timeout_seconds', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                每个 TTS 任务最大等待时间（秒）。
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                ComfyUI TTS Chunk Chars
+                            </label>
+                            <input type="number" name="comfyui_tts_chunk_chars" placeholder="120" min="40" max="500"
+                                value="{{ current_config.get('comfyui_tts_chunk_chars', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                文本分段长度（字符）。降低可减少显存峰值（更慢但更稳定）。
+                            </small>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                ComfyUI Model Precision Override
+                            </label>
+                            <input type="text" name="comfyui_tts_force_precision" placeholder="(empty) / fp16 / bf16"
+                                value="{{ current_config.get('comfyui_tts_force_precision', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                可选：强制设置模型精度（例如 fp16）
+                            </small>
+                        </div>
+
+                        {% if user and user.is_admin %}
+                        <div
+                            style="margin-top: 24px; padding: 20px; background: #f8f9fa; border-radius: 12px; border: 1px solid #e9ecef;">
+                            <h5 class="subheading" style="margin-bottom: 16px; font-weight: 600;">
+                                Apryse 标准 PPTX 导出
+                            </h5>
+
+                            <div class="form-group" style="margin-bottom: 20px;">
+                                <label class="toggle-label"
+                                    style="cursor: pointer; user-select: none; display: flex; align-items: center; gap: 12px;">
+                                    <div class="toggle-switch">
+                                        <input type="checkbox" name="enable_apryse_pptx_export"
+                                            id="enable_apryse_pptx_export" {% if current_config.get('enable_apryse_pptx_export') %}checked{% endif %}>
+                                        <span class="toggle-slider"></span>
+                                    </div>
+                                    <div>
+                                        <div style="font-weight: 600; color: #495057;">启用标准 PPTX 导出</div>
+                                    </div>
+                                </label>
+                            </div>
+
+                        <!-- Apryse License Key -->
+                        <div class="form-group">
+                            <label style="font-weight: 600; color: #495057; margin-bottom: 8px; display: block;">
+                                Apryse License Key (PPT导出)
+                            </label>
+                            <input type="password" name="apryse_license_key" placeholder="your-apryse-license-key"
+                                value="{{ current_config.get('apryse_license_key', '') }}"
+                                style="font-family: monospace; font-size: 0.9em; margin-bottom: 8px;">
+                            <small style="color: #6c757d; font-size: 0.85em; line-height: 1.4;">
+                                用于PPTX导出功能的Apryse SDK许可证密钥，可在 <a
+                                    href="https://docs.apryse.com/core/guides/get-started/trial-key" target="_blank"
+                                    style="color: #111111; text-decoration: underline;">Apryse官网</a> 获取
+                            </small>
+                        </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div
+                style="text-align: center; margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 12px; border: 1px solid #e9ecef;">
+                <button onclick="saveGenerationParams()" class="btn btn-success"
+                    style="padding: 12px 30px; font-weight: 600; font-size: 1.05em;">
+                    保存生成参数
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- 应用配置标签页 (仅管理员可见) -->
+    {% if user and user.is_admin %}
+    <div id="app-config" class="tab-content" style="display: none;">
+        <div class="card">
+            <h3 class="section-heading" style="margin-bottom: 20px;">应用配置</h3>
+
+            <div class="grid">
+                <div>
+                    <h4 class="subheading">服务器配置</h4>
+
+                    <div class="form-group">
+                        <label>主机地址 (HOST):</label>
+                        <input type="text" name="host" placeholder="0.0.0.0">
+                    </div>
+
+                    <div class="form-group">
+                        <label>端口 (PORT):</label>
+                        <input type="number" name="port" min="1" max="65535" placeholder="8000">
+                    </div>
+
+                    <div class="form-group">
+                        <label>基础URL (BASE_URL):</label>
+                        <input type="url" name="base_url" placeholder="http://localhost:8000">
+                        <small style="color: #7f8c8d;">用于生成图片等资源的绝对URL，支持反向代理域名</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px;">
+                            <input type="checkbox" name="reload">
+                            自动重载 (RELOAD)
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="subheading">安全配置</h4>
+
+                    <div class="form-group">
+                        <label>密钥 (SECRET_KEY):</label>
+                        <input type="password" name="secret_key" placeholder="your-very-secure-secret-key"
+                            style="font-family: monospace; font-size: 0.9em;">
+                        <small style="color: #7f8c8d;">用于会话加密的密钥</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>访问令牌过期时间 (ACCESS_TOKEN_EXPIRE_MINUTES):</label>
+                        <input type="number" name="access_token_expire_minutes" min="0" max="525600" placeholder="30">
+                        <small style="color: #7f8c8d;">单位：分钟，设置为 0 表示永不过期</small>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="subheading">文件上传配置</h4>
+
+                    <div class="form-group">
+                        <label>最大文件大小 (MAX_FILE_SIZE):</label>
+                        <input type="number" name="max_file_size" min="1048576" max="104857600" placeholder="10485760">
+                        <small style="color: #7f8c8d;">单位：字节 (10MB = 10485760)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>上传目录 (UPLOAD_DIR):</label>
+                        <input type="text" name="upload_dir" placeholder="uploads">
+                    </div>
+
+                    <div class="form-group">
+                        <label>缓存TTL (CACHE_TTL):</label>
+                        <input type="number" name="cache_ttl" min="60" max="86400" placeholder="3600">
+                        <small style="color: #7f8c8d;">单位：秒 (1小时 = 3600)</small>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="subheading">数据库配置</h4>
+
+                    <div class="form-group">
+                        <label>数据库URL (DATABASE_URL):</label>
+                        <input type="text" name="database_url" placeholder="sqlite:///./landppt.db">
+                        <small style="color: #7f8c8d;">支持SQLite、PostgreSQL、MySQL等</small>
+                    </div>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 20px;">
+                <button onclick="saveAppConfig()" class="btn btn-success" style="margin-right: 10px;">
+                    保存应用配置
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 图片服务配置标签页 -->
+    <div id="image-service" class="tab-content" style="display: none;">
+        <div class="card">
+            <h3 class="section-heading" style="margin-bottom: 20px;">图片服务配置</h3>
+
+            <!-- 服务状态显示 -->
+            <div
+                style="background: #f8fafc; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e5e7eb;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                    <h4 class="subheading" style="margin: 0; font-size: 1.1em;">服务状态</h4>
+                    <span id="image-service-status"
+                        style="background: #0f0f0f; color: #f8f8f8; padding: 6px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 500; border: 1px solid #1f1f1f;">
+                        检查中...
+                    </span>
+                </div>
+                <div style="color: #6c757d; font-size: 0.9em; line-height: 1.5;">
+                    <strong>可用提供者:</strong> <span id="available-image-providers">检查中...</span>
+                    <br>
+                    <span style="color: #868e96;">图片服务为PPT生成提供视觉内容支持，包括AI图片生成、网络图片搜索和本地图片管理</span>
+                </div>
+            </div>
+
+            <!-- 主要配置区域 -->
+            <div style="display: flex; flex-direction: column; gap: 25px;">
+
+                <!-- 基础设置 -->
+                <div
+                    style="background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <h4 class="subheading" style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        图片服务设置
+                    </h4>
+
+                    <div class="main-toggle-option">
+                        <label class="toggle-label">
+                            <div class="toggle-switch">
+                                <input type="checkbox" name="enable_image_service"
+                                    onchange="toggleImageServiceOptions()">
+                                <span class="toggle-slider"></span>
+                            </div>
+                            <div>
+                                <div style="font-size: 1.1em; font-weight: 600; color: #495057; margin-bottom: 4px;">
+                                    启用图片生成服务</div>
+                                <small style="color: #6c757d; font-weight: 400;">在PPT生成时自动添加相关图片，提升视觉效果</small>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div id="image-service-options" style="display: none;">
+                        <div
+                            style="background: #f8f8f8; padding: 20px; border-radius: 8px; border-left: 4px solid #111111;">
+                            <h5 style="color: #495057; margin-bottom: 15px; font-weight: 600;">图片获取方式 (可多选)</h5>
+                            <div style="display: grid; gap: 12px;">
+                                <label
+                                    style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: white; border: 2px solid #e9ecef; border-radius: 8px; cursor: pointer; transition: all 0.2s;"
+                                    onclick="toggleImageSourceConfig()">
+                                    <input type="checkbox" name="enable_local_images" value="true"
+                                        style="transform: scale(1.1);">
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 500; color: #495057;">本地图床</div>
+                                        <small style="color: #6c757d;">从本地图片库中智能选择合适的图片</small>
+                                    </div>
+                                </label>
+                                <label
+                                    style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: white; border: 2px solid #e9ecef; border-radius: 8px; cursor: pointer; transition: all 0.2s;"
+                                    onclick="toggleImageSourceConfig()">
+                                    <input type="checkbox" name="enable_network_search" value="true"
+                                        style="transform: scale(1.1);">
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 500; color: #495057;">网络搜索</div>
+                                        <small style="color: #6c757d;">通过Unsplash、Pixabay等API搜索高质量网络图片</small>
+                                    </div>
+                                </label>
+                                <label
+                                    style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: white; border: 2px solid #e9ecef; border-radius: 8px; cursor: pointer; transition: all 0.2s;"
+                                    onclick="toggleImageSourceConfig()">
+                                    <input type="checkbox" name="enable_ai_generation" value="true"
+                                        style="transform: scale(1.1);">
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 500; color: #495057;">AI生成</div>
+                                        <small style="color: #6c757d;">使用AI模型生成定制化创意图片</small>
+                                    </div>
+                                </label>
+                            </div>
+                            <div
+                                style="margin-top: 15px; padding: 12px; background: #f1f1f1; border-radius: 6px; border-left: 3px solid #111111;">
+                                <small
+                                    style="color: #4b5563; font-weight: 500;">提示：可以同时启用多种方式，AI会根据页面内容智能选择最合适的图片来源</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- API密钥配置 -->
+                <div
+                    style="background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <h4 class="subheading" style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        API密钥配置
+                    </h4>
+
+                    <!-- AI图片生成服务 -->
+                    <div style="margin-bottom: 30px;">
+                        <h5 class="subheading"
+                            style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            AI图片生成服务
+                        </h5>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">DALL-E API Key (OpenAI):</label>
+                                <input type="password" name="openai_api_key_image" placeholder="sk-..."
+                                    value="{{ current_config.get('openai_api_key_image', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">用于DALL-E
+                                    3图片生成，与文本生成共用OpenAI密钥</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">SiliconFlow API Key:</label>
+                                <input type="password" name="siliconflow_api_key" placeholder="your-siliconflow-api-key"
+                                    value="{{ current_config.get('siliconflow_api_key', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">用于SiliconFlow
+                                    Kolors图片生成</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">Pollinations API Key:</label>
+                                <input type="password" name="pollinations_api_key" placeholder="pk_... / sk_..."
+                                    value="{{ current_config.get('pollinations_api_key', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">用于 Pollinations 图片生成
+                                    (gen.pollinations.ai)，可在 enter.pollinations.ai 获取</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gemini图片生成服务 -->
+                    <div style="margin-bottom: 30px;">
+                        <h5 class="subheading"
+                            style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            Gemini 图片生成 (Google)
+                        </h5>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">Gemini 图片生成 API Key:</label>
+                                <input type="password" name="gemini_image_api_key" placeholder="your-google-api-key"
+                                    value="{{ current_config.get('gemini_image_api_key', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small
+                                    style="color: #6c757d; margin-top: 5px; display: block;">用于Gemini图片生成的独立API密钥</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">API Base URL:</label>
+                                <input type="text" name="gemini_image_api_base"
+                                    placeholder="https://generativelanguage.googleapis.com/v1beta"
+                                    value="{{ current_config.get('gemini_image_api_base', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">Gemini
+                                    API端点，支持自定义代理</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">模型:</label>
+                                <input type="text" name="gemini_image_model"
+                                    placeholder="gemini-2.0-flash-exp-image-generation"
+                                    value="{{ current_config.get('gemini_image_model', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">Gemini图片生成模型名称</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- OpenAI图片生成服务（自定义端点） -->
+                    <div style="margin-bottom: 30px;">
+                        <h5 class="subheading"
+                            style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            OpenAI 图片生成 (支持自定义端点)
+                        </h5>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">OpenAI 图片生成 API Key:</label>
+                                <input type="password" name="openai_image_api_key" placeholder="sk-..."
+                                    value="{{ current_config.get('openai_image_api_key', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small
+                                    style="color: #6c757d; margin-top: 5px; display: block;">用于OpenAI图片生成的独立API密钥</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">API Base URL:</label>
+                                <input type="text" name="openai_image_api_base" placeholder="https://api.openai.com/v1"
+                                    value="{{ current_config.get('openai_image_api_base', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small
+                                    style="color: #6c757d; margin-top: 5px; display: block;">支持自定义 API 端点，也可填写完整 /v1/chat/completions 以使用聊天图片接口。</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">模型:</label>
+                                <input type="text" name="openai_image_model" placeholder="gpt-image-1"
+                                    value="{{ current_config.get('openai_image_model', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">图片生成模型：gpt-image-1,
+                                    dall-e-3, dall-e-2</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">图片质量:</label>
+                                <select name="openai_image_quality" style="margin-top: 5px;">
+                                    <option value="auto" {% if current_config.get('openai_image_quality')=='auto'
+                                        %}selected{% endif %}>自动 (auto)</option>
+                                    <option value="low" {% if current_config.get('openai_image_quality')=='low'
+                                        %}selected{% endif %}>低 (low)</option>
+                                    <option value="medium" {% if current_config.get('openai_image_quality')=='medium'
+                                        %}selected{% endif %}>中 (medium)</option>
+                                    <option value="high" {% if current_config.get('openai_image_quality')=='high'
+                                        %}selected{% endif %}>高 (high)</option>
+                                </select>
+                                <small
+                                    style="color: #6c757d; margin-top: 5px; display: block;">图片生成质量，更高质量需要更多时间和成本</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Pollinations 图片生成服务 -->
+                    <div style="margin-bottom: 30px;">
+                        <h5 class="subheading"
+                            style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            Pollinations 图片生成 (gen.pollinations.ai)
+                        </h5>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; align-items: start;">
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">API Base URL:</label>
+                                <input type="text" name="pollinations_api_base" placeholder="https://gen.pollinations.ai"
+                                    value="{{ current_config.get('pollinations_api_base', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">默认使用
+                                    https://gen.pollinations.ai</small>
+                            </div>
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">模型 (model):</label>
+                                {% set _pollinations_model = current_config.get('pollinations_model', 'flux') %}
+                                <div style="display: flex; gap: 8px; align-items: center; margin-top: 5px;">
+                                    <select id="pollinations_model_select" name="pollinations_model"
+                                        style="flex: 1; min-width: 0;">
+                                        <option value="{{ _pollinations_model }}" selected>{{ _pollinations_model }}</option>
+                                    </select>
+                                    <button type="button" class="btn btn-secondary btn-sm"
+                                        id="pollinations_model_fetch_btn" title="从 Pollinations 获取模型列表"
+                                        style="padding: 4px 8px; min-width: 0; width: 32px; text-align: center;">&#8635;</button>
+                                </div>
+                            </div>
+                            <div class="form-group" style="grid-column: 1 / -1;">
+                                <label style="font-weight: 500; color: #495057;">Negative Prompt (可选):</label>
+                                <input type="text" name="pollinations_negative_prompt" placeholder="worst quality, blurry"
+                                    value="{{ current_config.get('pollinations_negative_prompt', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">负面提示词：告诉模型需要避免的内容（negative_prompt）</small>
+                            </div>
+                            <div class="form-group">
+                                <label class="toggle-label">
+                                    <div class="toggle-switch">
+                                        <input type="checkbox" name="pollinations_enhance" value="true" {% if
+                                            current_config.get('pollinations_enhance') %}checked{% endif %}>
+                                        <span class="toggle-slider"></span>
+                                    </div>
+                                    <div>
+                                        <div style="font-weight: 600; color: #495057; margin-bottom: 4px;">Enhance Prompt</div>
+                                        <small style="color: #6c757d; font-weight: 400;">启用后自动增强提示词以获得更好效果（enhance）</small>
+                                    </div>
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label class="toggle-label">
+                                    <div class="toggle-switch">
+                                        <input type="checkbox" name="pollinations_safe" value="true" {% if
+                                            current_config.get('pollinations_safe') %}checked{% endif %}>
+                                        <span class="toggle-slider"></span>
+                                    </div>
+                                    <div>
+                                        <div style="font-weight: 600; color: #495057; margin-bottom: 4px;">Safe Filter</div>
+                                        <small style="color: #6c757d; font-weight: 400;">启用安全过滤，减少不适内容（safe）</small>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <!-- 网络图片搜索服务 -->
+                    <div>
+                        <h5 class="subheading"
+                            style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            网络图片搜索服务
+                        </h5>
+                        <div
+                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">Unsplash Access Key:</label>
+                                <input type="password" name="unsplash_access_key" placeholder="your-unsplash-access-key"
+                                    value="{{ current_config.get('unsplash_access_key', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small
+                                    style="color: #6c757d; margin-top: 5px; display: block;">用于搜索Unsplash高质量摄影图片，支持多语言搜索</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">Pixabay API Key:</label>
+                                <input type="password" name="pixabay_api_key" placeholder="your-pixabay-api-key"
+                                    value="{{ current_config.get('pixabay_api_key', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small style="color: #6c757d; margin-top: 5px; display: block;">用于搜索免费图片和插图</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="font-weight: 500; color: #495057;">SearXNG Host:</label>
+                                <input type="url" name="searxng_host" placeholder="http://localhost:8888"
+                                    value="{{ current_config.get('searxng_host', '') }}"
+                                    style="font-family: monospace; font-size: 0.9em; margin-top: 5px;">
+                                <small
+                                    style="color: #6c757d; margin-top: 5px; display: block;">SearXNG实例的主机地址，用于开源搜索引擎图片搜索</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 详细配置 -->
+                <div
+                    style="background: #fff; padding: 25px; border-radius: 12px; border: 1px solid #e9ecef; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <h4 style="color: #111111; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <span>⚙️</span> 详细配置
+                    </h4>
+
+                    <!-- 配置选项容器 -->
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        <!-- 本地图床配置 -->
+                        <div id="local-images-config"
+                            style="display: none; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #111111;">
+                            <h5 class="subheading"
+                                style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                                本地图床配置
+                            </h5>
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
+                                <div class="form-group">
+                                    <label class="toggle-label">
+                                        <div class="toggle-switch">
+                                            <input type="checkbox" name="local_images_smart_selection" checked>
+                                            <span class="toggle-slider"></span>
+                                        </div>
+                                        <div>
+                                            <div style="font-weight: 600; color: #495057; margin-bottom: 4px;">启用智能选择
+                                            </div>
+                                            <small
+                                                style="color: #6c757d; font-weight: 400;">AI会根据内容智能匹配本地图片库中的图片</small>
+                                        </div>
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-weight: 500; color: #495057;">每页最大本地图片数量:</label>
+                                    <input type="number" name="max_local_images_per_slide" value="2" min="1" max="5"
+                                        style="margin-top: 5px;">
+                                    <small
+                                        style="color: #6c757d; margin-top: 5px; display: block;">限制每页从本地图床选择的图片数量</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 网络搜索配置 -->
+                        <div id="network-search-config"
+                            style="display: none; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #111111;">
+                            <h5 class="subheading"
+                                style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                                网络搜索配置
+                            </h5>
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
+                                <div class="form-group">
+                                    <label style="font-weight: 500; color: #495057;">默认网络搜索提供商:</label>
+                                    {% set _default_network_search_provider = current_config.get('default_network_search_provider', 'unsplash') %}
+                                    <select name="default_network_search_provider" style="margin-top: 5px;">
+                                        <option value="unsplash" {% if _default_network_search_provider == 'unsplash' %}selected{% endif %}>Unsplash (高质量摄影图片)</option>
+                                        <option value="pixabay" {% if _default_network_search_provider in ['pixabay','pixbay'] %}selected{% endif %}>Pixabay (免费图片和插图)</option>
+                                        <option value="searxng" {% if _default_network_search_provider == 'searxng' %}selected{% endif %}>SearXNG (开源搜索引擎)</option>
+                                    </select>
+                                    <small style="color: #6c757d; margin-top: 5px; display: block;">选择优先使用的网络搜索源</small>
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-weight: 500; color: #495057;">每页最大网络图片数量:</label>
+                                    <input type="number" name="max_network_images_per_slide" value="2" min="1" max="5"
+                                        style="margin-top: 5px;">
+                                    <small
+                                        style="color: #6c757d; margin-top: 5px; display: block;">限制每页从网络搜索的图片数量</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- AI生成配置 -->
+                        <div id="ai-generation-config"
+                            style="display: none; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #111111;">
+                            <h5 class="subheading"
+                                style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                                AI生成配置
+                            </h5>
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                                <div class="form-group">
+                                    <label style="font-weight: 500; color: #495057;">默认AI图片生成提供商:</label>
+                                    <select name="default_ai_image_provider" onchange="toggleProviderSpecificConfig()"
+                                        style="margin-top: 5px;">
+                                        <option value="dalle" {% if
+                                            current_config.get('default_ai_image_provider')=='dalle' %}selected{% endif
+                                            %}>DALL-E 3 (OpenAI)</option>
+                                        <option value="siliconflow" {% if
+                                            current_config.get('default_ai_image_provider')=='siliconflow' %}selected{%
+                                            endif %}>SiliconFlow (Kolors)</option>
+
+                                        <option value="gemini" {% if
+                                            current_config.get('default_ai_image_provider')=='gemini' %}selected{% endif
+                                            %}>Gemini (Google)</option>
+                                        <option value="pollinations" {% if
+                                            current_config.get('default_ai_image_provider')=='pollinations' %}selected{%
+                                            endif %}>Pollinations (gen.pollinations.ai)</option>
+                                        <option value="openai_image" {% if
+                                            current_config.get('default_ai_image_provider')=='openai_image' %}selected{%
+                                            endif %}>OpenAI 图片生成</option>
+                                    </select>
+                                    <small
+                                        style="color: #6c757d; margin-top: 5px; display: block;">选择默认的AI图片生成服务</small>
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-weight: 500; color: #495057;">每页最大AI生成图片数量:</label>
+                                    <input type="number" name="max_ai_images_per_slide" value="1" min="1" max="3"
+                                        style="margin-top: 5px;">
+                                    <small
+                                        style="color: #6c757d; margin-top: 5px; display: block;">限制每页AI生成的图片数量</small>
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-weight: 500; color: #495057;">图片生成质量:</label>
+                                    <select name="ai_image_quality" style="margin-top: 5px;">
+                                        <option value="standard">标准质量</option>
+                                        <option value="hd">高清质量</option>
+                                    </select>
+                                    <small
+                                        style="color: #6c757d; margin-top: 5px; display: block;">更高质量的图片需要更多时间和成本</small>
+                                </div>
+                                <div class="form-group" style="grid-column: span 2;">
+                                    <div
+                                        style="display: flex; align-items: center; gap: 10px; justify-content: space-between;">
+                                        <label
+                                            style="font-weight: 500; color: #495057; margin: 0;">自定义分辨率组（JSON，可按提供商配置）</label>
+                                        <button type="button" class="btn btn-secondary btn-sm" title="重置为默认"
+                                            onclick="resetResolutionPresets()"
+                                            style="padding: 4px 8px; min-width: 0; width: 32px; text-align: center;">&#8635;</button>
+                                    </div>
+                                    <textarea name="ai_image_resolution_presets" rows="3"
+                                        style="margin-top: 5px; font-family: monospace; font-size: 0.9em;">{{ current_config.get('ai_image_resolution_presets', '') or '{"dalle":["1792x1024","1024x1792","1024x1024"],"openai_image":["1536x1024","1024x1536","1024x1024"],"siliconflow":["1024x1024","1024x2048","1536x1024","2048x1152","1152x2048"],"gemini":["1024x1024","1344x768","768x1344"],"pollinations":["1024x1024","1344x768","768x1344","1536x1024","1024x1536"]}' }}</textarea>
+                                    <small style="color: #6c757d; margin-top: 5px; display: block;">示例:
+                                        {"dalle":["1792x1024","1024x1792","1024x1024"],"openai_image":["1536x1024","1024x1536","1024x1024"]}。留空则使用内置默认，AI只会在此列表中选择，避免模型不支持的分辨率。</small>
+                                </div>
+                            </div>
+
+
+                            <!-- 全局图片配置 -->
+                            <div
+                                style="padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #111111;">
+                                <h5 class="subheading"
+                                    style="margin-bottom: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                                    全局图片配置
+                                </h5>
+                                <div
+                                    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
+                                    <div class="form-group">
+                                        <label style="font-weight: 500; color: #495057;">每页最大图片总数:</label>
+                                        <input type="number" name="max_total_images_per_slide" value="3" min="1" max="8"
+                                            style="margin-top: 5px;">
+                                        <small
+                                            style="color: #6c757d; margin-top: 5px; display: block;">限制每页图片的总数量，避免页面过于拥挤</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="toggle-label">
+                                            <div class="toggle-switch">
+                                                <input type="checkbox" name="enable_smart_image_selection" checked>
+                                                <span class="toggle-slider"></span>
+                                            </div>
+                                            <div>
+                                                <div style="font-weight: 600; color: #495057; margin-bottom: 4px;">
+                                                    启用智能图片选择
+                                                </div>
+                                                <small
+                                                    style="color: #6c757d; font-weight: 400;">AI会根据页面内容和设计需求智能决定图片数量和来源</small>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 操作按钮 -->
+                    <div
+                        style="text-align: center; margin-top: 25px; padding: 20px; background: #f8f9fa; border-radius: 12px; border: 1px solid #e9ecef;">
+                        <button onclick="saveImageServiceConfig()" class="btn btn-success"
+                            style="padding: 12px 30px; font-weight: 600; font-size: 1.05em;">
+                            保存配置
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+
+        <!-- Test Results Modal -->
+        <div id="testModal"
+            style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+            <div
+                style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 40px; border-radius: 15px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto;">
+                <h3 style="color: #111111; margin-bottom: 20px; text-align: center;">
+                    AI 提供者测试结果
+                </h3>
+
+                <div id="testResults" style="margin-bottom: 20px;">
+                    <!-- Test results will be inserted here -->
+                </div>
+
+                <div style="text-align: center;">
+                    <button onclick="closeTestModal()" class="btn btn-secondary">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>

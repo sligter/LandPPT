@@ -25,11 +25,17 @@ class MagicPDFConverter:
     - 公式识别（LaTeX 格式）
     - 云端处理，无需本地模型
     
-    使用前需要配置环境变量:
-        MINERU_API_KEY: API 密钥（从 https://mineru.net/apiManage 获取）
+    使用前需要配置 MinerU API Key：
+        - 优先：在 LandPPT 用户配置（DB）中设置 `mineru_api_key`
+        - 或者：设置环境变量 `MINERU_API_KEY`（从 https://mineru.net/apiManage 获取）
     """
 
-    def __init__(self, output_dir: Optional[str] = None):
+    def __init__(
+        self,
+        output_dir: Optional[str] = None,
+        mineru_api_key: Optional[str] = None,
+        mineru_base_url: Optional[str] = None,
+    ):
         """
         初始化 Magic-PDF 转换器
 
@@ -37,6 +43,8 @@ class MagicPDFConverter:
             output_dir: 输出目录，如果为 None 则使用临时目录
         """
         self.output_dir = output_dir or tempfile.mkdtemp(prefix="magic_pdf_")
+        self.mineru_api_key = mineru_api_key
+        self.mineru_base_url = mineru_base_url
         self._is_available = None
         self._api_client = None
 
@@ -48,7 +56,10 @@ class MagicPDFConverter:
         """获取 API 客户端实例"""
         if self._api_client is None:
             from .mineru_api_client import MineruAPIClient
-            self._api_client = MineruAPIClient()
+            self._api_client = MineruAPIClient(
+                api_key=self.mineru_api_key,
+                base_url=self.mineru_base_url,
+            )
         return self._api_client
 
     def is_available(self) -> bool:
@@ -60,7 +71,7 @@ class MagicPDFConverter:
                 if self._is_available:
                     logger.info("MinerU API 可用")
                 else:
-                    logger.warning("MinerU API Key 未配置，请设置环境变量 MINERU_API_KEY")
+                    logger.warning("MinerU API Key 未配置，请在用户配置中设置 mineru_api_key 或设置环境变量 MINERU_API_KEY")
             except Exception as e:
                 self._is_available = False
                 logger.warning(f"MinerU API 客户端初始化失败: {e}")
@@ -93,8 +104,8 @@ class MagicPDFConverter:
         """
         if not self.is_available():
             raise ValueError(
-                "MinerU API 不可用。请设置环境变量 MINERU_API_KEY，"
-                "API 密钥可从 https://mineru.net/apiManage 获取"
+                "MinerU API 不可用。请在用户配置中设置 mineru_api_key（推荐），"
+                "或设置环境变量 MINERU_API_KEY（可从 https://mineru.net/apiManage 获取）"
             )
 
         path = Path(file_path)

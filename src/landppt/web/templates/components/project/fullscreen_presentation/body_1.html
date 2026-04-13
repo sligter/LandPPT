@@ -1,0 +1,108 @@
+    <div class="presentation-container">
+        <!-- 讲解控制（音频 + 字幕） -->
+        <div class="narration-top-controls" id="narrationTopControls" {% if not (has_speech_scripts | default(false)) %}style="display:none"{% endif %}>
+            <select class="narration-lang-select" id="narrationLanguageSelect" title="讲解语言">
+                <option value="zh" selected>中文</option>
+                <option value="en">English</option>
+            </select>
+            <button class="narration-btn" id="narrationBtn" onclick="toggleNarration()" title="讲解 (N)">
+                <i class="fas fa-microphone"></i>
+                <span id="narrationBtnLabel">讲解</span>
+            </button>
+        </div>
+        <div class="narration-subtitle" id="narrationSubtitle" aria-live="polite"></div>
+
+        <!-- 演示标题 -->
+        <div class="presentation-header">
+            <h5 class="presentation-title">{{ project.title }}</h5>
+        </div>
+
+        <!-- 退出按钮 -->
+        <button class="exit-btn" onclick="exitPresentation()" title="退出演示 (ESC)">
+            <i class="fas fa-times"></i>
+        </button>
+
+        <!-- 主要幻灯片显示区域 -->
+        <div class="slide-display">
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="slide-frame-container" id="slideFrameContainer">
+                <!-- iframe将动态创建和管理 -->
+            </div>
+        </div>
+
+        <!-- 演示控制栏 -->
+        <div class="presentation-controls">
+            <button class="control-btn" id="prevBtn" onclick="previousSlide()" title="上一页 (←)">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+
+            <button class="control-btn" onclick="toggleAutoPlay()" id="autoPlayBtn" title="自动播放">
+                <i class="fas fa-play"></i>
+            </button>
+
+            <div class="slide-counter" id="slideCounter">1 / {{ slides_count }}</div>
+
+            <button class="control-btn" onclick="toggleFullscreen()" title="全屏 (F)">
+                <i class="fas fa-expand"></i>
+            </button>
+
+            <button class="control-btn" id="nextBtn" onclick="nextSlide()" title="下一页 (→)">
+                <i class="fas fa-chevron-right"></i>
+            </button>
+        </div>
+
+        <!-- 缩略图切换按钮 -->
+        <button class="toggle-thumbnails" onclick="toggleThumbnails()" title="显示/隐藏缩略图 (T)">
+            <i class="fas fa-th-large"></i>
+        </button>
+
+        <!-- 幻灯片缩略图 -->
+        <div class="slide-thumbnails" id="slideThumbnails">
+            {% for slide in project.slides_data %}
+            <div class="thumbnail {% if loop.index == 1 %}active{% endif %}" onclick="goToSlide({{ loop.index0 }})"
+                data-slide-index="{{ loop.index0 }}">
+                <iframe srcdoc="{{ slide.html_content | e }}" title="Slide {{ loop.index }}"></iframe>
+                <div class="thumbnail-number">{{ loop.index }}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- 键盘快捷键提示 -->
+        <div class="keyboard-hints" id="keyboardHints">
+            <h6><i class="fas fa-keyboard"></i> 快捷键 & 操作</h6>
+            <div><span class="key">←/→</span> 上一页/下一页</div>
+            <div><span class="key">Space</span> 下一页</div>
+            <div><span class="key">鼠标滚轮</span> 上下翻页</div>
+            <div><span class="key">F</span> 全屏切换</div>
+            <div><span class="key">T</span> 缩略图</div>
+            <div><span class="key">H</span> 显示/隐藏帮助</div>
+            <div><span class="key">C</span> 缓存状态</div>
+            <div><span class="key">ESC</span> 退出演示</div>
+        </div>
+
+        <!-- 缓存状态面板 -->
+        <div class="cache-status" id="cacheStatus">
+            <h6><i class="fas fa-memory"></i> 缓存状态</h6>
+            <div class="stat-line">
+                <span>已缓存:</span>
+                <span class="stat-value" id="cachedCount">0</span>
+            </div>
+            <div class="stat-line">
+                <span>加载中:</span>
+                <span class="stat-value" id="loadingCount">0</span>
+            </div>
+            <div class="stat-line">
+                <span>缓存率:</span>
+                <span class="stat-value" id="cacheRatio">0%</span>
+            </div>
+            <div class="stat-line">
+                <span>总页数:</span>
+                <span class="stat-value" id="totalCount">0</span>
+            </div>
+        </div>
+
+
+    </div>
+

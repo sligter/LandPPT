@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}TODO 看板 - {{ todo_board.title }} - LandPPT{% endblock %}
+
+{% block extra_css %}
+<style>
+{% include "components/project/todo_board/extra_css_1.html" %}
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "components/project/todo_board/content_1.html" %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+{% include "components/project/todo_board/extra_js_1.html" %}
+</script>
+{% endblock %}

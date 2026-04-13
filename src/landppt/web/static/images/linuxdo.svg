@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="20" height="20" role="img" aria-label="Linux Do">
+  <defs>
+    <clipPath id="linuxdo-circle">
+      <circle cx="32" cy="32" r="29"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#linuxdo-circle)">
+    <rect x="0" y="0" width="64" height="64" fill="#0b0b0d"/>
+    <rect x="0" y="24" width="64" height="16" fill="#ffffff"/>
+    <rect x="0" y="40" width="64" height="24" fill="#f59e0b"/>
+  </g>
+  <circle cx="32" cy="32" r="29" fill="none" stroke="#0b0b0d" stroke-opacity="0.55" stroke-width="2"/>
+  <circle cx="32" cy="32" r="28" fill="none" stroke="#ffffff" stroke-opacity="0.24" stroke-width="1"/>
+</svg>

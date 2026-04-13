@@ -51,6 +51,7 @@ class LanguageComplexity(str, Enum):
 @dataclass
 class SpeechScriptCustomization:
     """Speech script customization options"""
+    language: str = "zh"
     tone: SpeechTone = SpeechTone.CONVERSATIONAL
     target_audience: TargetAudience = TargetAudience.GENERAL_PUBLIC
     language_complexity: LanguageComplexity = LanguageComplexity.MODERATE
@@ -83,13 +84,123 @@ class SpeechScriptResult:
 class SpeechScriptService:
     """Service for generating AI-powered speech scripts for presentations"""
     
-    def __init__(self):
+    def __init__(self, user_id: Optional[int] = None):
+        self.user_id = user_id
         self.ai_provider = None
         self.provider_settings: Optional[Dict[str, Optional[str]]] = None
+        # Note: _initialize_ai_provider is sync, if user_id is provided,
+        # we need to call initialize_async() after construction
+        if user_id is None:
+            self._initialize_ai_provider()
+
+    async def initialize_async(self):
+        """Async initialization for user-specific AI provider from database"""
+        if self.user_id is not None:
+            await self._initialize_ai_provider_async()
+        else:
+            self._initialize_ai_provider()
+
+    async def _initialize_ai_provider_async(self):
+        """Initialize AI provider from user's database configuration"""
+        from .db_config_service import (
+            get_db_config_service,
+            get_user_ai_provider,
+            get_user_ai_provider_config,
+            get_user_role_provider,
+        )
+
+        # 1) Prefer per-user, per-role configuration (speech_script_model_provider / speech_script_model_name)
+        try:
+            provider, role_settings = await get_user_role_provider(self.user_id, "speech_script")
+            self.ai_provider = provider
+            self.provider_settings = role_settings
+            logger.info(
+                "Initialized speech script AI provider from DB role config: "
+                f"user_id={self.user_id}, provider={role_settings.get('provider')}, model={role_settings.get('model')}"
+            )
+            return
+        except Exception as e:
+            logger.warning(
+                f"Failed to initialize speech script AI provider from DB role config for user {self.user_id}: {e}"
+            )
+
+        # 2) If the configured provider cannot be created (e.g. missing system LandPPT key),
+        # fall back to any working provider from the user's DB settings.
+        try:
+            config_service = get_db_config_service()
+            user_config = await config_service.get_all_config(user_id=self.user_id)
+            system_config = await config_service.get_all_config(user_id=None)
+
+            def _norm_provider(value: Optional[str]) -> Optional[str]:
+                if not value:
+                    return None
+                value = str(value).strip().lower()
+                if value == "gemini":
+                    return "google"
+                return value or None
+
+            requested_role_provider = _norm_provider(user_config.get("speech_script_model_provider"))
+            requested_default_provider = _norm_provider(user_config.get("default_ai_provider"))
+            role_model = (user_config.get("speech_script_model_name") or "").strip() or None
+            enable_local_models = bool(user_config.get("enable_local_models"))
+
+            candidates: List[str] = []
+            for value in (requested_role_provider, requested_default_provider):
+                if value and value not in candidates:
+                    candidates.append(value)
+
+            # Add other likely configured providers (in priority order).
+            if user_config.get("openai_api_key") and "openai" not in candidates:
+                candidates.append("openai")
+            if user_config.get("anthropic_api_key") and "anthropic" not in candidates:
+                candidates.append("anthropic")
+            if user_config.get("google_api_key") and "google" not in candidates:
+                candidates.append("google")
+            # Ollama doesn't require an API key; only try it when local models are enabled.
+            if enable_local_models and "ollama" not in candidates:
+                candidates.append("ollama")
+            # LandPPT requires system credentials; only try if configured.
+            if system_config.get("landppt_api_key") and "landppt" not in candidates:
+                candidates.append("landppt")
+
+            for provider_name in candidates:
+                try:
+                    provider_config = await get_user_ai_provider_config(self.user_id, provider_name=provider_name)
+                    needs_api_key = provider_name not in {"ollama"}
+                    has_api_key = bool(provider_config.get("api_key"))
+                    if needs_api_key and not has_api_key:
+                        logger.info(
+                            f"Skipping provider '{provider_name}' for user {self.user_id}: missing api_key in DB config"
+                        )
+                        continue
+
+                    provider = await get_user_ai_provider(self.user_id, provider_name=provider_name)
+                    model = role_model or provider_config.get("model")
+                    self.ai_provider = provider
+                    self.provider_settings = {
+                        "role": "speech_script",
+                        "provider": provider_name,
+                        "model": model,
+                    }
+                    logger.info(
+                        "Initialized speech script AI provider from DB fallback: "
+                        f"user_id={self.user_id}, provider={provider_name}, model={model}"
+                    )
+                    return
+                except Exception as provider_error:
+                    logger.warning(
+                        f"Failed to initialize provider '{provider_name}' for user {self.user_id}: {provider_error}"
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to select fallback AI provider from DB for user {self.user_id}: {e}")
+
+        # 3) Final fallback to global config (env/.env)
         self._initialize_ai_provider()
 
+
+
     def _initialize_ai_provider(self):
-        """Initialize AI provider"""
+        """Initialize AI provider from global config (fallback)"""
         try:
             provider, settings = get_role_provider("speech_script")
             self.ai_provider = provider
@@ -106,6 +217,7 @@ class SpeechScriptService:
                 logger.error(f"Failed to initialize AI provider: {fallback_error}")
                 self.ai_provider = None
                 self.provider_settings = None
+
     
     async def generate_single_slide_script(
         self,
@@ -317,10 +429,11 @@ class SpeechScriptService:
             if not task_id:
                 task_id = str(uuid.uuid4())
 
-            progress_info = progress_tracker.create_task(
+            progress_info = await progress_tracker.create_task_async(
                 task_id=task_id,
                 project_id=project.project_id,
-                total_slides=total_slides
+                total_slides=total_slides,
+                overwrite=False,
             )
 
             # Track progress
@@ -328,17 +441,32 @@ class SpeechScriptService:
 
             for i, slide_index in enumerate(slide_indices):
                 if slide_index >= len(project.slides_data):
+                    fallback_title = f'第{slide_index + 1}页'
                     failed_slides.append({
                         'slide_index': slide_index,
-                        'error': 'Slide index out of range'
+                        'slide_title': fallback_title,
+                        'error': '页码超出范围'
                     })
+                    await progress_tracker.add_slide_failed_async(
+                        task_id,
+                        slide_index,
+                        fallback_title,
+                        '页码超出范围'
+                    )
+                    if progress_callback:
+                        progress_callback({
+                            'type': 'slide_failed',
+                            'slide_index': slide_index,
+                            'slide_title': fallback_title,
+                            'error': '页码超出范围'
+                        })
                     continue
 
                 slide = project.slides_data[slide_index]
                 slide_title = slide.get('title', f'第{slide_index + 1}页')
 
                 # Update progress
-                progress_tracker.update_progress(
+                await progress_tracker.update_progress_async(
                     task_id,
                     current_slide=slide_index,
                     current_slide_title=slide_title,
@@ -396,7 +524,7 @@ class SpeechScriptService:
                         completed_count += 1
 
                         # Update progress tracker
-                        progress_tracker.add_slide_completed(task_id, slide_index, slide_title)
+                        await progress_tracker.add_slide_completed_async(task_id, slide_index, slide_title)
 
                         # Update progress callback
                         if progress_callback:
@@ -438,7 +566,7 @@ class SpeechScriptService:
                         })
 
                         # Update progress tracker
-                        progress_tracker.add_slide_failed(task_id, slide_index, slide_title, last_error or 'Unknown error')
+                        await progress_tracker.add_slide_failed_async(task_id, slide_index, slide_title, last_error or 'Unknown error')
 
                         # Update progress callback
                         if progress_callback:
@@ -456,7 +584,7 @@ class SpeechScriptService:
                         })
 
                         # Update progress tracker
-                        progress_tracker.add_slide_skipped(task_id, slide_index, slide_title, 'Max retries exceeded')
+                        await progress_tracker.add_slide_skipped_async(task_id, slide_index, slide_title, 'Max retries exceeded')
 
             # Calculate total duration
             total_duration = self._calculate_total_duration([s.estimated_duration for s in successful_scripts])
@@ -476,7 +604,7 @@ class SpeechScriptService:
             # Final progress update - DO NOT mark as completed here
             # The task will be marked as completed in routes.py after database save
             if not success:
-                progress_tracker.fail_task(task_id, error_message or "生成失败")
+                await progress_tracker.fail_task_async(task_id, error_message or "生成失败")
 
             if progress_callback:
                 progress_callback({
@@ -522,6 +650,10 @@ class SpeechScriptService:
     ) -> str:
         """Generate speech script for a single slide using AI"""
         
+        # Check if AI provider is available
+        if not self.ai_provider:
+            raise RuntimeError("AI provider not initialized. Please check AI configuration and API keys.")
+        
         # Create the prompt for speech script generation
         prompt = self._create_speech_script_prompt(
             slide, slide_index, total_slides, project,
@@ -532,12 +664,34 @@ class SpeechScriptService:
         response = await self.ai_provider.text_completion(
             prompt=prompt,
             **self._build_request_kwargs(
-                max_tokens=ai_config.max_tokens,
                 temperature=0.7
             )
         )
         
         return response.content.strip()
+
+    async def humanize_script(
+        self,
+        original_script: str,
+        customization: SpeechScriptCustomization
+    ) -> str:
+        """将已有演讲稿改写为更自然的口播表达。"""
+
+        if not self.ai_provider:
+            raise RuntimeError("AI provider not initialized. Please check AI configuration and API keys.")
+
+        cleaned_script = (original_script or "").strip()
+        if not cleaned_script:
+            raise ValueError("Original speech script cannot be empty")
+
+        prompt = self._create_humanized_script_prompt(cleaned_script, customization)
+        response = await self.ai_provider.text_completion(
+            prompt=prompt,
+            **self._build_request_kwargs(
+                temperature=0.55
+            )
+        )
+        return (response.content or "").strip()
     
     def _create_speech_script_prompt(
         self,
@@ -558,6 +712,7 @@ class SpeechScriptService:
         }
 
         customization_dict = {
+            'language': getattr(customization, "language", "zh"),
             'tone': customization.tone.value,
             'target_audience': customization.target_audience.value,
             'language_complexity': customization.language_complexity.value,
@@ -569,6 +724,30 @@ class SpeechScriptService:
         return SpeechScriptPrompts.get_single_slide_script_prompt(
             slide, slide_index, total_slides, project_info,
             previous_slide_context, customization_dict
+        )
+
+    def _create_humanized_script_prompt(
+        self,
+        original_script: str,
+        customization: SpeechScriptCustomization
+    ) -> str:
+        """创建演讲稿人话化提示词。"""
+
+        from .prompts.speech_script_prompts import SpeechScriptPrompts
+
+        customization_dict = {
+            'language': getattr(customization, "language", "zh"),
+            'tone': customization.tone.value,
+            'target_audience': customization.target_audience.value,
+            'language_complexity': customization.language_complexity.value,
+            'custom_style_prompt': customization.custom_style_prompt,
+            'include_transitions': customization.include_transitions,
+            'speaking_pace': customization.speaking_pace
+        }
+
+        return SpeechScriptPrompts.get_humanized_script_prompt(
+            original_script,
+            customization_dict
         )
 
     def _get_tone_description(self, tone: SpeechTone) -> str:
@@ -732,6 +911,7 @@ class SpeechScriptService:
         }
 
         customization_dict = {
+            'language': getattr(customization, "language", "zh"),
             'tone': customization.tone.value,
             'target_audience': customization.target_audience.value,
             'language_complexity': customization.language_complexity.value
@@ -744,7 +924,6 @@ class SpeechScriptService:
         response = await self.ai_provider.text_completion(
             prompt=prompt,
             **self._build_request_kwargs(
-                max_tokens=ai_config.max_tokens // 2,
                 temperature=0.7
             )
         )
@@ -766,6 +945,7 @@ class SpeechScriptService:
         }
 
         customization_dict = {
+            'language': getattr(customization, "language", "zh"),
             'tone': customization.tone.value,
             'target_audience': customization.target_audience.value,
             'language_complexity': customization.language_complexity.value
@@ -778,15 +958,14 @@ class SpeechScriptService:
         response = await self.ai_provider.text_completion(
             prompt=prompt,
             **self._build_request_kwargs(
-                max_tokens=ai_config.max_tokens // 2,
                 temperature=0.7
             )
         )
+
+        return response.content.strip()
 
     def _build_request_kwargs(self, **kwargs) -> Dict[str, Any]:
         """Merge base kwargs with role-specific model override if configured."""
         if self.provider_settings and self.provider_settings.get("model"):
             kwargs.setdefault("model", self.provider_settings["model"])
         return kwargs
-
-        return response.content.strip()

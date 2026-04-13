@@ -67,6 +67,9 @@ class Settings:
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             target_language=target_language,
+            use_responses_api=self.openai_use_responses_api if self.llm_provider == "openai" else False,
+            enable_reasoning=self.openai_enable_reasoning if self.llm_provider == "openai" else False,
+            reasoning_effort=self.openai_reasoning_effort if self.llm_provider == "openai" else "medium",
         )
     
     def get_llm_kwargs(self) -> Dict[str, Any]:
@@ -78,9 +81,11 @@ class Settings:
                 kwargs["api_key"] = self.openai_api_key
             if self.openai_base_url:
                 kwargs["base_url"] = self.openai_base_url
-            kwargs["use_responses_api"] = self.openai_use_responses_api
-            kwargs["enable_reasoning"] = self.openai_enable_reasoning
-            kwargs["reasoning_effort"] = self.openai_reasoning_effort
+            if self.openai_use_responses_api:
+                kwargs["use_responses_api"] = True
+            if self.openai_enable_reasoning:
+                kwargs["enable_reasoning"] = True
+                kwargs["reasoning_effort"] = self.openai_reasoning_effort
         elif self.llm_provider == "anthropic":
             if self.anthropic_api_key:
                 kwargs["api_key"] = self.anthropic_api_key
@@ -259,9 +264,6 @@ def create_env_template():
     """创建环境变量模板文件"""
     template_content = """# LLM API Keys
 OPENAI_API_KEY=your_openai_api_key_here
-# OPENAI_USE_RESPONSES_API=false
-# OPENAI_ENABLE_REASONING=false
-# OPENAI_REASONING_EFFORT=medium
 # OPENAI_BASE_URL=https://api.openai.com/v1  # 自定义OpenAI API端点（可选）
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 

@@ -1,0 +1,206 @@
+@media (prefers-reduced-motion: reduce) {
+    * {
+        scroll-behavior: auto !important;
+        transition: none !important;
+    }
+
+    .auth-bg__grid,
+    .auth-bg::before,
+    .auth-bg::after,
+    .auth-card,
+    .panel.is-active,
+    .slide-mock--1,
+    .slide-mock--2,
+    .slide-mock--3,
+    .brand-badge,
+    .brand-panel::before,
+    .brand-visual__ring,
+    .brand-visual__orbit,
+    .brand-visual__core::before,
+    .brand-visual__core::after {
+        animation: none !important;
+    }
+}
+
+@keyframes gridDrift {
+    from {
+        background-position: 0 0;
+    }
+
+    to {
+        background-position: 180px 120px;
+    }
+}
+
+@keyframes cardIn {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.985);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes panelIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes float1 {
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-6px);
+    }
+}
+
+@keyframes float2 {
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(5px);
+    }
+}
+
+@keyframes float3 {
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-4px);
+    }
+}
+
+@keyframes badgePulse {
+
+    0%,
+    100% {
+        transform: translateY(0) scale(1);
+    }
+
+    50% {
+        transform: translateY(-1px) scale(1.03);
+    }
+}
+
+@keyframes ringA {
+    from {
+        transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+
+    to {
+        transform: translate3d(120px, 110px, 0) rotate(8deg);
+    }
+}
+
+@keyframes ringB {
+    from {
+        transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+
+    to {
+        transform: translate3d(-140px, -120px, 0) rotate(-8deg);
+    }
+}
+
+@keyframes brandGrid {
+    from {
+        background-position: 0 0, 0 0;
+    }
+
+    to {
+        background-position: 120px 80px, 120px 80px;
+    }
+}
+
+@keyframes caretBlink {
+
+    0%,
+    49% {
+        opacity: 1;
+    }
+
+    50%,
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes orbitSpin {
+    from {
+        transform: translate(-50%, -50%) rotate(0deg);
+    }
+
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
+@keyframes ringSpin1 {
+    from {
+        transform: translate(-50%, -50%) rotate(0deg);
+    }
+
+    to {
+        transform: translate(-50%, -50%) rotate(360deg);
+    }
+}
+
+@keyframes ringSpin2 {
+    from {
+        transform: translate(-50%, -50%) rotate(12deg);
+    }
+
+    to {
+        transform: translate(-50%, -50%) rotate(372deg);
+    }
+}
+
+@keyframes dotPulse {
+
+    0%,
+    100% {
+        transform: translateX(-50%) scale(1);
+        opacity: 0.92;
+    }
+
+    50% {
+        transform: translateX(-50%) scale(1.18);
+        opacity: 1;
+    }
+}
+
+@keyframes coreScan {
+
+    0%,
+    100% {
+        transform: translateY(-26px);
+        opacity: 0.25;
+    }
+
+    50% {
+        transform: translateY(26px);
+        opacity: 0.72;
+    }
+}
