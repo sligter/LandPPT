@@ -62,7 +62,7 @@ services:
         condition: service_started
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "./docker-healthcheck.sh"]
+      test: ["CMD", "/usr/local/bin/docker-healthcheck.sh"]
       interval: 30s
       timeout: 30s
       retries: 3

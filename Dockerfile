@@ -161,11 +161,12 @@ WORKDIR /app
 COPY run.py ./
 COPY src/ ./src/
 COPY template_examples/ ./template_examples/
-COPY docker-healthcheck.sh docker-entrypoint.sh ./
+COPY docker-healthcheck.sh docker-entrypoint.sh /usr/local/bin/
 COPY .env.example ./.env
 
 # Create directories and set permissions in one layer
-RUN chmod +x docker-healthcheck.sh docker-entrypoint.sh && \
+RUN sed -i 's/\r$//' /usr/local/bin/docker-healthcheck.sh /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-healthcheck.sh /usr/local/bin/docker-entrypoint.sh && \
     mkdir -p temp/ai_responses_cache temp/style_genes_cache temp/summeryanyfile_cache temp/templates_cache \
              research_reports lib/Linux lib/MacOS lib/Windows uploads data && \
     chown -R landppt:landppt /app /home/landppt && \
@@ -177,8 +178,8 @@ EXPOSE 8000
 
 # Minimal health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=2 \
-    CMD ./docker-healthcheck.sh
+    CMD ["/usr/local/bin/docker-healthcheck.sh"]
 
 # Set entrypoint and command
-ENTRYPOINT ["./docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["/opt/venv/bin/python", "run.py"]
