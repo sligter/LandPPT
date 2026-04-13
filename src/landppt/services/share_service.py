@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 from sqlalchemy.orm import Session
 from ..database.models import Project
+from ..auth.request_context import current_user_id, USER_SCOPE_ALL
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,14 @@ class ShareService:
     def __init__(self, db: Session):
         self.db = db
 
-    def generate_share_token(self, project_id: str) -> Optional[str]:
+    def _effective_user_id(self, user_id: Optional[int]) -> Optional[int]:
+        if user_id == USER_SCOPE_ALL:
+            return None
+        if user_id is None:
+            return current_user_id.get()
+        return user_id
+
+    def generate_share_token(self, project_id: str, user_id: Optional[int] = None) -> Optional[str]:
         """
         Generate a unique share token for a project, or return existing one
 
@@ -29,10 +37,12 @@ class ShareService:
             The generated share token, or None if project not found
         """
         try:
+            effective_user_id = self._effective_user_id(user_id)
             # Get the project
-            project = self.db.query(Project).filter(
-                Project.project_id == project_id
-            ).first()
+            query = self.db.query(Project).filter(Project.project_id == project_id)
+            if effective_user_id is not None:
+                query = query.filter(Project.user_id == effective_user_id)
+            project = query.first()
 
             if not project:
                 logger.error(f"Project {project_id} not found")
@@ -65,7 +75,7 @@ class ShareService:
             self.db.rollback()
             return None
 
-    def disable_sharing(self, project_id: str) -> bool:
+    def disable_sharing(self, project_id: str, user_id: Optional[int] = None) -> bool:
         """
         Disable sharing for a project
 
@@ -76,9 +86,11 @@ class ShareService:
             True if successful, False otherwise
         """
         try:
-            project = self.db.query(Project).filter(
-                Project.project_id == project_id
-            ).first()
+            effective_user_id = self._effective_user_id(user_id)
+            query = self.db.query(Project).filter(Project.project_id == project_id)
+            if effective_user_id is not None:
+                query = query.filter(Project.user_id == effective_user_id)
+            project = query.first()
 
             if not project:
                 logger.error(f"Project {project_id} not found")
@@ -115,13 +127,17 @@ class ShareService:
                 logger.warning(f"Invalid or disabled share token")
                 return None
 
+            # Refresh project from database to ensure we have the latest data
+            # This prevents SQLAlchemy session cache from returning stale slides_data
+            self.db.refresh(project)
+
             return project
 
         except Exception as e:
             logger.error(f"Error validating share token: {e}")
             return None
 
-    def get_share_info(self, project_id: str) -> dict:
+    def get_share_info(self, project_id: str, user_id: Optional[int] = None) -> dict:
         """
         Get sharing information for a project
 
@@ -132,9 +148,11 @@ class ShareService:
             Dictionary with share information
         """
         try:
-            project = self.db.query(Project).filter(
-                Project.project_id == project_id
-            ).first()
+            effective_user_id = self._effective_user_id(user_id)
+            query = self.db.query(Project).filter(Project.project_id == project_id)
+            if effective_user_id is not None:
+                query = query.filter(Project.user_id == effective_user_id)
+            project = query.first()
 
             if not project:
                 return {

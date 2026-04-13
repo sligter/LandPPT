@@ -15,8 +15,20 @@ from datetime import datetime, timedelta
 from ..models import (
     ImageInfo, ImageCacheInfo, ImageSourceType, ImageProvider
 )
+from ....auth.request_context import current_user_id
 
 logger = logging.getLogger(__name__)
+
+class StorageQuotaExceededError(RuntimeError):
+    """Raised when a user exceeds their image hosting storage quota."""
+
+    def __init__(self, *, user_id: int, used_bytes: int, quota_bytes: int):
+        super().__init__(
+            f"Storage quota exceeded for user {user_id}: used={used_bytes}B quota={quota_bytes}B"
+        )
+        self.user_id = user_id
+        self.used_bytes = used_bytes
+        self.quota_bytes = quota_bytes
 
 
 class ImageCacheManager:
@@ -54,6 +66,7 @@ class ImageCacheManager:
             self.ai_generated_dir / 'dalle',
             self.ai_generated_dir / 'stable_diffusion',
             self.ai_generated_dir / 'siliconflow',
+            self.ai_generated_dir / 'pollinations',
             self.web_search_dir,
             self.web_search_dir / 'unsplash',
             self.web_search_dir / 'pixabay',
@@ -75,6 +88,8 @@ class ImageCacheManager:
                 return self.ai_generated_dir / 'dalle'
             elif provider == ImageProvider.STABLE_DIFFUSION:
                 return self.ai_generated_dir / 'stable_diffusion'
+            elif provider == ImageProvider.POLLINATIONS:
+                return self.ai_generated_dir / 'pollinations'
             else:
                 return self.ai_generated_dir
         
@@ -98,10 +113,45 @@ class ImageCacheManager:
         """生成图片内容哈希值"""
         return hashlib.sha256(image_data).hexdigest()
 
+    async def get_user_storage_usage_bytes(self, user_id: int, *, refresh_index: bool = True) -> int:
+        """Return total cached bytes for a user scope (best-effort, file-exists checked)."""
+        if refresh_index:
+            await asyncio.get_event_loop().run_in_executor(None, self._load_cache_index)
+
+        prefix = f"u{user_id}_"
+        total_size = 0
+        for cache_key, cache_info in list(self._cache_index.items()):
+            if not cache_key.startswith(prefix):
+                continue
+            try:
+                if Path(cache_info.file_path).exists():
+                    total_size += int(cache_info.file_size or 0)
+            except Exception:
+                continue
+        return total_size
+
+    def _get_owner_user_id(self, image_info: ImageInfo) -> Optional[int]:
+        owner = image_info.owner_user_id
+        if owner is None:
+            owner = current_user_id.get()
+        return owner
+
+    def _scoped_cache_key(self, owner_user_id: Optional[int], content_hash: str) -> str:
+        scope = f"u{owner_user_id}" if owner_user_id is not None else "public"
+        return f"{scope}_{content_hash}"
+
     def _generate_cache_key(self, image_info: ImageInfo, image_data: bytes = None) -> str:
-        """生成缓存键 - 始终基于内容哈希"""
+        """生成缓存键 - 用户隔离 + 内容哈希。
+
+        新的缓存键为 `{scope}_{sha256}`，其中 scope 为 `u{user_id}` 或 `public`。
+        """
+        owner_user_id = self._get_owner_user_id(image_info)
         if image_data:
-            return self._generate_content_hash(image_data)
+            return self._scoped_cache_key(owner_user_id, self._generate_content_hash(image_data))
+
+        # 如果 image_id 已经是缓存键，直接复用
+        if image_info.image_id and image_info.image_id in self._cache_index:
+            return image_info.image_id
 
         # 如果没有图片数据，使用图片ID作为临时键（这种情况应该避免）
         logger.warning(f"Generating cache key without image data for {image_info.image_id}")
@@ -110,12 +160,22 @@ class ImageCacheManager:
     async def cache_image(self, image_info: ImageInfo, image_data: bytes) -> str:
         """缓存图片 - 基于内容去重"""
         try:
-            # 生成基于内容的缓存键
+            # 绑定 owner（用于隔离图床数据）
+            owner_user_id = self._get_owner_user_id(image_info)
+            image_info.owner_user_id = owner_user_id
+            if image_info.source_image_id is None:
+                image_info.source_image_id = image_info.image_id
+
+            # 生成用户隔离的缓存键
             content_hash = self._generate_content_hash(image_data)
+            cache_key = self._scoped_cache_key(owner_user_id, content_hash)
+
+            # 以 cache_key 作为对外暴露的 image_id，避免跨用户 ID 冲突
+            image_info.image_id = cache_key
 
             # 检查是否已经缓存了相同内容的图片
-            if content_hash in self._cache_index:
-                existing_cache_info = self._cache_index[content_hash]
+            if cache_key in self._cache_index:
+                existing_cache_info = self._cache_index[cache_key]
                 existing_file_path = Path(existing_cache_info.file_path)
 
                 # 如果文件存在，更新访问信息并保存新的图片元数据引用
@@ -125,15 +185,36 @@ class ImageCacheManager:
                     # 更新图片信息中的本地路径
                     image_info.local_path = str(existing_file_path)
 
-                    # 保存这个新的图片信息作为额外的元数据引用
-                    await self._save_image_metadata_reference(content_hash, image_info)
+                    # 更新该 key 的元数据（幂等）
+                    await self._save_image_metadata(cache_key, image_info)
 
                     asyncio.create_task(self._save_cache_index())
-                    logger.debug(f"Image content already cached, added new reference: {image_info.image_id}")
-                    return content_hash
+                    logger.debug(f"Image content already cached for user scope: {cache_key}")
+                    return cache_key
                 else:
                     # 如果文件不存在，从索引中移除
-                    del self._cache_index[content_hash]
+                    del self._cache_index[cache_key]
+
+            # Enforce per-user storage quota (only when writing a new cache entry)
+            quota_mb = self.config.get("user_quota_mb", 0) if isinstance(self.config, dict) else 0
+            try:
+                quota_mb = int(float(quota_mb))
+            except Exception:
+                quota_mb = 0
+
+            if owner_user_id is not None and quota_mb > 0:
+                quota_bytes = quota_mb * 1024 * 1024
+
+                # Multi-worker processes: refresh filesystem index so new uploads/deletes are visible across workers.
+                await asyncio.get_event_loop().run_in_executor(None, self._load_cache_index)
+
+                used_bytes = await self.get_user_storage_usage_bytes(owner_user_id, refresh_index=False)
+                if used_bytes + len(image_data) > quota_bytes:
+                    raise StorageQuotaExceededError(
+                        user_id=owner_user_id,
+                        used_bytes=used_bytes,
+                        quota_bytes=quota_bytes,
+                    )
 
             # 选择存储路径 - 优先使用AI生成或网络搜索的路径
             if image_info.source_type.value in ['ai_generated', 'web_search']:
@@ -147,7 +228,7 @@ class ImageCacheManager:
             if not file_extension:
                 file_extension = f".{image_info.metadata.format.value}"
 
-            file_path = cache_path / f"{content_hash}{file_extension}"
+            file_path = cache_path / f"{cache_key}{file_extension}"
 
             # 保存图片文件
             await asyncio.get_event_loop().run_in_executor(
@@ -159,7 +240,7 @@ class ImageCacheManager:
 
             # 创建缓存信息 - 移除过期时间，图片永久有效
             cache_info = ImageCacheInfo(
-                cache_key=content_hash,
+                cache_key=cache_key,
                 file_path=str(file_path),
                 file_size=len(image_data),
                 created_at=time.time(),
@@ -169,16 +250,16 @@ class ImageCacheManager:
             )
 
             # 更新缓存索引
-            self._cache_index[content_hash] = cache_info
+            self._cache_index[cache_key] = cache_info
 
             # 保存图片元数据
-            await self._save_image_metadata(content_hash, image_info)
+            await self._save_image_metadata(cache_key, image_info)
 
             # 异步保存缓存索引
             asyncio.create_task(self._save_cache_index())
 
-            logger.debug(f"Image cached successfully: {content_hash}")
-            return content_hash
+            logger.debug(f"Image cached successfully: {cache_key}")
+            return cache_key
             
         except Exception as e:
             logger.error(f"Failed to cache image {image_info.image_id}: {e}")
@@ -194,7 +275,11 @@ class ImageCacheManager:
         try:
             cache_info = self._cache_index.get(cache_key)
             if not cache_info:
-                return None
+                # Fallback: multi-worker processes may have stale in-memory index.
+                # Discover the cached file on disk by cache_key and rebuild index entry on demand.
+                cache_info = await self._discover_cache_info(cache_key)
+                if not cache_info:
+                    return None
 
             # 检查文件是否存在
             file_path = Path(cache_info.file_path)
@@ -250,9 +335,53 @@ class ImageCacheManager:
         except Exception as e:
             logger.error(f"Failed to get cached image {cache_key}: {e}")
             return None
+
+    async def _discover_cache_info(self, cache_key: str) -> Optional[ImageCacheInfo]:
+        """Discover a cached image file on disk and rebuild a minimal cache index entry."""
+        cache_dirs = [self.ai_generated_dir, self.web_search_dir, self.local_storage_dir]
+        exts = [".webp", ".jpg", ".jpeg", ".png", ".gif"]
+
+        def _find_file() -> Optional[Path]:
+            for base_dir in cache_dirs:
+                if not base_dir.exists():
+                    continue
+                for ext in exts:
+                    matches = list(base_dir.glob(f"**/{cache_key}{ext}"))
+                    if matches:
+                        matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                        return matches[0]
+            return None
+
+        try:
+            found = await asyncio.get_event_loop().run_in_executor(None, _find_file)
+            if not found or not found.exists():
+                return None
+
+            stat = found.stat()
+            cache_info = ImageCacheInfo(
+                cache_key=cache_key,
+                file_path=str(found),
+                file_size=stat.st_size,
+                created_at=stat.st_ctime,
+                last_accessed=stat.st_atime,
+                access_count=1,
+                expires_at=None,
+            )
+            self._cache_index[cache_key] = cache_info
+            logger.debug(f"Discovered cache entry from filesystem: {cache_key} -> {found}")
+            return cache_info
+        except Exception as e:
+            logger.warning(f"Failed to discover cache entry for {cache_key}: {e}")
+            return None
     
     async def is_cached(self, image_info: ImageInfo, image_data: bytes = None) -> Optional[str]:
         """检查图片是否已缓存"""
+        # 如果 image_id 本身就是缓存键，直接校验
+        if image_info.image_id:
+            cache_info = self._cache_index.get(image_info.image_id)
+            if cache_info and Path(cache_info.file_path).exists():
+                return image_info.image_id
+
         # 如果有图片数据，使用内容哈希检查
         if image_data:
             cache_key = self._generate_cache_key(image_info, image_data)

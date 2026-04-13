@@ -2,7 +2,8 @@
 处理链管理器 - 管理LangChain处理链
 """
 
-from typing import Dict, Any
+import inspect
+from typing import AsyncGenerator, Awaitable, Callable, Dict, Any, Optional
 import logging
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
@@ -103,6 +104,26 @@ class ChainManager(LoggerMixin):
             self.logger.error(f"处理链 {chain_name} 执行失败: {e}")
             raise
     
+    async def stream_chain(
+        self,
+        chain_name: str,
+        inputs: Dict[str, Any],
+        config: Dict[str, Any] = None,
+    ) -> AsyncGenerator[str, None]:
+        """流式调用指定处理链，逐块返回文本内容。"""
+        chain = self.get_chain(chain_name)
+
+        try:
+            self.logger.debug(f"流式调用处理链: {chain_name}")
+            async for chunk in chain.astream(inputs, config or {}):
+                if not chunk:
+                    continue
+                yield str(chunk)
+            self.logger.debug(f"处理链 {chain_name} 流式执行成功")
+        except Exception as e:
+            self.logger.error(f"处理链 {chain_name} 流式执行失败: {e}")
+            raise
+
     def list_chains(self) -> list:
         """列出所有可用的处理链"""
         return list(self._chains.keys())
@@ -145,6 +166,8 @@ class ChainExecutor:
         self.chain_manager = chain_manager
         self.max_retries = max_retries
         self.logger = logging.getLogger(self.__class__.__name__)
+        # Count real LLM invocations (including retries) for downstream billing.
+        self.llm_call_count = 0
     
     async def execute_with_retry(
         self,
@@ -170,6 +193,7 @@ class ChainExecutor:
         
         for attempt in range(self.max_retries):
             try:
+                self.llm_call_count += 1
                 result = await self.chain_manager.invoke_chain(chain_name, inputs, config)
                 if attempt > 0:
                     self.logger.info(f"处理链 {chain_name} 在第 {attempt + 1} 次尝试后成功")
@@ -186,6 +210,45 @@ class ChainExecutor:
         self.logger.error(f"处理链 {chain_name} 在 {self.max_retries} 次尝试后仍然失败")
         raise last_exception
     
+    async def execute_with_retry_streaming(
+        self,
+        chain_name: str,
+        inputs: Dict[str, Any],
+        config: Dict[str, Any] = None,
+        chunk_callback: Optional[Callable[[str], Optional[Awaitable[None]]]] = None
+    ) -> str:
+        """带重试的流式链执行，同时返回完整文本。"""
+        last_exception = None
+
+        for attempt in range(self.max_retries):
+            try:
+                self.llm_call_count += 1
+                collected_chunks = []
+
+                async for chunk in self.chain_manager.stream_chain(chain_name, inputs, config):
+                    if not chunk:
+                        continue
+                    collected_chunks.append(chunk)
+                    if chunk_callback:
+                        callback_result = chunk_callback(chunk)
+                        if inspect.isawaitable(callback_result):
+                            await callback_result
+
+                result = "".join(collected_chunks)
+                if attempt > 0:
+                    self.logger.info(f"处理链 {chain_name} 在第 {attempt + 1} 次流式尝试后成功")
+                return result
+            except Exception as e:
+                last_exception = e
+                self.logger.warning(f"处理链 {chain_name} 第 {attempt + 1} 次流式尝试失败: {e}")
+
+                if attempt < self.max_retries - 1:
+                    import asyncio
+                    await asyncio.sleep(1 * (attempt + 1))
+
+        self.logger.error(f"处理链 {chain_name} 在 {self.max_retries} 次流式尝试后仍然失败")
+        raise last_exception
+
     async def execute_with_fallback(
         self,
         primary_chain: str,

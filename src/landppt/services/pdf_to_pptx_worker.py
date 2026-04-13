@@ -26,6 +26,10 @@ def main() -> int:
     parser.add_argument("--input", required=True, help="Path to the source PDF file.")
     parser.add_argument("--output", help="Path for the output PPTX file.")
     parser.add_argument(
+        "--license-key",
+        help="Apryse license key to use for conversion."
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         help="Logging level (default: INFO)."
@@ -50,6 +54,12 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     converter = PDFToPPTXConverter()
+    
+    # If license key is provided, use it directly (bypasses database lookup)
+    if args.license_key:
+        converter._cached_license_key = args.license_key
+        logging.info("Using license key from command line argument")
+    
     success, result = converter.convert_pdf_to_pptx(str(pdf_path), str(output_path))
     if success:
         print(result)

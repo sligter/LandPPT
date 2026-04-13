@@ -3,7 +3,8 @@
 """
 
 import json
-from typing import Dict, Any, Literal
+import inspect
+from typing import Awaitable, Callable, Dict, Any, Literal, Optional
 import logging
 from langchain_core.runnables import RunnableConfig
 
@@ -39,6 +40,18 @@ class GraphNodes(LoggerMixin):
             result = "根据内容的复杂度、深度和逻辑结构，自主决定最合适的页数，确保内容充实且逻辑清晰"
 
         return result
+
+    async def _emit_stream_chunk(
+        self,
+        chunk_callback: Optional[Callable[[str], Optional[Awaitable[None]]]],
+        chunk: str,
+    ) -> None:
+        if not chunk_callback or not chunk:
+            return
+
+        callback_result = chunk_callback(chunk)
+        if inspect.isawaitable(callback_result):
+            await callback_result
     
     async def analyze_structure(self, state: PPTState, config: RunnableConfig) -> Dict[str, Any]:
         """
@@ -195,6 +208,71 @@ class GraphNodes(LoggerMixin):
                 "current_index": 1
             }
     
+    async def generate_initial_outline_streaming(
+        self,
+        state: PPTState,
+        config: RunnableConfig,
+        chunk_callback: Optional[Callable[[str], Optional[Awaitable[None]]]] = None,
+    ) -> Dict[str, Any]:
+        """流式生成初始 PPT 框架。"""
+        self.logger.info("开始流式生成初始 PPT 框架...")
+
+        try:
+            structure_json = json.dumps(state["document_structure"], ensure_ascii=False)
+            first_chunk = state["document_chunks"][0] if state["document_chunks"] else ""
+
+            chain_inputs = {
+                "structure": structure_json,
+                "content": first_chunk,
+                "project_topic": state.get("project_topic", ""),
+                "project_scenario": state.get("project_scenario", "general"),
+                "project_requirements": state.get("project_requirements", ""),
+                "target_audience": state.get("target_audience", "普通大众"),
+                "custom_audience": state.get("custom_audience", ""),
+                "ppt_style": state.get("ppt_style", "general"),
+                "custom_style_prompt": state.get("custom_style_prompt", ""),
+                "slides_range": self._get_slides_range_text(state),
+                "target_language": self.config.target_language if self.config else "zh",
+            }
+
+            outline_response = await self.chain_executor.execute_with_retry_streaming(
+                "initial_outline",
+                chain_inputs,
+                config,
+                chunk_callback=chunk_callback,
+            )
+
+            outline = self.json_parser.extract_json_from_response(outline_response)
+            outline = self.json_parser.validate_ppt_structure(outline)
+
+            self.logger.info(f"流式初始 PPT 框架生成完成: {outline.get('title', '未知标题')}")
+
+            return {
+                **state,
+                "ppt_title": outline.get("title", "学术演示"),
+                "total_pages": outline.get("total_pages", 15),
+                "page_count_mode": state.get("page_count_mode", "estimated"),
+                "slides": outline.get("slides", []),
+                "current_index": 1,
+            }
+        except Exception as e:
+            self.logger.error(f"流式初始 PPT 框架生成失败: {e}")
+            return {
+                "ppt_title": "学术演示",
+                "total_pages": 15,
+                "page_count_mode": "estimated",
+                "slides": [
+                    {
+                        "page_number": 1,
+                        "title": "标题页",
+                        "content_points": ["演示标题", "演示者", "日期"],
+                        "slide_type": "title",
+                        "description": "PPT 开场标题页",
+                    }
+                ],
+                "current_index": 1,
+            }
+
     async def refine_outline(self, state: PPTState, config: RunnableConfig) -> Dict[str, Any]:
         """
         细化PPT大纲节点
@@ -285,6 +363,75 @@ class GraphNodes(LoggerMixin):
                 "current_index": current_index + 1
             }
     
+    async def refine_outline_streaming(
+        self,
+        state: PPTState,
+        config: RunnableConfig,
+        chunk_callback: Optional[Callable[[str], Optional[Awaitable[None]]]] = None,
+    ) -> Dict[str, Any]:
+        """流式细化 PPT 大纲。"""
+        current_index = state["current_index"]
+        total_chunks = len(state["document_chunks"])
+
+        self.logger.info(f"正在流式细化 PPT 大纲 ({current_index + 1}/{total_chunks})...")
+
+        if current_index >= total_chunks:
+            self.logger.info("所有文档块已处理完成")
+            return state
+
+        try:
+            current_content = state["document_chunks"][current_index]
+            existing_outline = {
+                "title": state["ppt_title"],
+                "total_pages": state["total_pages"],
+                "slides": state["slides"],
+            }
+            existing_outline_json = json.dumps(existing_outline, ensure_ascii=False)
+
+            chain_inputs = {
+                "existing_outline": existing_outline_json,
+                "new_content": current_content,
+                "context": state["accumulated_context"],
+                "project_topic": state.get("project_topic", ""),
+                "project_scenario": state.get("project_scenario", "general"),
+                "project_requirements": state.get("project_requirements", ""),
+                "target_audience": state.get("target_audience", "普通大众"),
+                "custom_audience": state.get("custom_audience", ""),
+                "ppt_style": state.get("ppt_style", "general"),
+                "custom_style_prompt": state.get("custom_style_prompt", ""),
+                "slides_range": self._get_slides_range_text(state),
+                "target_language": self.config.target_language if self.config else "zh",
+            }
+
+            refined_response = await self.chain_executor.execute_with_retry_streaming(
+                "refine_outline",
+                chain_inputs,
+                config,
+                chunk_callback=chunk_callback,
+            )
+
+            refined_outline = self.json_parser.extract_json_from_response(refined_response)
+            refined_outline = self.json_parser.validate_ppt_structure(refined_outline)
+
+            new_context = state["accumulated_context"] + "\n" + current_content[:300]
+            if len(new_context) > 2000:
+                new_context = new_context[-2000:]
+
+            return {
+                **state,
+                "ppt_title": refined_outline.get("title", state["ppt_title"]),
+                "total_pages": refined_outline.get("total_pages", state["total_pages"]),
+                "slides": refined_outline.get("slides", state["slides"]),
+                "current_index": current_index + 1,
+                "accumulated_context": new_context,
+            }
+        except Exception as e:
+            self.logger.error(f"流式细化 PPT 大纲失败: {e}")
+            return {
+                **state,
+                "current_index": current_index + 1,
+            }
+
     def should_continue_refining(self, state: PPTState) -> Literal["refine_outline", "end"]:
         """
         判断是否继续细化的条件函数

@@ -154,6 +154,12 @@ class ProcessingConfig:
     max_tokens: int = None  # 将在 __post_init__ 中设置默认值
     recursion_limit: Optional[int] = None  # 工作流递归限制，None表示自动计算
     target_language: str = "zh"  # 新增：目标语言，由用户在表单中选择
+    # API配置（从数据库读取，不使用环境变量）
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    use_responses_api: bool = False
+    enable_reasoning: bool = False
+    reasoning_effort: str = "medium"
 
     def __post_init__(self):
         """后处理验证和默认值设置"""
@@ -199,6 +205,9 @@ class ProcessingConfig:
             "max_tokens": self.max_tokens,
             "recursion_limit": self.recursion_limit,
             "target_language": self.target_language,
+            "use_responses_api": self.use_responses_api,
+            "enable_reasoning": self.enable_reasoning,
+            "reasoning_effort": self.reasoning_effort,
         }
 
 

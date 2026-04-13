@@ -1,0 +1,169 @@
+/* AI自由对话按钮样式 */
+.ai-native-dialog-btn {
+    background: var(--glass-bg);
+    backdrop-filter: blur(15px);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    padding: var(--spacing-sm);
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(31, 38, 135, 0.1);
+}
+
+.ai-native-dialog-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.6s;
+}
+
+.ai-native-dialog-btn:hover {
+    background: rgba(13, 110, 253, 0.08);
+    border-color: rgba(13, 110, 253, 0.28);
+    color: rgba(13, 110, 253, 0.95);
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 4px 15px rgba(13, 110, 253, 0.18);
+}
+
+.ai-native-dialog-btn:hover::before {
+    left: 100%;
+}
+
+/* 自由对话 Dialog */
+.ai-native-chat-dialog {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-lg);
+    padding: 0;
+    width: min(960px, calc(100vw - 48px));
+    height: min(78vh, 760px);
+    box-shadow: var(--shadow-soft);
+    background: var(--surface-elevated);
+    overflow: hidden;
+}
+
+.ai-native-chat-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.ai-native-chat-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.ai-native-chat-dialog-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-weight: 700;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.ai-native-chat-dialog-close {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    border-radius: var(--border-radius-md);
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.ai-native-chat-dialog-close:hover {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+.ai-native-chat-dialog-body {
+    height: calc(100% - 62px - 78px);
+    padding: var(--spacing-md);
+    overflow: hidden;
+}
+
+.ai-native-chat-dialog-body .ai-chat-messages {
+    height: 100%;
+}
+
+.ai-native-chat-dialog-footer {
+    border-top: 1px solid var(--border-color);
+    padding: var(--spacing-md);
+    background: var(--bg-secondary);
+}
+
+.ai-native-chat-input-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+}
+
+.ai-native-chat-input {
+    flex: 1;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-md);
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    outline: none;
+    background: var(--surface-elevated);
+}
+
+.ai-native-chat-input:focus {
+    border-color: rgba(13, 110, 253, 0.55);
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.15);
+}
+
+.ai-native-chat-send-btn {
+    background: var(--accent-color);
+    color: var(--accent-contrast);
+    border: 1px solid var(--accent-color);
+    border-radius: var(--border-radius-md);
+    padding: 10px 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.ai-native-chat-send-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.ai-native-chat-send-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.ai-native-chat-hint {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+}
+

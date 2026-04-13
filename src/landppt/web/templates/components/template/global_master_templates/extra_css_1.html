@@ -1,0 +1,187 @@
+/* ── 模板管理页面 · 后台管理风格 ── */
+
+/* 页头区域 — 紧凑标题 + 操作 */
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.page-header-left h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+}
+
+.page-header-left h2 .header-count {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.page-header-left p {
+    margin: 4px 0 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.page-header-left .header-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-left: 12px;
+    transition: color 0.2s ease;
+}
+
+.page-header-left .header-link:hover {
+    color: var(--text-primary);
+    text-decoration: underline;
+}
+
+.page-header-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* 控制栏 — 搜索 + 筛选 + 刷新 */
+.controls-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: #fff;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    flex-wrap: wrap;
+}
+
+.controls-search {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+    max-width: 380px;
+}
+
+.controls-search .search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 0.82rem;
+    pointer-events: none;
+}
+
+.controls-search input {
+    padding-left: 36px;
+}
+
+.controls-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border-color, #e5e7eb);
+    flex-shrink: 0;
+}
+
+.controls-spacer {
+    flex: 1;
+}
+
+/* 统一输入框样式 */
+.glass-input, input[type="text"], input[type="email"], input[type="password"],
+textarea, select {
+    width: 100%;
+    padding: 9px 14px;
+    border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px;
+    background: #fff;
+    font-size: 0.875rem;
+    font-family: inherit;
+    color: var(--text-primary);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    outline: none;
+    box-sizing: border-box;
+    height: 38px;
+}
+
+textarea {
+    height: auto;
+}
+
+.glass-input:focus, input[type="text"]:focus, input[type="email"]:focus,
+input[type="password"]:focus, textarea:focus, select:focus {
+    border-color: #111;
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+}
+
+.glass-input::placeholder, input::placeholder, textarea::placeholder {
+    color: #94a3b8;
+}
+
+/* 标签样式 */
+label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+/* 复选框 */
+input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin-right: 8px;
+    accent-color: #111;
+    cursor: pointer;
+}
+
+/* 表单组 */
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    margin-bottom: 6px;
+}
+
+/* 选择框 */
+select {
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 12px center;
+    background-repeat: no-repeat;
+    background-size: 16px;
+    padding-right: 40px;
+    appearance: none;
+    min-width: 120px;
+    width: auto;
+}
+
+.controls-bar select {
+    height: 38px;
+    min-width: 110px;
+    font-size: 0.82rem;
+    padding: 0 36px 0 12px;
+}
+
+.controls-bar .btn {
+    height: 38px;
+    font-size: 0.82rem;
+    padding: 0 14px;
+    flex-shrink: 0;
+}

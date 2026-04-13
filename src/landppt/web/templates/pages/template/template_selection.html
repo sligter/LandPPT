@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}选择PPT模板{% endblock %}
+
+{% block extra_css %}
+<style>
+{% include "components/template/template_selection/extra_css_1.html" %}
+</style>
+{% endblock %}
+
+{% block content %}
+{% include "components/template/template_selection/content_1.html" %}
+<style>
+{% include "components/template/template_selection/content_style_1.html" %}
+</style>
+<script>
+{% include "components/template/template_selection/content_script_1.html" %}
+</script>
+{% endblock %}

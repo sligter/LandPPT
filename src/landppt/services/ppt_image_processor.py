@@ -27,9 +27,10 @@ logger = logging.getLogger(__name__)
 class PPTImageProcessor:
     """PPT图片处理器"""
     
-    def __init__(self, image_service=None, ai_provider=None, provider_override: Optional[str] = None):
+    def __init__(self, image_service=None, ai_provider=None, user_id: Optional[int] = None, provider_override: Optional[str] = None):
         self.image_service = image_service
         self.ai_provider = ai_provider
+        self.user_id = user_id
         self.provider_override = provider_override
         self._base_url = None
         # 搜索缓存，避免重复搜索
@@ -38,7 +39,15 @@ class PPTImageProcessor:
 
     async def _text_completion(self, *, prompt: str, **kwargs):
         """调用角色为图片分析的模型"""
-        if self.ai_provider:
+        # 优先使用用户数据库配置获取模型设置
+        if self.user_id is not None:
+            from .db_config_service import get_user_role_provider
+            provider, role_settings = await get_user_role_provider(
+                self.user_id, "image_prompt", provider_override=self.provider_override
+            )
+            if role_settings.get("model"):
+                kwargs.setdefault("model", role_settings["model"])
+        elif self.ai_provider:
             provider = self.ai_provider
             if "model" not in kwargs:
                 role_settings = ai_config.get_model_config_for_role("image_prompt", provider_override=self.provider_override)
@@ -49,6 +58,7 @@ class PPTImageProcessor:
             if role_settings.get("model"):
                 kwargs.setdefault("model", role_settings["model"])
         return await provider.text_completion(prompt=prompt, **kwargs)
+
 
     def _get_base_url(self) -> str:
         """获取基础URL，用于构建绝对图片链接"""
@@ -71,17 +81,61 @@ class PPTImageProcessor:
             enabled_sources.append(ImageSource.AI_GENERATED)
         return enabled_sources
 
+    def _normalize_network_search_provider(self, provider: Optional[str]) -> str:
+        """Normalize provider string from config/UI."""
+        if not provider:
+            return ""
+        value = str(provider).strip().lower()
+        aliases = {
+            "pixbay": "pixabay",
+            "pxabay": "pixabay",
+            "unspalsh": "unsplash",
+        }
+        return aliases.get(value, value)
+
+    def _is_network_provider_configured(self, provider: str, image_config: Dict[str, Any]) -> bool:
+        """Check whether the given provider has usable credentials in the provided config."""
+        provider = self._normalize_network_search_provider(provider)
+        if provider == "unsplash":
+            key = image_config.get("unsplash_access_key")
+            return bool(key and str(key).strip())
+        if provider == "pixabay":
+            key = image_config.get("pixabay_api_key")
+            return bool(key and str(key).strip())
+        if provider == "searxng":
+            host = image_config.get("searxng_host")
+            return bool(host and str(host).strip())
+        return False
+
+    def _select_network_search_provider(self, image_config: Dict[str, Any]) -> Optional[str]:
+        """
+        Pick a working network search provider based on DB config:
+        - Prefer `default_network_search_provider` when configured.
+        - Otherwise fall back to any configured provider.
+        """
+        desired = self._normalize_network_search_provider(image_config.get("default_network_search_provider"))
+        if desired and self._is_network_provider_configured(desired, image_config):
+            return desired
+
+        for candidate in ("pixabay", "unsplash", "searxng"):
+            if self._is_network_provider_configured(candidate, image_config):
+                return candidate
+
+        return None
+
     async def process_slide_image(self, slide_data: Dict[str, Any], confirmed_requirements: Dict[str, Any],
                                  page_number: int, total_pages: int, template_html: str = "") -> Optional[SlideImagesCollection]:
         """处理幻灯片多图片生成/搜索/选择逻辑"""
         try:
-            # 检查是否启用图片生成服务
-            from .config_service import config_service
-            image_config = config_service.get_config_by_category('image_service')
+            # 检查是否启用图片生成服务 - 从用户数据库配置读取（非环境变量）
+            from .db_config_service import get_db_config_service
+            db_config_service = get_db_config_service()
+            image_config = await db_config_service.get_config_by_category('image_service', user_id=self.user_id)
 
             enable_image_service = image_config.get('enable_image_service', False)
+            logger.info(f"图片服务配置 (user_id={self.user_id}): enable_image_service={enable_image_service}")
             if not enable_image_service:
-                logger.debug("图片生成服务未启用")
+                logger.info(f"第{page_number}页: 图片生成服务未启用，跳过图片处理")
                 return None
 
             # 获取项目信息
@@ -447,23 +501,26 @@ class PPTImageProcessor:
         """处理网络图片需求"""
         images = []
         try:
+            desired_provider = self._normalize_network_search_provider(
+                image_config.get("default_network_search_provider") or "unsplash"
+            )
+            provider = self._select_network_search_provider(image_config)
+
             # 检查是否有可用的网络搜索提供商
-            if not self._has_network_search_providers(image_config):
+            if not provider:
                 logger.warning("没有配置可用的网络搜索提供商")
                 # 添加详细的配置检查信息
-                from .config_service import get_config_service
-                config_service = get_config_service()
-                all_config = config_service.get_all_config()
-                default_provider = all_config.get('default_network_search_provider', 'unsplash')
-                logger.warning(f"默认网络搜索提供商: {default_provider}")
+                logger.warning(f"默认网络搜索提供商: {desired_provider}")
                 logger.warning(f"Unsplash API Key: {'已配置' if image_config.get('unsplash_access_key') else '未配置'}")
                 logger.warning(f"Pixabay API Key: {'已配置' if image_config.get('pixabay_api_key') else '未配置'}")
                 logger.warning(f"SearXNG Host: {'已配置' if image_config.get('searxng_host') else '未配置'}")
                 return images
+            if provider != desired_provider:
+                logger.warning(f"默认网络搜索提供商'{desired_provider}'不可用，降级使用'{provider}'")
 
             # 让AI生成搜索关键词
             search_query = await self._ai_generate_search_query(
-                slide_title, slide_content, project_topic, project_scenario, requirement
+                slide_title, slide_content, project_topic, project_scenario, requirement, default_provider=provider
             )
 
             if not search_query:
@@ -475,7 +532,9 @@ class PPTImageProcessor:
             # 搜索更多图片以便在下载失败时有备选
             search_count = min(requirement.count * 3, 20)  # 搜索3倍数量，但不超过20张
             # logger.info(f"开始网络搜索，关键词: {search_query}, 搜索数量: {search_count}")
-            network_images = await self._search_images_directly(search_query, search_count)
+            network_images = await self._search_images_directly(
+                search_query, search_count, image_config=image_config, default_provider=provider
+            )
             # logger.info(f"网络搜索返回 {len(network_images)} 张图片")
 
             # 下载网络图片到本地缓存文件夹，带重试机制
@@ -526,35 +585,7 @@ class PPTImageProcessor:
 
     def _has_network_search_providers(self, image_config: Dict[str, Any]) -> bool:
         """检查是否有可用的网络搜索提供商"""
-        try:
-            # 获取默认网络搜索提供商配置
-            from .config_service import get_config_service
-            config_service = get_config_service()
-            all_config = config_service.get_all_config()
-            default_provider = all_config.get('default_network_search_provider', 'unsplash')
-
-            # 检查默认提供商的API密钥是否配置
-            if default_provider == 'unsplash':
-                unsplash_key = image_config.get('unsplash_access_key')
-                return bool(unsplash_key and unsplash_key.strip())
-            elif default_provider == 'pixabay':
-                pixabay_key = image_config.get('pixabay_api_key')
-                return bool(pixabay_key and pixabay_key.strip())
-            elif default_provider == 'searxng':
-                searxng_host = image_config.get('searxng_host')
-                return bool(searxng_host and searxng_host.strip())
-
-            return False
-
-        except Exception as e:
-            logger.warning(f"Failed to check network search providers: {e}")
-            # 降级：检查是否有任何配置的API密钥
-            unsplash_key = image_config.get('unsplash_access_key')
-            pixabay_key = image_config.get('pixabay_api_key')
-            searxng_host = image_config.get('searxng_host')
-            return bool((unsplash_key and unsplash_key.strip()) or
-                       (pixabay_key and pixabay_key.strip()) or
-                       (searxng_host and searxng_host.strip()))
+        return bool(self._select_network_search_provider(image_config))
 
     async def _search_images_with_service(self, query: str, count: int) -> List[Dict[str, Any]]:
         """使用图片服务搜索图片"""
@@ -628,6 +659,11 @@ class PPTImageProcessor:
                 logger.warning("图片服务未初始化")
                 return images
 
+            # 重新加载用户特定的图片提供者配置（从数据库读取API密钥）
+            if self.user_id is not None:
+                await self.image_service.reload_providers_for_user(self.user_id)
+                logger.debug(f"已为用户 {self.user_id} 重新加载图片提供者配置")
+
             # 获取默认AI图片提供商
             default_provider = (image_config.get('default_ai_image_provider') or 'dalle').lower()
             logger.info(f"使用AI图片提供商: {default_provider}")
@@ -658,13 +694,14 @@ class PPTImageProcessor:
                     provider = ImageProvider.SILICONFLOW
                 elif default_provider == 'stable_diffusion':
                     provider = ImageProvider.STABLE_DIFFUSION
-                elif default_provider == 'pollinations':
-                    provider = ImageProvider.POLLINATIONS
+
                 elif default_provider == 'gemini':
                     provider = ImageProvider.GEMINI
                 elif default_provider == 'openai_image':
                     provider = ImageProvider.OPENAI_IMAGE
-    
+                elif default_provider == 'pollinations':
+                    provider = ImageProvider.POLLINATIONS
+      
                 generation_request = ImageGenerationRequest(
                     prompt=image_prompt,
                     provider=provider,
@@ -678,7 +715,11 @@ class PPTImageProcessor:
 
                 if result.success and result.image_info:
                     from .url_service import build_image_url
-                    absolute_url = build_image_url(result.image_info.image_id)
+                    absolute_url = build_image_url(
+                        result.image_info.image_id,
+                        width=result.image_info.metadata.width,
+                        height=result.image_info.metadata.height,
+                    )
 
                     slide_image = SlideImageInfo(
                         image_id=result.image_info.image_id,
@@ -745,7 +786,14 @@ class PPTImageProcessor:
 
 
 
-    async def _search_images_directly(self, query: str, count: int) -> List[Dict[str, Any]]:
+    async def _search_images_directly(
+        self,
+        query: str,
+        count: int,
+        *,
+        image_config: Optional[Dict[str, Any]] = None,
+        default_provider: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """使用配置的默认网络搜索提供商搜索图片"""
         # 创建搜索缓存键
         search_key = f"direct_{query}_{count}"
@@ -764,32 +812,35 @@ class PPTImageProcessor:
             config_manager = ImageServiceConfig()
             config = config_manager.get_config()
 
-            # 获取默认网络搜索提供商配置
-            from .config_service import get_config_service
-            config_service = get_config_service()
-            all_config = config_service.get_all_config()
-            default_provider = all_config.get('default_network_search_provider', 'unsplash')
+            provider_name = self._normalize_network_search_provider(
+                default_provider
+                or (image_config or {}).get("default_network_search_provider")
+                or "unsplash"
+            )
 
-            logger.debug(f"使用默认网络搜索提供商: {default_provider}")
+            logger.debug(f"使用默认网络搜索提供商: {provider_name}")
 
             # 根据配置的默认提供商创建相应的提供者
             provider = None
-            if default_provider == 'pixabay':
-                pixabay_config = config.get('pixabay', {})
+            if provider_name == 'pixabay':
+                pixabay_config = dict(config.get('pixabay', {}) or {})
+                pixabay_config['api_key'] = (image_config or {}).get('pixabay_api_key') or pixabay_config.get('api_key')
                 if not pixabay_config.get('api_key'):
                     logger.warning("Pixabay API key not configured")
                     return []
                 from .image.providers.pixabay_provider import PixabaySearchProvider
                 provider = PixabaySearchProvider(pixabay_config)
-            elif default_provider == 'searxng':
-                searxng_config = config.get('searxng', {})
+            elif provider_name == 'searxng':
+                searxng_config = dict(config.get('searxng', {}) or {})
+                searxng_config['host'] = (image_config or {}).get('searxng_host') or searxng_config.get('host')
                 if not searxng_config.get('host'):
                     logger.warning("SearXNG host not configured")
                     return []
                 from .image.providers.searxng_image_provider import SearXNGSearchProvider
                 provider = SearXNGSearchProvider(searxng_config)
             else:  # 默认使用unsplash
-                unsplash_config = config.get('unsplash', {})
+                unsplash_config = dict(config.get('unsplash', {}) or {})
+                unsplash_config['api_key'] = (image_config or {}).get('unsplash_access_key') or unsplash_config.get('api_key')
                 if not unsplash_config.get('api_key'):
                     logger.warning("Unsplash API key not configured")
                     return []
@@ -803,7 +854,7 @@ class PPTImageProcessor:
 
             # 创建搜索请求
             # 根据不同提供商调整per_page参数
-            if default_provider == 'pixabay':
+            if provider_name == 'pixabay':
                 # Pixabay API 要求 per_page 范围为 3-200
                 per_page = max(3, min(count, 200))
             else:
@@ -912,14 +963,18 @@ class PPTImageProcessor:
                         if result.success and result.image_info:
                             # 构建图床API的绝对URL
                             from .url_service import build_image_url
-                            absolute_url = build_image_url(result.image_info.image_id)
+                            absolute_url = build_image_url(
+                                result.image_info.image_id,
+                                width=result.image_info.metadata.width,
+                                height=result.image_info.metadata.height,
+                            )
 
                             return {
                                 'image_id': result.image_info.image_id,
                                 'absolute_url': absolute_url,
-                                'format': file_extension,
-                                'width': image_data.get('imageWidth'),
-                                'height': image_data.get('imageHeight')
+                                'format': result.image_info.metadata.format.value,
+                                'width': result.image_info.metadata.width,
+                                'height': result.image_info.metadata.height
                             }
                         else:
                             logger.error(f"上传网络图片到图床失败: {result.message}")
@@ -1295,7 +1350,8 @@ class PPTImageProcessor:
 
     async def _ai_generate_search_query(self, slide_title: str, slide_content: str,
                                       project_topic: str, project_scenario: str,
-                                      requirement: ImageRequirement = None) -> Optional[str]:
+                                      requirement: ImageRequirement = None,
+                                      default_provider: Optional[str] = None) -> Optional[str]:
         """使用AI生成网络搜索关键词"""
         try:
             # 检测项目语言
@@ -1347,13 +1403,10 @@ class PPTImageProcessor:
             search_query = response.content.strip()
 
             # 根据不同提供商截断查询
-            from .config_service import get_config_service
-            config_service = get_config_service()
-            all_config = config_service.get_all_config()
-            default_provider = all_config.get('default_network_search_provider', 'unsplash')
+            provider_name = self._normalize_network_search_provider(default_provider) or "unsplash"
 
             # Pixabay API的100字符限制，其他提供商使用更宽松的限制
-            max_length = 100 if default_provider == 'pixabay' else 200
+            max_length = 100 if provider_name == 'pixabay' else 200
             truncated_query = self._truncate_search_query(search_query, max_length)
 
             if len(search_query) > max_length:
@@ -1412,9 +1465,10 @@ class PPTImageProcessor:
         default_presets = {
             'dalle': ["1792x1024", "1024x1792", "1024x1024"],
             'openai_image': ["1536x1024", "1024x1536", "1024x1024"],
-            'siliconflow': ["1024x1024", "2048x1152", "1152x2048"],
+            'siliconflow': ["1024x1024", "1024x2048", "1536x1024", "2048x1152", "1152x2048"],
             'gemini': ["1024x1024", "1344x768", "768x1344"],
-            'pollinations': ["1024x1024", "1280x720", "720x1280"],
+            'pollinations': ["1024x1024", "1344x768", "768x1344", "1536x1024", "1024x1536"],
+
             'default': ["1792x1024", "1024x1792", "1024x1024"]
         }
 
@@ -1437,8 +1491,16 @@ class PPTImageProcessor:
                 normalized = self._normalize_resolution_value(value)
                 if normalized:
                     options.append(normalized)
+        
+        # 如果没有自定义预设，使用默认预设
+        if not options:
+            fallback_presets = default_presets.get(provider_key) or default_presets['default']
+            for value in fallback_presets:
+                normalized = self._normalize_resolution_value(value)
+                if normalized:
+                    options.append(normalized)
 
-        # 允许从单值配置中注入优先尺寸（如dalle_image_size）
+        # 允许从单值配置中注入优先尺寸（如dalle_image_size），添加到列表开头
         provider_size_keys = {
             'dalle': 'dalle_image_size',
             'siliconflow': 'siliconflow_image_size',
@@ -1446,15 +1508,8 @@ class PPTImageProcessor:
         size_key = provider_size_keys.get(provider_key)
         if size_key and image_config.get(size_key):
             normalized_size = self._normalize_resolution_value(image_config.get(size_key))
-            if normalized_size:
+            if normalized_size and normalized_size not in options:
                 options.insert(0, normalized_size)
-
-        if not options:
-            fallback_presets = default_presets.get(provider_key) or default_presets['default']
-            for value in fallback_presets:
-                normalized = self._normalize_resolution_value(value)
-                if normalized:
-                    options.append(normalized)
 
         # 去重并保持顺序
         unique_options = []

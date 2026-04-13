@@ -1,13 +1,9 @@
-"""
-PPT提示词模块统一入口
-提供所有提示词类的便捷导入
-"""
-
 from typing import Dict, Any, List
 from .outline_prompts import OutlinePrompts
 from .content_prompts import ContentPrompts
 from .design_prompts import DesignPrompts
 from .system_prompts import SystemPrompts
+from .template_prompts import TemplatePrompts
 from .repair_prompts import RepairPrompts
 
 __all__ = [
@@ -15,6 +11,7 @@ __all__ = [
     'ContentPrompts', 
     'DesignPrompts',
     'SystemPrompts',
+    'TemplatePrompts',
     'RepairPrompts'
 ]
 
@@ -27,6 +24,7 @@ class PPTPromptsManager:
         self.content = ContentPrompts()
         self.design = DesignPrompts()
         self.system = SystemPrompts()
+        self.template = TemplatePrompts()
         self.repair = RepairPrompts()
     
     # 大纲相关提示词
@@ -77,9 +75,6 @@ class PPTPromptsManager:
     def get_slide_design_guide_prompt(self, *args, **kwargs):
         return self.design.get_slide_design_guide_prompt(*args, **kwargs)
     
-    def get_unified_design_guide_prompt(self, *args, **kwargs):
-        return self.design.get_unified_design_guide_prompt(*args, **kwargs)
-    
     def get_creative_variation_prompt(self, *args, **kwargs):
         return self.design.get_creative_variation_prompt(*args, **kwargs)
     
@@ -91,6 +86,15 @@ class PPTPromptsManager:
 
     def get_combined_style_genes_and_guide_prompt(self, *args, **kwargs):
         return self.design.get_combined_style_genes_and_guide_prompt(*args, **kwargs)
+
+    def get_global_visual_constitution_prompt(self, *args, **kwargs):
+        return self.design.get_global_visual_constitution_prompt(*args, **kwargs)
+
+    def get_page_creative_briefs_prompt(self, *args, **kwargs):
+        return self.design.get_page_creative_briefs_prompt(*args, **kwargs)
+
+    def get_page_plan_prompt(self, *args, **kwargs):
+        return self.design.get_page_plan_prompt(*args, **kwargs)
 
     def get_creative_template_context_prompt(self, *args, **kwargs):
         return self.design.get_creative_template_context_prompt(*args, **kwargs)
@@ -136,18 +140,13 @@ class PPTPromptsManager:
     def get_error_recovery_prompt(self, *args, **kwargs):
         return self.repair.get_error_recovery_prompt(*args, **kwargs)
 
-    def get_single_slide_html_prompt(self, slide_data: Dict[str, Any], confirmed_requirements: Dict[str, Any],
-                                   page_number: int, total_pages: int, context_info: str,
-                                   style_genes: str, unified_design_guide: str, template_html: str) -> str:
+    def get_single_slide_html_prompt(self, *args, **kwargs) -> str:
         """获取单页HTML生成提示词"""
-        return self.design.get_single_slide_html_prompt(
-            slide_data, confirmed_requirements, page_number, total_pages,
-            context_info, style_genes, unified_design_guide, template_html
-        )
+        return self.design.get_single_slide_html_prompt(*args, **kwargs)
 
-    def get_slide_context_prompt(self, page_number: int, total_pages: int) -> str:
+    def get_slide_context_prompt(self, slide_data: Dict[str, Any], page_number: int, total_pages: int) -> str:
         """获取幻灯片上下文提示词（特殊页面设计要求）"""
-        return self.design.get_slide_context_prompt(page_number, total_pages)
+        return self.design.get_slide_context_prompt(slide_data, page_number, total_pages)
 
 
 # 创建默认实例

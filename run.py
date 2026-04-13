@@ -32,6 +32,20 @@ def main():
     port = int(os.getenv("PORT", "8000"))
     reload = os.getenv("RELOAD", "true").lower() in ("true", "1", "yes", "on")
     log_level = os.getenv("LOG_LEVEL", "info").lower()
+    workers = int(os.getenv("WORKERS", "1"))
+
+    # Uvicorn's multi-worker supervisor has a watchdog that can SIGTERM "unresponsive" workers.
+    # Long-running background tasks (like video export) can temporarily block/slow the event loop,
+    # so we use a higher default to avoid killing workers during heavy exports.
+    try:
+        timeout_worker_healthcheck = int(os.getenv("UVICORN_TIMEOUT_WORKER_HEALTHCHECK", "60"))
+    except Exception:
+        timeout_worker_healthcheck = 60
+    timeout_worker_healthcheck = max(5, timeout_worker_healthcheck)
+
+    # Workers and reload cannot be combined; prefer workers when explicitly set
+    if workers > 1 and reload:
+        reload = False
 
     # Configuration
     config = {
@@ -41,24 +55,27 @@ def main():
         "reload": reload,
         "log_level": log_level,
         "access_log": True,
+        "timeout_worker_healthcheck": timeout_worker_healthcheck,
     }
+    if workers > 1:
+        config["workers"] = workers
     
-    print("🚀 Starting LandPPT Server...")
-    print(f"📍 Host: {config['host']}")
-    print(f"🔌 Port: {config['port']}")
-    print(f"🔄 Reload: {config['reload']}")
-    print(f"📊 Log Level: {config['log_level']}")
-    print(f"📍 Server will be available at: http://localhost:{config['port']}")
-    print(f"📚 API Documentation: http://localhost:{config['port']}/docs")
-    print(f"🌐 Web Interface: http://localhost:{config['port']}/web")
+    print("Starting LandPPT Server...")
+    print(f"Host: {config['host']}")
+    print(f"Port: {config['port']}")
+    print(f"Reload: {config['reload']}")
+    print(f"Log Level: {config['log_level']}")
+    print(f"Workers: {config.get('workers', 1)}")
+    print(f"Server will be available at: http://localhost:{config['port']}")
+    print(f"Web Interface: http://localhost:{config['port']}/web")
     print("=" * 60)
-    
+
     try:
         uvicorn.run(**config)
     except KeyboardInterrupt:
-        print("\n👋 Server stopped by user")
+        print("\nServer stopped by user")
     except Exception as e:
-        print(f"❌ Error starting server: {e}")
+        print(f"Error starting server: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

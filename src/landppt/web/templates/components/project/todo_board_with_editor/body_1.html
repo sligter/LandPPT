@@ -1,0 +1,515 @@
+    <div class="main-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-content">
+                <div class="header-left">
+                    <div class="header-icon">
+                        <i class="fas fa-tasks"></i>
+                    </div>
+                    <div class="header-text">
+                        <h2>{{ todo_board.title }}</h2>
+                        <div class="header-subtitle">
+                            <i class="fas fa-chart-line"></i>
+                            项目进度跟踪与实时编辑
+                        </div>
+                    </div>
+                </div>
+                <div class="header-controls">
+                    <a href="/projects" class="btn btn-outline-light" onclick="return true;">
+                        <i class="fas fa-arrow-left"></i>
+                        返回项目列表
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-area">
+            <!-- Editor Section -->
+            <div class="editor-section">
+                <div class="editor-toolbar">
+                    <div class="toolbar-title">
+                        <i class="fas fa-magic fa-2x"></i>
+                        <h4>PPT 智能生成器</h4>
+                    </div>
+                    <div class="btn-group-custom">
+                        <button class="btn btn-primary" id="startBtn">
+                            <i class="fas fa-play"></i> 开始生成
+                        </button>
+                        <button class="btn btn-warning" id="pauseBtn" style="display: none;">
+                            <i class="fas fa-pause"></i> 暂停
+                        </button>
+                        <button class="btn btn-success" id="resumeBtn" style="display: none;">
+                            <i class="fas fa-play"></i> 继续
+                        </button>
+                        <button class="btn btn-danger" id="stopBtn" style="display: none;">
+                            <i class="fas fa-stop"></i> 停止生成
+                        </button>
+                        <button class="btn btn-success" id="editorBtn" style="display: none;">
+                            <i class="fas fa-edit"></i> 打开编辑器
+                        </button>
+                        <button class="btn btn-info" id="slideshowBtn" style="display: none;">
+                            <i class="fas fa-presentation-screen"></i> 幻灯片放映
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Generation Status -->
+                <div class="status-indicator" id="generationStatus" style="display: none;">
+                    <h6><i class="fas fa-cogs"></i> 生成状态</h6>
+                    <div id="statusMessage">准备开始生成...</div>
+                    <div class="progress mt-3">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="generationProgress"
+                            style="width: 0%"></div>
+                    </div>
+                    <!-- 连接状态指示器 -->
+                    <div class="connection-status-container mt-2">
+                        <div id="connectionStatus" class="connection-status disconnected">
+                            <span
+                                style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;"></span>
+                            未连接
+                        </div>
+                    </div>
+                </div>
+
+                <div class="slides-container" id="slidesContainer">
+                    <div class="welcome-message">
+                        <div class="welcome-message-icon">
+                            <div class="welcome-message-orbit"></div>
+                            <i class="fas fa-rocket fa-4x"></i>
+                        </div>
+                        <h4 class="welcome-message-title">准备创建精彩的演示文稿</h4>
+                        <p class="welcome-message-subtitle">点击“开始生成”按钮，AI 将为您创建专业的 PPT 幻灯片</p>
+                        <div class="welcome-message-features">
+                            <span class="feature-badge"><i class="fas fa-brain"></i> AI 驱动</span>
+                            <span class="feature-badge"><i class="fas fa-bolt"></i> 快速生成</span>
+                            <span class="feature-badge"><i class="fas fa-palette"></i> 精准设计</span>
+                        </div>
+                    </div>
+                </div>
+
+                <style>
+                    @keyframes rocketFloat {
+
+                        0%,
+                        100% {
+                            transform: translateY(0px) rotate(0deg);
+                        }
+
+                        50% {
+                            transform: translateY(-12px) rotate(8deg);
+                        }
+                    }
+
+                    @keyframes pulseGlow {
+
+                        0%,
+                        100% {
+                            transform: translate(-50%, -50%) scale(1);
+                            opacity: 0.6;
+                        }
+
+                        50% {
+                            transform: translate(-50%, -50%) scale(1.2);
+                            opacity: 0.3;
+                        }
+                    }
+
+                    .welcome-message-icon {
+                        position: relative;
+                        display: inline-block;
+                        margin-bottom: 35px;
+                    }
+
+                    .welcome-message-orbit {
+                        position: absolute;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        width: 120px;
+                        height: 120px;
+                        background: radial-gradient(circle, rgba(0, 0, 0, 0.08) 0%, transparent 70%);
+                        border-radius: 50%;
+                        animation: pulseGlow 3s ease-in-out infinite;
+                    }
+
+                    .welcome-message-icon i {
+                        color: var(--surface-contrast);
+                        animation: rocketFloat 3s ease-in-out infinite;
+                        position: relative;
+                        z-index: 1;
+                    }
+
+                    .welcome-message-title {
+                        color: var(--text-primary);
+                        font-weight: 800;
+                        margin-bottom: 25px;
+                        font-size: 2.2em;
+                        letter-spacing: -0.01em;
+                    }
+
+                    .welcome-message-subtitle {
+                        color: var(--text-secondary);
+                        font-size: 1.1em;
+                        line-height: 1.6;
+                        margin-bottom: 35px;
+                        font-weight: 500;
+                    }
+
+                    .welcome-message-features {
+                        display: flex;
+                        gap: 18px;
+                        justify-content: center;
+                        flex-wrap: wrap;
+                    }
+
+                    .feature-badge {
+                        background: var(--surface-subtle);
+                        color: var(--text-primary);
+                        padding: 12px 24px;
+                        border-radius: 30px;
+                        font-weight: 700;
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                        transition: all 0.3s ease;
+                        cursor: default;
+                        border: 1px solid var(--border-color);
+                    }
+
+                    .feature-badge:hover {
+                        transform: translateY(-3px) scale(1.02);
+                        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+                    }
+
+                    /* 进度条美化 */
+                    .progress {
+                        height: 8px;
+                        border-radius: 10px;
+                        background: var(--surface-subtle);
+                        overflow: hidden;
+                        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.08);
+                    }
+
+                    .progress-bar {
+                        background: var(--surface-contrast);
+                        background-size: 200% 100%;
+                        animation: progressShine 2s ease-in-out infinite;
+                        border-radius: 10px;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                    }
+
+                    @keyframes progressShine {
+                        0% {
+                            background-position: 200% 0;
+                        }
+
+                        100% {
+                            background-position: -200% 0;
+                        }
+                    }
+
+                    /* 连接状态指示器样式 */
+                    .connection-status-container {
+                        display: flex;
+                        justify-content: flex-end;
+                        margin-top: 10px;
+                    }
+
+                    .connection-status {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                        font-size: 0.85em;
+                        padding: 4px 10px;
+                        border-radius: 12px;
+                        background: rgba(0, 0, 0, 0.05);
+                    }
+
+                    .connection-status.connected {
+                        color: #10b981;
+                    }
+
+                    .connection-status.connecting,
+                    .connection-status.reconnecting {
+                        color: #6b7280;
+                    }
+
+                    .connection-status.paused {
+                        color: #f59e0b;
+                        background: rgba(245, 158, 11, 0.1);
+                    }
+
+                    .connection-status.disconnected,
+                    .connection-status.error,
+                    .connection-status.failed {
+                        color: #ef4444;
+                    }
+
+                    .connection-status.stopped {
+                        color: #6b7280;
+                    }
+
+                    .connection-status.completed {
+                        color: #10b981;
+                        background: rgba(16, 185, 129, 0.1);
+                    }
+
+                    @keyframes pulse {
+
+                        0%,
+                        100% {
+                            opacity: 1;
+                        }
+
+                        50% {
+                            opacity: 0.5;
+                        }
+                    }
+                </style>
+            </div>
+        </div>
+    </div>
+
+    <!-- 全屏覆盖层 -->
+    <div class="fullscreen-overlay" id="fullscreenOverlay">
+        <div class="fullscreen-content">
+            <button class="close-fullscreen" id="closeFullscreenBtn">
+                <i class="fas fa-times"></i>
+            </button>
+            <iframe class="fullscreen-iframe" id="fullscreenIframe" src=""></iframe>
+        </div>
+    </div>
+
+    <!-- Free Template Wizard Modal -->
+    <style>
+        /* ---- Free Template Modal ---- */
+        .ftm-modal .modal-content { border-radius: 16px; overflow: hidden; border: none; box-shadow: 0 24px 80px rgba(0,0,0,.25); }
+        .ftm-header { background: linear-gradient(135deg, #111 0%, #1a1a2e 100%); color: #fff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+        .ftm-header-title { font-weight: 800; font-size: 16px; display: flex; align-items: center; gap: 10px; margin: 0; }
+        .ftm-header .btn-close { filter: invert(1); opacity: .7; }
+        .ftm-header .btn-close:hover { opacity: 1; }
+        .ftm-body { background: #f7f7f8; padding: 20px; }
+        .ftm-card { background: #fff; border: 1px solid rgba(0,0,0,.08); border-radius: 14px; padding: 16px; }
+        .ftm-footer { background: #fff; border-top: 1px solid rgba(0,0,0,.06); padding: 12px 24px; display: flex; justify-content: flex-end; }
+
+        /* Tab bar */
+        .ftm-tabs { display: flex; gap: 4px; margin-bottom: 12px; background: #f0f0f0; border-radius: 10px; padding: 3px; }
+        .ftm-tab { flex: 1; text-align: center; padding: 7px 0; font-size: 13px; font-weight: 600; border-radius: 8px; cursor: pointer; color: #6b7280; border: none; background: none; transition: all .2s; }
+        .ftm-tab.active { background: #111; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+        .ftm-tab:not(.active):hover { color: #111; background: rgba(0,0,0,.04); }
+
+        /* Status bar */
+        .ftm-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+        .ftm-status-text { font-size: 13px; color: #6b7280; }
+        .ftm-status-actions { display: flex; gap: 6px; }
+        .ftm-icon-btn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid rgba(0,0,0,.12); background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; color: #374151; transition: all .15s; }
+        .ftm-icon-btn:hover { background: #f0f0f0; border-color: rgba(0,0,0,.2); }
+
+        /* Preview area */
+        .ftm-preview-wrap { background: #1a1a2e; border: 1px solid rgba(0,0,0,.12); border-radius: 12px; overflow: hidden; position: relative; width: 100%; padding-top: 56.25%; cursor: pointer; }
+        .ftm-preview-wrap iframe { position: absolute; top: 0; left: 0; width: 1280px; height: 720px; border: 0; transform-origin: top left; pointer-events: none; }
+
+        /* Code editor area */
+        .ftm-code-wrap { border: 1px solid rgba(0,0,0,.12); border-radius: 12px; overflow: hidden; display: none; }
+        .ftm-code-wrap .CodeMirror { height: 380px; font-size: 13px; }
+        .ftm-code-actions { display: flex; justify-content: flex-end; padding: 8px 0 0; gap: 8px; }
+
+        /* Error */
+        .ftm-error { display: none; margin-top: 10px; padding: 10px 14px; background: #fef2f2; color: #b91c1c; font-weight: 600; font-size: 13px; border-radius: 8px; border: 1px solid #fecaca; }
+
+        /* Info area */
+        .ftm-info { display: none; margin-top: 12px; padding: 10px 14px; background: #f8f9fa; border-radius: 10px; border: 1px solid rgba(0,0,0,.06); }
+        .ftm-badge { background: #111; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+
+        /* Right panel */
+        .ftm-section-title { font-weight: 800; color: #111; font-size: 15px; margin-bottom: 6px; }
+        .ftm-section-desc { color: #6b7280; font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
+        .ftm-status-indicator { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #f3f4f6; border-radius: 10px; margin-bottom: 14px; }
+        .ftm-status-dot { width: 10px; height: 10px; border-radius: 50%; background: #9ca3af; flex-shrink: 0; }
+        .ftm-status-label { font-size: 13px; color: #374151; font-weight: 500; }
+
+        .ftm-btn-group { display: flex; flex-wrap: wrap; gap: 8px; }
+        .ftm-btn { padding: 9px 18px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+        .ftm-btn-primary { background: #111; color: #fff; }
+        .ftm-btn-primary:hover { background: #333; }
+        .ftm-btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+        .ftm-btn-secondary { background: #fff; color: #111; border: 1px solid rgba(0,0,0,.15); }
+        .ftm-btn-secondary:hover { background: #f5f5f5; border-color: rgba(0,0,0,.25); }
+        .ftm-btn-secondary:disabled { color: #9ca3af; cursor: not-allowed; }
+        .ftm-btn-accent { background: #fff; color: #4f46e5; border: 1px solid #c7d2fe; }
+        .ftm-btn-accent:hover { background: #eef2ff; }
+        .ftm-btn-accent:disabled { color: #9ca3af; border-color: rgba(0,0,0,.08); cursor: not-allowed; }
+
+        /* Divider */
+        .ftm-divider { border: none; border-top: 1px solid rgba(0,0,0,.08); margin: 16px 0; }
+
+        /* Adjust section */
+        .ftm-adjust-row { display: flex; gap: 8px; }
+        .ftm-adjust-input { flex: 1; padding: 9px 14px; border: 1px solid rgba(0,0,0,.12); border-radius: 10px; font-size: 13px; outline: none; transition: border-color .15s; }
+        .ftm-adjust-input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
+        .ftm-adjust-input::placeholder { color: #9ca3af; }
+
+        /* Fullscreen overlay */
+        .ftm-fullscreen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,.95); z-index: 10001; display: none; justify-content: center; align-items: center; }
+        .ftm-fullscreen-frame { position: relative; width: 90vw; max-width: 1280px; aspect-ratio: 16/9; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+        .ftm-fullscreen-close { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,.9); color: #111; border: none; border-radius: 50%; width: 44px; height: 44px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,.3); transition: transform .2s; }
+        .ftm-fullscreen-close:hover { transform: scale(1.1); }
+        .ftm-fullscreen-hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7); color: #fff; padding: 8px 18px; border-radius: 8px; font-size: 13px; }
+        .ftm-fullscreen-hint kbd { background: rgba(255,255,255,.2); padding: 2px 6px; border-radius: 4px; }
+    </style>
+
+    <div class="modal fade ftm-modal" id="freeTemplateModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content">
+                <!-- Header -->
+                <div class="ftm-header">
+                    <h5 class="ftm-header-title">
+                        <i class="fas fa-wand-magic-sparkles"></i> 自由模板（AI决定）
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <!-- Body -->
+                <div class="ftm-body">
+                    <div class="row g-3">
+                        <!-- Left: Preview / Code -->
+                        <div class="col-lg-7">
+                            <div class="ftm-card">
+                                <!-- Tab bar -->
+                                <div class="ftm-tabs">
+                                    <button class="ftm-tab active" data-view="preview" onclick="switchFreeTemplateView('preview')">
+                                        <i class="fas fa-eye" style="margin-right:4px"></i> 预览
+                                    </button>
+                                    <button class="ftm-tab" data-view="code" onclick="switchFreeTemplateView('code')">
+                                        <i class="fas fa-code" style="margin-right:4px"></i> 源代码
+                                    </button>
+                                </div>
+
+                                <!-- Status row -->
+                                <div class="ftm-status-row">
+                                    <div id="freeTemplateStatus" class="ftm-status-text">准备生成模板...</div>
+                                    <div class="ftm-status-actions">
+                                        <button id="freeTemplateFullscreenBtn" type="button" class="ftm-icon-btn" title="全屏预览">
+                                            <i class="fas fa-expand"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Preview container -->
+                                <div id="freeTemplatePreviewContainer" class="ftm-preview-wrap"
+                                     onclick="openFreeTemplateFullscreen()" title="点击全屏预览">
+                                    <iframe id="freeTemplatePreviewIframe"></iframe>
+                                </div>
+
+                                <!-- Code editor container -->
+                                <div id="freeTemplateCodeContainer" class="ftm-code-wrap">
+                                    <textarea id="freeTemplateCodeArea"></textarea>
+                                </div>
+                                <div id="freeTemplateCodeActions" class="ftm-code-actions" style="display:none;">
+                                    <button class="ftm-btn ftm-btn-accent" type="button" onclick="applyFreeTemplateCodeChanges()">
+                                        <i class="fas fa-check"></i> 应用更改
+                                    </button>
+                                </div>
+
+                                <!-- Error -->
+                                <div id="freeTemplateError" class="ftm-error"></div>
+
+                                <!-- Info -->
+                                <div id="freeTemplateInfoArea" class="ftm-info">
+                                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                                        <span class="ftm-badge">AI 生成</span>
+                                        <span id="freeTemplateGeneratedAt" style="font-size:12px; color:#6b7280;"></span>
+                                    </div>
+                                    <div id="freeTemplateDescription" style="font-size:13px; color:#374151; line-height:1.5;">
+                                        AI 根据项目大纲和场景自动生成的专属模板
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Controls -->
+                        <div class="col-lg-5">
+                            <div class="ftm-card">
+                                <div class="ftm-section-title">确认使用此模板？</div>
+                                <div class="ftm-section-desc">预览并调整生成模板后点击确认开始生成PPT。</div>
+
+                                <!-- Status indicator -->
+                                <div class="ftm-status-indicator">
+                                    <div id="freeTemplateStatusIcon" class="ftm-status-dot"></div>
+                                    <div id="freeTemplateStatusText" class="ftm-status-label">等待生成</div>
+                                </div>
+
+                                <!-- Save to library -->
+                                <div class="form-check" style="margin-bottom:10px;">
+                                    <input class="form-check-input" type="checkbox" id="saveFreeTemplateToLibrary">
+                                    <label class="form-check-label" for="saveFreeTemplateToLibrary" style="font-weight:600; font-size:13px;">
+                                        保存到模板库（可在模板列表中复用）
+                                    </label>
+                                </div>
+                                <div id="freeTemplateSaveOptions" style="display:none; margin-bottom:14px;">
+                                    <label class="form-label" style="font-weight:700; color:#111; font-size:13px;">模板名称</label>
+                                    <input type="text" class="form-control" id="freeTemplateNameInput"
+                                           placeholder="例如：现代商务蓝（自由模板）" style="border-radius:10px; font-size:13px;">
+                                    <div class="form-text" style="font-size:12px;">名称需唯一；如冲突会自动加后缀。</div>
+                                </div>
+
+                                <!-- Action buttons -->
+                                <div class="ftm-btn-group">
+                                    <button class="ftm-btn ftm-btn-secondary" id="freeTemplateRegenerateBtn" type="button">
+                                        <i class="fas fa-rotate-right"></i> 重新生成
+                                    </button>
+                                    <button class="ftm-btn ftm-btn-primary" id="freeTemplateConfirmBtn" type="button" disabled>
+                                        <i class="fas fa-check"></i> 确认并开始生成PPT
+                                    </button>
+                                </div>
+
+                                <!-- Adjust section -->
+                                <div id="freeTemplateAdjustSection" style="display:none;">
+                                    <hr class="ftm-divider">
+                                    <div class="ftm-section-title" style="font-size:14px;">
+                                        <i class="fas fa-wand-magic-sparkles" style="margin-right:6px; color:#4f46e5;"></i>调整模板
+                                    </div>
+                                    <div class="ftm-section-desc" style="margin-bottom:10px;">
+                                        不满意当前效果？描述您希望如何调整，AI会帮您修改
+                                    </div>
+                                    <div class="ftm-adjust-row">
+                                        <input type="text" class="ftm-adjust-input" id="freeTemplateAdjustInput"
+                                               placeholder="例如：改为蓝色主题、添加渐变背景...">
+                                        <button class="ftm-btn ftm-btn-accent" id="freeTemplateAdjustBtn" type="button" disabled>
+                                            调整
+                                        </button>
+                                    </div>
+                                    <div id="freeTemplateAdjustProgress" style="display:none; margin-top:10px;">
+                                        <div style="display:flex; align-items:center; gap:8px; color:#6b7280; font-size:13px;">
+                                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                                            <span id="freeTemplateAdjustStatus">正在调整模板...</span>
+                                        </div>
+                                    </div>
+                                    <div id="freeTemplateAdjustError" style="display:none; margin-top:10px; color:#b91c1c; font-size:13px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="ftm-footer">
+                    <button type="button" class="ftm-btn ftm-btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Free Template Fullscreen Overlay -->
+    <div id="freeTemplateFullscreenOverlay" class="ftm-fullscreen">
+        <div class="ftm-fullscreen-frame">
+            <iframe id="freeTemplateFullscreenIframe" style="width:100%; height:100%; border:0;"></iframe>
+        </div>
+        <button onclick="closeFreeTemplateFullscreen()" class="ftm-fullscreen-close">
+            <i class="fas fa-times"></i>
+        </button>
+        <div class="ftm-fullscreen-hint">
+            按 <kbd>ESC</kbd> 或点击 <kbd>&times;</kbd> 退出全屏
+        </div>
+    </div>
+

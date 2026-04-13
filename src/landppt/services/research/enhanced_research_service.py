@@ -6,6 +6,7 @@ extraction and analysis using LangChain and BeautifulSoup for comprehensive rese
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from datetime import datetime
@@ -56,29 +57,133 @@ class EnhancedResearchReport:
 class EnhancedResearchService:
     """Enhanced research service with multiple providers and deep content analysis"""
     
-    def __init__(self):
-        self.deep_research_service = DEEPResearchService()
-        self.searxng_provider = SearXNGContentProvider()
+    def __init__(self, user_id: Optional[int] = None):
+        self.user_id = user_id
+        self._ai_provider = None  # 缓存的AI提供者
+        self.deep_research_service = DEEPResearchService(user_id=user_id)
+        self.searxng_provider = SearXNGContentProvider(user_id=user_id)
         self.content_extractor = WebContentExtractor()
         
         # Text processing - 使用基于 max_tokens 的简单快速分块策略
+        # 保存 FastChunker 类引用，在使用时动态实例化以获取用户配置的 max_tokens
+        self.FastChunkerClass = None
         try:
             # 尝试导入 FastChunker
             import sys
             import os
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
             from summeryanyfile.core.chunkers.fast_chunker import FastChunker
-
-            self.text_splitter = FastChunker(max_tokens=ai_config.max_tokens)
-            logger.info(f"使用 FastChunker 进行文本分块，max_tokens={ai_config.max_tokens}")
+            
+            self.FastChunkerClass = FastChunker
+            logger.info(f"FastChunker 类已加载，将在使用时动态获取用户配置的 max_tokens")
         except ImportError as e:
             logger.warning(f"无法导入 FastChunker，使用简单分块策略: {e}")
             # 回退到简单的分块策略
-            self.text_splitter = None
+            self.FastChunkerClass = None
         
     @property
     def ai_provider(self):
-        """Get AI provider"""
+        """Get AI provider - 同步版本，用于兼容现有代码"""
+        if self._ai_provider:
+            return self._ai_provider
+        return get_ai_provider()
+
+    async def _emit_stream_event(self, event_callback, event: Dict[str, Any]) -> None:
+        """Best-effort event emission for enhanced research streaming."""
+        if not event_callback:
+            return
+        try:
+            maybe_awaitable = event_callback(event)
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to emit enhanced research event: {exc}")
+
+    async def _collect_llm_response(
+        self,
+        prompt: str,
+        *,
+        temperature: float,
+        event_callback=None,
+        stage: str,
+        title: str,
+        step_number: Optional[int] = None,
+    ) -> str:
+        """Collect a full LLM response while emitting every visible chunk."""
+        await self._emit_stream_event(
+            event_callback,
+            {
+                "type": "llm_start",
+                "stage": stage,
+                "title": title,
+                "step_number": step_number,
+            },
+        )
+
+        ai_provider = await self.get_ai_provider_async()
+        chunks: List[str] = []
+
+        try:
+            async for chunk in ai_provider.stream_text_completion(
+                prompt=prompt,
+                temperature=temperature,
+            ):
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                await self._emit_stream_event(
+                    event_callback,
+                    {
+                        "type": "llm_chunk",
+                        "stage": stage,
+                        "title": title,
+                        "step_number": step_number,
+                        "content": chunk,
+                    },
+                )
+        except Exception as stream_error:  # noqa: BLE001
+            logger.warning(f"Streaming enhanced research LLM response failed for stage '{stage}': {stream_error}")
+            response = await ai_provider.text_completion(prompt=prompt, temperature=temperature)
+            fallback_content = (response.content or "").strip()
+            if fallback_content:
+                chunks.append(fallback_content)
+                await self._emit_stream_event(
+                    event_callback,
+                    {
+                        "type": "llm_chunk",
+                        "stage": stage,
+                        "title": title,
+                        "step_number": step_number,
+                        "content": fallback_content,
+                    },
+                )
+
+        content = "".join(chunks).strip()
+        await self._emit_stream_event(
+            event_callback,
+            {
+                "type": "llm_complete",
+                "stage": stage,
+                "title": title,
+                "step_number": step_number,
+                "content_length": len(content),
+            },
+        )
+        return content
+    
+    async def get_ai_provider_async(self):
+        """Get AI provider from user database config - 异步版本"""
+        if self.user_id is not None:
+            try:
+                from ..db_config_service import get_user_ai_provider
+                provider = await get_user_ai_provider(self.user_id)
+                if provider:
+                    logger.info(f"EnhancedResearchService: Using AI provider from user database config (user_id={self.user_id})")
+                    return provider
+            except Exception as e:
+                logger.warning(f"Failed to get user AI provider from database: {e}")
+        
+        # 回退到全局配置
         return get_ai_provider()
     
     def is_available(self) -> bool:
@@ -99,9 +204,70 @@ class EnhancedResearchService:
             providers.append('searxng')
         return providers
 
+    async def _get_user_max_tokens(self) -> int:
+        """从用户数据库配置获取 max_tokens，回退到全局配置"""
+        if self.user_id is not None:
+            try:
+                from ..db_config_service import get_db_config_service
+                config_service = get_db_config_service()
+                user_config = await config_service.get_all_config(user_id=self.user_id)
+                if user_config.get('max_tokens'):
+                    try:
+                        max_tokens = int(user_config['max_tokens'])
+                        logger.info(f"从用户配置获取 max_tokens={max_tokens}")
+                        return max_tokens
+                    except (ValueError, TypeError):
+                        pass
+            except Exception as e:
+                logger.warning(f"获取用户 max_tokens 配置失败: {e}")
+        
+        # 回退到全局配置
+        return ai_config.max_tokens
+
+    async def _get_research_provider_async(self) -> str:
+        if self.user_id is not None:
+            try:
+                from ..db_config_service import get_db_config_service
+
+                config_service = get_db_config_service()
+                user_config = await config_service.get_all_config(user_id=self.user_id)
+                provider = str(user_config.get("research_provider") or "").strip().lower()
+                if provider:
+                    return provider
+            except Exception as e:
+                logger.warning(f"Failed to get research_provider from database: {e}")
+
+        return str(ai_config.research_provider or "tavily").strip().lower()
+
+    async def split_text_async(self, text: str) -> List[str]:
+        """
+        异步分块文本，使用用户配置的 max_tokens
+        
+        Args:
+            text: 要分块的文本
+            
+        Returns:
+            文本块列表
+        """
+        if self.FastChunkerClass:
+            # 动态获取用户配置的 max_tokens
+            max_tokens = await self._get_user_max_tokens()
+            try:
+                # 动态创建 FastChunker 实例
+                text_splitter = self.FastChunkerClass(max_tokens=max_tokens)
+                logger.info(f"使用 FastChunker 进行文本分块，max_tokens={max_tokens}")
+                chunks = text_splitter.chunk_text(text)
+                return [chunk.content for chunk in chunks]
+            except Exception as e:
+                logger.warning(f"FastChunker 分块失败，使用简单分块策略: {e}")
+
+        # 简单分块策略：基于 max_tokens 的快速分块
+        max_tokens = await self._get_user_max_tokens()
+        return self._simple_text_split(text, max_tokens)
+
     def split_text(self, text: str) -> List[str]:
         """
-        分块文本，使用 FastChunker 或简单分块策略
+        同步分块文本（使用全局配置，建议使用 split_text_async）
 
         Args:
             text: 要分块的文本
@@ -109,23 +275,25 @@ class EnhancedResearchService:
         Returns:
             文本块列表
         """
-        if self.text_splitter:
-            # 使用 FastChunker
+        if self.FastChunkerClass:
+            # 使用全局配置的 max_tokens
             try:
-                chunks = self.text_splitter.chunk_text(text)
+                text_splitter = self.FastChunkerClass(max_tokens=ai_config.max_tokens)
+                chunks = text_splitter.chunk_text(text)
                 return [chunk.content for chunk in chunks]
             except Exception as e:
                 logger.warning(f"FastChunker 分块失败，使用简单分块策略: {e}")
 
         # 简单分块策略：基于 max_tokens 的快速分块
-        return self._simple_text_split(text)
+        return self._simple_text_split(text, ai_config.max_tokens)
 
-    def _simple_text_split(self, text: str) -> List[str]:
+    def _simple_text_split(self, text: str, max_tokens: int = None) -> List[str]:
         """
         简单的文本分块策略，基于 max_tokens
 
         Args:
             text: 要分块的文本
+            max_tokens: 最大令牌数，如果为None则使用全局配置
 
         Returns:
             文本块列表
@@ -133,10 +301,13 @@ class EnhancedResearchService:
         if not text.strip():
             return []
 
+        # 使用传入的 max_tokens 或回退到全局配置
+        effective_max_tokens = max_tokens if max_tokens is not None else ai_config.max_tokens
+        
         # 估算每个 token 约 4 个字符
         chars_per_token = 4.0
-        chunk_size_tokens = ai_config.max_tokens // 3  # 使用 max_tokens 的 1/3
-        chunk_overlap_tokens = ai_config.max_tokens // 10  # 重叠 1/10
+        chunk_size_tokens = effective_max_tokens // 3  # 使用 max_tokens 的 1/3
+        chunk_overlap_tokens = effective_max_tokens // 10  # 重叠 1/10
 
         max_chars = int(chunk_size_tokens * chars_per_token)
         overlap_chars = int(chunk_overlap_tokens * chars_per_token)
@@ -197,7 +368,13 @@ class EnhancedResearchService:
 
         return 0
     
-    async def conduct_enhanced_research(self, topic: str, language: str = "zh", context: Optional[Dict[str, Any]] = None) -> EnhancedResearchReport:
+    async def conduct_enhanced_research(
+        self,
+        topic: str,
+        language: str = "zh",
+        context: Optional[Dict[str, Any]] = None,
+        event_callback=None,
+    ) -> EnhancedResearchReport:
         """
         Conduct comprehensive enhanced research with multiple providers
 
@@ -214,15 +391,44 @@ class EnhancedResearchService:
 
         try:
             # Step 1: Generate research plan with context
-            research_plan = await self._generate_research_plan(topic, language, context)
+            research_plan = await self._generate_research_plan(
+                topic,
+                language,
+                context,
+                event_callback=event_callback,
+            )
+            await self._emit_stream_event(
+                event_callback,
+                {
+                    "type": "plan",
+                    "topic": topic,
+                    "language": language,
+                    "plan": research_plan,
+                },
+            )
 
             # Step 2: Execute research steps with multiple providers
             research_steps = []
             provider_stats = {'tavily': 0, 'searxng': 0, 'content_extraction': 0}
 
             for i, step_plan in enumerate(research_plan, 1):
+                await self._emit_stream_event(
+                    event_callback,
+                    {
+                        "type": "step_started",
+                        "step_number": i,
+                        "total_steps": len(research_plan),
+                        "query": step_plan.get("query", ""),
+                        "description": step_plan.get("description", ""),
+                    },
+                )
                 step = await self._execute_enhanced_research_step(
-                    i, step_plan, topic, language, provider_stats
+                    i,
+                    step_plan,
+                    topic,
+                    language,
+                    provider_stats,
+                    event_callback=event_callback,
                 )
                 research_steps.append(step)
 
@@ -231,12 +437,22 @@ class EnhancedResearchService:
                     await asyncio.sleep(1)
 
             # Step 3: Analyze all collected content
-            content_analysis = await self._analyze_collected_content(research_steps, topic, language)
+            content_analysis = await self._analyze_collected_content(
+                research_steps,
+                topic,
+                language,
+                event_callback=event_callback,
+            )
 
             # Step 4: Generate comprehensive report
             report = await self._generate_enhanced_report(
-                topic, language, research_steps, content_analysis,
-                time.time() - start_time, provider_stats
+                topic,
+                language,
+                research_steps,
+                content_analysis,
+                time.time() - start_time,
+                provider_stats,
+                event_callback=event_callback,
             )
 
             logger.info(f"Enhanced research completed in {report.total_duration:.2f} seconds")
@@ -246,8 +462,17 @@ class EnhancedResearchService:
             logger.error(f"Enhanced research failed: {e}")
             raise
     
-    async def _generate_research_plan(self, topic: str, language: str, context: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+    async def _generate_research_plan(
+        self,
+        topic: str,
+        language: str,
+        context: Optional[Dict[str, Any]] = None,
+        *,
+        event_callback=None,
+    ) -> List[Dict[str, str]]:
         """Generate research plan using AI with context information"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        date_hint = f"当前日期/Current date：{today}\n"
 
         # Extract context information
         scenario = context.get('scenario', '通用') if context else '通用'
@@ -266,7 +491,7 @@ class EnhancedResearchService:
 - 补充说明：{description or '无'}
 """
 
-        prompt = f"""
+        prompt = f"""{date_hint}
 作为专业研究员，请根据以下项目信息为主题制定精准的研究计划：
 
 研究主题：{topic}
@@ -300,13 +525,13 @@ class EnhancedResearchService:
 """
         
         try:
-            response = await self.ai_provider.text_completion(
+            response_text = await self._collect_llm_response(
                 prompt=prompt,
-                max_tokens=min(ai_config.max_tokens, 2000),
-                temperature=0.7
+                temperature=0.7,
+                event_callback=event_callback,
+                stage="enhanced_research_plan",
+                title="增强研究计划",
             )
-            # Extract text content from AIResponse object
-            response_text = response.content if hasattr(response, 'content') else str(response)
             
             # Extract JSON from response
             import json
@@ -330,9 +555,16 @@ class EnhancedResearchService:
             logger.error(f"Failed to generate AI research plan: {e}")
             raise Exception(f"Unable to generate research plan for topic '{topic}': {e}")
     
-    async def _execute_enhanced_research_step(self, step_number: int, step_plan: Dict[str, str],
-                                            topic: str, language: str, 
-                                            provider_stats: Dict[str, int]) -> EnhancedResearchStep:
+    async def _execute_enhanced_research_step(
+        self,
+        step_number: int,
+        step_plan: Dict[str, str],
+        topic: str,
+        language: str,
+        provider_stats: Dict[str, int],
+        *,
+        event_callback=None,
+    ) -> EnhancedResearchStep:
         """Execute a single enhanced research step with multiple providers"""
         step_start_time = time.time()
         logger.info(f"Executing enhanced research step {step_number}: {step_plan['query']}")
@@ -344,8 +576,9 @@ class EnhancedResearchService:
         )
         
         # Determine which providers to use based on configuration
-        use_tavily = ai_config.research_provider in ['tavily', 'both'] and self.deep_research_service.is_available()
-        use_searxng = ai_config.research_provider in ['searxng', 'both'] and self.searxng_provider.is_available()
+        research_provider = await self._get_research_provider_async()
+        use_tavily = research_provider in ['tavily', 'both']
+        use_searxng = research_provider in ['searxng', 'both'] and self.searxng_provider.is_available()
         
         # Execute searches with available providers
         search_tasks = []
@@ -377,6 +610,18 @@ class EnhancedResearchService:
         
         step.tavily_results = tavily_results
         step.searxng_results = searxng_results
+
+        await self._emit_stream_event(
+            event_callback,
+            {
+                "type": "search_results",
+                "step_number": step_number,
+                "query": step.query,
+                "description": step.description,
+                "tavily_results": tavily_results or [],
+                "searxng_results": searxng_results.to_dict() if searxng_results else None,
+            },
+        )
         
         # Extract content from URLs if enabled
         if ai_config.research_enable_content_extraction:
@@ -386,11 +631,37 @@ class EnhancedResearchService:
                     urls[:10], max_concurrent=3  # Limit to top 10 URLs
                 )
                 provider_stats['content_extraction'] += len(step.extracted_content or [])
+                await self._emit_stream_event(
+                    event_callback,
+                    {
+                        "type": "extracted_content",
+                        "step_number": step_number,
+                        "query": step.query,
+                        "description": step.description,
+                        "results": [content.to_dict() for content in (step.extracted_content or [])],
+                    },
+                )
         
         # Analyze collected data
-        step.analysis = await self._analyze_step_data(step, topic, language)
+        step.analysis = await self._analyze_step_data(
+            step,
+            topic,
+            language,
+            event_callback=event_callback,
+        )
         step.completed = True
         step.duration = time.time() - step_start_time
+
+        await self._emit_stream_event(
+            event_callback,
+            {
+                "type": "step_complete",
+                "step_number": step_number,
+                "query": step.query,
+                "description": step.description,
+                "duration": step.duration,
+            },
+        )
         
         logger.info(f"Completed enhanced research step {step_number} in {step.duration:.2f}s")
         return step
@@ -431,7 +702,14 @@ class EnhancedResearchService:
 
         return urls
 
-    async def _analyze_step_data(self, step: EnhancedResearchStep, topic: str, language: str) -> str:
+    async def _analyze_step_data(
+        self,
+        step: EnhancedResearchStep,
+        topic: str,
+        language: str,
+        *,
+        event_callback=None,
+    ) -> str:
         """Analyze data collected in a research step"""
 
         # Prepare content for analysis
@@ -467,7 +745,9 @@ class EnhancedResearchService:
         combined_content = "\n".join(content_parts)
 
         # Generate analysis
-        analysis_prompt = f"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        date_hint = f"当前日期/Current date：{today}\n"
+        analysis_prompt = f"""{date_hint}
 作为专业研究分析师，请分析以下搜索结果并提供深入见解：
 
 研究主题：{topic}
@@ -491,20 +771,26 @@ class EnhancedResearchService:
 """
 
         try:
-            analysis_response = await self.ai_provider.text_completion(
+            return await self._collect_llm_response(
                 prompt=analysis_prompt,
-                max_tokens=min(ai_config.max_tokens, 1000),
-                temperature=0.3
+                temperature=0.3,
+                event_callback=event_callback,
+                stage="enhanced_step_analysis",
+                title=f"增强研究分析 #{step.step_number}",
+                step_number=step.step_number,
             )
-            # Extract text content from AIResponse object
-            analysis = analysis_response.content if hasattr(analysis_response, 'content') else str(analysis_response)
-            return analysis
         except Exception as e:
             logger.warning(f"Failed to generate step analysis: {e}")
             return f"分析步骤 {step.step_number}: {step.description}\n查询: {step.query}\n收集到相关信息，等待进一步分析。"
 
-    async def _analyze_collected_content(self, steps: List[EnhancedResearchStep],
-                                       topic: str, language: str) -> Dict[str, Any]:
+    async def _analyze_collected_content(
+        self,
+        steps: List[EnhancedResearchStep],
+        topic: str,
+        language: str,
+        *,
+        event_callback=None,
+    ) -> Dict[str, Any]:
         """Analyze all collected content for patterns and insights"""
 
         # Collect all content
@@ -537,6 +823,8 @@ class EnhancedResearchService:
         combined_analysis = "\n\n".join(all_content)
 
         analysis_prompt = f"""
+当前日期/Current date：{datetime.now().strftime("%Y-%m-%d")}
+
 作为高级研究分析师，请对以下研究主题进行综合分析：
 
 研究主题：{topic}
@@ -560,13 +848,13 @@ class EnhancedResearchService:
 """
 
         try:
-            comprehensive_analysis_response = await self.ai_provider.text_completion(
+            comprehensive_analysis = await self._collect_llm_response(
                 prompt=analysis_prompt,
-                max_tokens=min(ai_config.max_tokens, 1500),
-                temperature=0.3
+                temperature=0.3,
+                event_callback=event_callback,
+                stage="enhanced_comprehensive_analysis",
+                title="跨步骤综合分析",
             )
-            # Extract text content from AIResponse object
-            comprehensive_analysis = comprehensive_analysis_response.content if hasattr(comprehensive_analysis_response, 'content') else str(comprehensive_analysis_response)
 
             return {
                 'comprehensive_analysis': comprehensive_analysis,
@@ -583,11 +871,17 @@ class EnhancedResearchService:
                 'analysis_quality': 'basic'
             }
 
-    async def _generate_enhanced_report(self, topic: str, language: str,
-                                      steps: List[EnhancedResearchStep],
-                                      content_analysis: Dict[str, Any],
-                                      duration: float,
-                                      provider_stats: Dict[str, Any]) -> EnhancedResearchReport:
+    async def _generate_enhanced_report(
+        self,
+        topic: str,
+        language: str,
+        steps: List[EnhancedResearchStep],
+        content_analysis: Dict[str, Any],
+        duration: float,
+        provider_stats: Dict[str, Any],
+        *,
+        event_callback=None,
+    ) -> EnhancedResearchReport:
         """Generate comprehensive enhanced research report"""
 
         # Collect all findings
@@ -611,6 +905,8 @@ class EnhancedResearchService:
 
         # Generate executive summary directly from research content
         summary_prompt = f"""
+当前日期/Current date：{datetime.now().strftime("%Y-%m-%d")}
+
 基于以下研究内容，为主题"{topic}"生成一个全面的研究摘要：
 
 研究发现：
@@ -633,18 +929,17 @@ class EnhancedResearchService:
 """
 
         try:
-            executive_summary_response = await self.ai_provider.text_completion(
+            executive_summary = await self._collect_llm_response(
                 prompt=summary_prompt,
-                max_tokens=min(ai_config.max_tokens, 1200),
-                temperature=0.3
+                temperature=0.3,
+                event_callback=event_callback,
+                stage="enhanced_report_summary",
+                title="增强研究总结",
             )
-            # Extract text content from AIResponse object
-            executive_summary = executive_summary_response.content if hasattr(executive_summary_response, 'content') else str(executive_summary_response)
         except Exception as e:
             logger.warning(f"Failed to generate executive summary: {e}")
             executive_summary = f"针对主题'{topic}'的综合研究报告，包含{len(steps)}个研究步骤的深入分析。"
-
-        return EnhancedResearchReport(
+        report = EnhancedResearchReport(
             topic=topic,
             language=language,
             steps=steps,
@@ -657,6 +952,18 @@ class EnhancedResearchService:
             total_duration=duration,
             provider_stats=provider_stats
         )
+        await self._emit_stream_event(
+            event_callback,
+            {
+                "type": "report_ready",
+                "topic": topic,
+                "language": language,
+                "executive_summary": executive_summary,
+                "content_analysis": content_analysis,
+                "sources": all_sources,
+            },
+        )
+        return report
 
     def get_status(self) -> Dict[str, Any]:
         """Get enhanced research service status"""

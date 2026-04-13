@@ -1,0 +1,807 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPT编辑器 - {{ project.title }}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <link rel="alternate icon" href="/favicon.ico">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/material.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
+    <!-- CodeMirror Search Dialog CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.css">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.css?v=20260408-split-preview-fix-v1">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.aiSidebar.css?v=20260402-split">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.nativeChat.css?v=20260402-split">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.quickEdit.css?v=20260402-split">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.imageLibrary.css?v=20260402-split">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.speechDialog.css?v=20260402-split">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.speechModal.css?v=20260402-split">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.export.css?v=20260402-split">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.changeTemplate.css?v=20260404">
+</head>
+
+<body>
+    <div class="editor-container">
+        <!-- Header -->
+        <div class="editor-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2><i class="fas fa-edit"></i> PPT编辑器</h2>
+                    <p class="mb-0">{{ project.title }} - 共 {{ project.slides_data|length if project.slides_data else 0
+                        }} 页</p>
+                </div>
+                <div>
+                    <a href="/dashboard" class="btn btn-outline-light">
+                        <i class="fas fa-tasks"></i> 返回主页
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex">
+            <!-- Slides Sidebar -->
+            <div class="slides-sidebar" style="flex: 0 0 260px;">
+                <div class="p-3">
+                    <h6><i class="fas fa-images"></i> 幻灯片</h6>
+                    <div class="small" style="color: #6b7078;">
+                        Ctrl+点击多选（已选 <span id="selectedSlidesCount">0</span> 页）
+                    </div>
+                </div>
+                <div class="slides-container">
+                    {% if project.slides_data and project.slides_data|length > 0 %}
+                    {% for slide in project.slides_data %}
+                    <div class="slide-thumbnail {% if loop.index == 1 %}active{% endif %}"
+                        data-slide-index="{{ loop.index0 }}" draggable="true">
+                        <div class="drag-indicator top"></div>
+                        <div class="slide-preview">
+                            <iframe srcdoc="{{ slide.html_content | e }}" title="Slide {{ loop.index }}"></iframe>
+                        </div>
+                        <div class="slide-title">{{ loop.index }}. {{ slide.title }}</div>
+                        <div class="drag-indicator bottom"></div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="text-center p-4" style="color: #7f8c8d;" id="noSlidesMessage">
+                        <div style="font-size: 48px; margin-bottom: 15px;">
+                            <i class="fas fa-magic"></i>
+                        </div>
+                        <h5 style="margin-bottom: 10px;">PPT正在生成中...</h5>
+                        <p style="margin-bottom: 15px; font-size: 14px;">
+                            幻灯片生成完成后，您可以在这里进行编辑和管理
+                        </p>
+                        <div class="spinner-border text-primary" role="status" style="margin-bottom: 15px;">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <br>
+                        <button class="btn btn-primary btn-sm" onclick="checkForUpdates()">
+                            <i class="fas fa-refresh"></i> 刷新页面
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Main Editor -->
+            <div class="main-editor" style="flex: 1;">
+                <!-- Toolbar -->
+                <div class="editor-toolbar">
+                    <button class="toolbar-btn toolbar-btn--labeled active" id="previewMode" onclick="setMode('preview')" title="预览模式">
+                        <i class="fas fa-eye"></i><span>预览</span>
+                    </button>
+                    <button class="toolbar-btn toolbar-btn--labeled" id="editMode" onclick="setMode('edit')" title="编辑模式">
+                        <i class="fas fa-code"></i><span>代码</span>
+                    </button>
+                    <button class="toolbar-btn toolbar-btn--labeled" id="splitMode" onclick="setMode('split')" title="分屏模式">
+                        <i class="fas fa-columns"></i><span>分屏</span>
+                    </button>
+                    <button class="toolbar-btn toolbar-btn--labeled" id="quickEditMode" onclick="toggleQuickEditMode()" title="快速修改">
+                        <i class="fas fa-edit"></i><span>快编</span>
+                    </button>
+
+                    <span class="toolbar-separator"></span>
+
+                    <button class="toolbar-btn toolbar-btn--labeled" id="slideshowBtn" title="开始放映">
+                        <i class="fas fa-play"></i><span>放映</span>
+                    </button>
+                    <button class="toolbar-btn toolbar-btn--labeled" id="saveSlideBtn" title="保存幻灯片">
+                        <i class="fas fa-save"></i><span>保存</span>
+                    </button>
+                    <button class="toolbar-btn toolbar-btn--labeled" onclick="showChangeTemplateDialog()" title="更换模板">
+                        <i class="fas fa-palette"></i><span>模板</span>
+                    </button>
+
+                    <span class="toolbar-separator"></span>
+
+                    <button class="toolbar-btn toolbar-btn--labeled" onclick="exportToPDF()" title="导出PDF">
+                        <i class="fas fa-file-pdf"></i><span>PDF</span>
+                    </button>
+                    <div class="dropdown">
+                        <button class="toolbar-btn toolbar-btn--labeled toolbar-btn--dropdown" type="button"
+                            id="exportDropdownBtn" data-bs-toggle="dropdown" data-bs-display="static"
+                            aria-expanded="false" title="导出PPTX">
+                            <i class="fas fa-file-powerpoint"></i>
+                            <span>PPT</span>
+                            <i class="fas fa-chevron-down toolbar-dropdown-caret"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end toolbar-dropdown-menu"
+                            aria-labelledby="exportDropdownBtn">
+                            <li>
+                                <a class="dropdown-item toolbar-dropdown-item" href="#"
+                                    onclick="exportSlidesToPptxClient(); return false;">
+                                    <span class="toolbar-dropdown-item__icon">
+                                        <i class="fas fa-desktop"></i>
+                                    </span>
+                                    <span class="toolbar-dropdown-item__content">
+                                        <span class="toolbar-dropdown-item__label">客户端导出(beta)</span>
+                                    </span>
+                                </a>
+                            </li>
+                            <li>
+                                <hr class="dropdown-divider toolbar-dropdown-divider">
+                            </li>
+                            {% if standard_pptx_export_enabled %}
+                            <li>
+                                <a class="dropdown-item toolbar-dropdown-item" href="#"
+                                    onclick="exportToPPTX(); return false;">
+                                    <span class="toolbar-dropdown-item__icon">
+                                        <i class="fas fa-file-export"></i>
+                                    </span>
+                                    <span class="toolbar-dropdown-item__content">
+                                        <span class="toolbar-dropdown-item__label">标准导出</span>
+                                    </span>
+                                </a>
+                            </li>
+                            {% endif %}
+                            <li>
+                                <a class="dropdown-item toolbar-dropdown-item" href="#"
+                                    onclick="exportToPPTXAsImages(); return false;">
+                                    <span class="toolbar-dropdown-item__icon">
+                                        <i class="fas fa-images"></i>
+                                    </span>
+                                    <span class="toolbar-dropdown-item__content">
+                                        <span class="toolbar-dropdown-item__label">以图片形式导出</span>
+                                    </span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                    <button class="toolbar-btn toolbar-btn--labeled" onclick="downloadHTML()" title="下载HTML">
+                        <i class="fas fa-download"></i><span>HTML</span>
+                    </button>
+                    <button class="toolbar-btn toolbar-btn--labeled" onclick="showShareDialog()" title="分享">
+                        <i class="fas fa-share-alt"></i><span>分享</span>
+                    </button>
+
+                    <span class="toolbar-separator"></span>
+
+                    <button class="toolbar-btn toolbar-btn--labeled" id="aiEditBtn" title="AI智能编辑">
+                        <i class="fas fa-robot"></i><span>AI</span>
+                    </button>
+                    <button class="toolbar-btn toolbar-btn--labeled" id="speechScriptBtn" onclick="showSpeechScriptDialog()" title="生成演讲稿">
+                        <i class="fas fa-commenting"></i><span>演讲稿</span>
+                    </button>
+                    <div class="dropdown">
+                        <button class="toolbar-btn toolbar-btn--labeled toolbar-btn--dropdown" type="button" id="regenerateDropdownBtn"
+                            data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" title="重新生成">
+                            <i class="fas fa-sync"></i>
+                            <span>重新生成</span>
+                            <i class="fas fa-chevron-down toolbar-dropdown-caret"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end toolbar-dropdown-menu" aria-labelledby="regenerateDropdownBtn">
+                            <li>
+                                <a class="dropdown-item toolbar-dropdown-item" href="#" onclick="quickRegenerateSlide(); return false;">
+                                    <span class="toolbar-dropdown-item__icon">
+                                        <i class="fas fa-sync"></i>
+                                    </span>
+                                    <span class="toolbar-dropdown-item__content">
+                                        <span class="toolbar-dropdown-item__label">重新生成当前页</span>
+                                    </span>
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item toolbar-dropdown-item" href="#"
+                                    onclick="regenerateSelectedSlides(); return false;">
+                                    <span class="toolbar-dropdown-item__icon">
+                                        <i class="fas fa-layer-group"></i>
+                                    </span>
+                                    <span class="toolbar-dropdown-item__content">
+                                        <span class="toolbar-dropdown-item__label">重新生成所选页</span>
+                                    </span>
+                                </a>
+                            </li>
+                            <li>
+                                <hr class="dropdown-divider toolbar-dropdown-divider">
+                            </li>
+                            <li>
+                                <a class="dropdown-item toolbar-dropdown-item toolbar-dropdown-item--danger" href="#"
+                                    onclick="regenerateAllSlides(); return false;">
+                                    <span class="toolbar-dropdown-item__icon">
+                                        <i class="fas fa-bolt"></i>
+                                    </span>
+                                    <span class="toolbar-dropdown-item__content">
+                                        <span class="toolbar-dropdown-item__label">一键重新生成全部</span>
+                                    </span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Editor Content -->
+                <div class="editor-content is-preview-mode">
+                    <!-- Preview Pane -->
+                    <div class="preview-pane" id="previewPane">
+                        {% if project.slides_data and project.slides_data|length > 0 %}
+                        <div class="slide-frame-container">
+                            <div class="slide-frame-wrapper" id="slideFrameWrapper">
+                                <button class="preview-nav-btn left" id="previewPrevBtn"
+                                    onclick="navigatePreviewSlide(-1)" title="&#19978;&#19968;&#39029; (&#8592;)">
+                                    <i class="fas fa-chevron-left"></i>
+                                </button>
+
+                                <iframe class="slide-frame" id="slideFrame"
+                                    srcdoc="{{ project.slides_data[0].html_content | e }}"
+                                    title="Slide Preview"></iframe>
+
+                                <button class="preview-nav-btn right" id="previewNextBtn"
+                                    onclick="navigatePreviewSlide(1)" title="&#19979;&#19968;&#39029; (&#8594;)">
+                                    <i class="fas fa-chevron-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="d-flex align-items-center justify-content-center h-100"
+                            style="background: #f8f9fa; border-radius: 8px;">
+                            <div class="text-center" style="color: #6c757d;">
+                                <div style="font-size: 64px; margin-bottom: 20px;">
+                                    <i class="fas fa-presentation-screen"></i>
+                                </div>
+                                <h4 style="margin-bottom: 15px;">等待PPT生成</h4>
+                                <p style="margin-bottom: 20px;">PPT生成完成后，预览将在这里显示</p>
+                                <button class="btn btn-outline-primary" onclick="window.location.reload()">
+                                    <i class="fas fa-refresh"></i> 刷新查看
+                                </button>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Edit Pane -->
+                    <div class="edit-pane" id="editPane" style="display: none;">
+                        <textarea class="code-editor" id="codeEditor"
+                            placeholder="HTML代码将在这里显示...">{{ project.slides_data[0].html_content if project.slides_data and project.slides_data|length > 0 else '' }}</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 快速编辑工具栏 -->
+    <div class="quick-edit-toolbar" id="quickEditToolbar">
+        <button class="quick-edit-tool-btn" onclick="quickEditUndo()" title="撤销 (Ctrl+Z)" id="undoBtn" disabled>
+            <i class="fas fa-undo"></i>
+        </button>
+        <button class="quick-edit-tool-btn" onclick="quickEditRedo()" title="重做 (Ctrl+Y)" id="redoBtn" disabled>
+            <i class="fas fa-redo"></i>
+        </button>
+        <span class="toolbar-divider"></span>
+        <button class="quick-edit-tool-btn danger" onclick="quickEditDelete()" title="删除元素">
+            <i class="fas fa-trash"></i>
+        </button>
+        <button class="quick-edit-tool-btn" onclick="quickEditDuplicate()" title="复制元素">
+            <i class="fas fa-copy"></i>
+        </button>
+        <span class="toolbar-divider"></span>
+        <!-- 字体大小调整 -->
+        <button class="quick-edit-tool-btn" onclick="quickEditDecreaseFontSize()" title="减小字体">
+            <i class="fas fa-minus"></i>
+        </button>
+        <button class="quick-edit-tool-btn" onclick="quickEditIncreaseFontSize()" title="增大字体">
+            <i class="fas fa-plus"></i>
+        </button>
+        <span class="toolbar-divider"></span>
+        <!-- 文字样式 -->
+        <button class="quick-edit-tool-btn" onclick="quickEditToggleBold()" title="粗体" id="boldBtn">
+            <i class="fas fa-bold"></i>
+        </button>
+        <button class="quick-edit-tool-btn" onclick="quickEditToggleItalic()" title="斜体" id="italicBtn">
+            <i class="fas fa-italic"></i>
+        </button>
+        <button class="quick-edit-tool-btn" onclick="quickEditToggleUnderline()" title="下划线" id="underlineBtn">
+            <i class="fas fa-underline"></i>
+        </button>
+        <span class="toolbar-divider"></span>
+        <!-- 颜色选择 -->
+        <input type="color" class="quick-edit-color-input" id="fontColorPicker" value="#000000"
+            onchange="quickEditSetFontColor(this.value)" title="字体颜色">
+        <input type="color" class="quick-edit-color-input" id="bgColorPicker" value="#ffffff"
+            onchange="quickEditSetBgColor(this.value)" title="背景颜色">
+        <span class="toolbar-divider"></span>
+        <!-- 层级调整 -->
+        <button class="quick-edit-tool-btn" onclick="quickEditMoveUp()" title="上移层级">
+            <i class="fas fa-layer-group"></i>
+        </button>
+        <button class="quick-edit-tool-btn" onclick="quickEditMoveDown()" title="下移层级">
+            <i class="fas fa-level-down-alt"></i>
+        </button>
+        <span class="toolbar-divider"></span>
+        <!-- 对齐 -->
+        <button class="quick-edit-tool-btn" onclick="quickEditAlignLeft()" title="左对齐">
+            <i class="fas fa-align-left"></i>
+        </button>
+        <button class="quick-edit-tool-btn" onclick="quickEditAlignCenter()" title="居中对齐">
+            <i class="fas fa-align-center"></i>
+        </button>
+        <button class="quick-edit-tool-btn" onclick="quickEditAlignRight()" title="右对齐">
+            <i class="fas fa-align-right"></i>
+        </button>
+        <span class="toolbar-divider"></span>
+        <!-- 重置按钮 -->
+        <button class="quick-edit-tool-btn reset" onclick="quickEditReset()" title="重置编辑 (恢复初始状态)">
+            <i class="fas fa-history"></i>
+        </button>
+        <span class="toolbar-divider"></span>
+        <!-- 元素 AI 编辑 -->
+        <button class="quick-edit-tool-btn" id="quickAiEditToggleBtn" onclick="toggleQuickAiEditPopover()" title="AI雕琢">
+            <i class="fas fa-robot"></i>
+        </button>
+        <!-- 状态指示器 -->
+        <span class="toolbar-status" id="toolbarStatus"></span>
+    </div>
+
+    <!-- 快捷 AI 元素编辑浮窗（快速编辑模式下：选中元素自动弹出） -->
+    <div class="quick-ai-edit-popover" id="quickAiEditPopover" aria-hidden="true">
+        <div class="quick-ai-edit-popover-header" id="quickAiEditPopoverHeader">
+            <div class="quick-ai-edit-popover-title">
+                <i class="fas fa-robot"></i>
+                <span>AI雕琢</span>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button class="quick-ai-edit-popover-vision" type="button" id="quickAiVisionToggleBtn"
+                    title="开启视觉参考（将发送所选元素截图）">
+                    <i class="fas fa-eye"></i>
+                </button>
+                <button class="quick-ai-edit-popover-minimize" type="button" id="quickAiEditPopoverMinBtn" title="最小化">
+                    <i class="fas fa-minus"></i>
+                </button>
+                <button class="quick-ai-edit-popover-close" type="button"
+                    onclick="hideQuickAiEditPopover({ clearInput: true })" title="关闭 (Esc)">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <div class="quick-ai-edit-popover-body">
+            <textarea class="quick-ai-edit-input" id="quickAiEditInput"
+                placeholder="对选中元素说：例如“把这段文字改得更简洁有力，两行以内”"></textarea>
+            <div class="quick-ai-edit-actions">
+                <button class="quick-ai-edit-btn" type="button"
+                    onclick="hideQuickAiEditPopover({ clearInput: true })">取消</button>
+                <button class="quick-ai-edit-btn primary" type="button" id="quickAiEditSendBtn"
+                    onclick="quickAiEditApply()">
+                    应用
+                </button>
+            </div>
+            <div class="quick-ai-edit-status" id="quickAiEditStatus" aria-live="polite"></div>
+        </div>
+    </div>
+
+    <!-- Slideshow Overlay -->
+    <div class="slideshow-overlay" id="slideshowOverlay">
+        <div class="slideshow-container">
+            <div class="slideshow-slide">
+                <div class="iframe-container">
+                    <iframe id="slideshowFrame1" class="visible" title="Slideshow Frame 1"></iframe>
+                    <iframe id="slideshowFrame2" class="hidden" title="Slideshow Frame 2"></iframe>
+                </div>
+            </div>
+
+            <div class="slideshow-controls">
+                <button class="slideshow-btn" onclick="previousSlideshow()" title="上一页 (←)">
+                    <i class="fas fa-chevron-left"></i> 上一页
+                </button>
+                <button class="slideshow-btn" onclick="nextSlideshow()" title="下一页 (→)">
+                    下一页 <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+
+            <div class="slideshow-info" id="slideshowInfo">1 / 1</div>
+
+            <button class="slideshow-exit" onclick="exitSlideshow()" title="退出放映">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 右键菜单 -->
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" onclick="editSlide()">
+            <i class="fas fa-edit"></i>
+            <span>编辑幻灯片</span>
+        </div>
+        <div class="context-menu-item" onclick="copySlide()">
+            <i class="fas fa-copy"></i>
+            <span>复制幻灯片</span>
+        </div>
+        <div class="context-menu-item" onclick="pasteSlide()" id="pasteMenuItem">
+            <i class="fas fa-paste"></i>
+            <span>粘贴幻灯片</span>
+        </div>
+        <div class="context-menu-item" onclick="insertNewSlide()">
+            <i class="fas fa-plus"></i>
+            <span>插入新幻灯片</span>
+        </div>
+        <div class="context-menu-item" onclick="duplicateSlide()">
+            <i class="fas fa-clone"></i>
+            <span>复制当前页</span>
+        </div>
+        <div class="context-menu-item" onclick="regenerateContextSlide()">
+            <i class="fas fa-sync"></i>
+            <span>重新生成</span>
+        </div>
+        <div class="context-menu-item" onclick="exportSingleSlideHTML()">
+            <i class="fas fa-file-code"></i>
+            <span>导出为HTML</span>
+        </div>
+        <div class="context-menu-item" onclick="exportSingleSlidePptxClient()">
+            <i class="fas fa-file-powerpoint"></i>
+            <span>导出单页PPTX（客户端）</span>
+        </div>
+        <div class="context-menu-item" onclick="deleteSlide()">
+            <i class="fas fa-trash"></i>
+            <span>删除幻灯片</span>
+        </div>
+    </div>
+
+    <!-- 图片选择菜单 -->
+    <div class="image-select-menu" id="imageSelectMenu" style="display: none;">
+        <div class="image-select-content">
+            <div class="image-select-header">
+                <h4><i class="fas fa-image"></i> 选择图片</h4>
+                <button class="image-select-close" onclick="closeImageSelectMenu()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="image-select-options">
+                <button class="image-select-option" onclick="selectFromLocal()">
+                    <i class="fas fa-upload"></i>
+                    <span>从本地上传</span>
+                    <small>选择本地图片文件上传</small>
+                </button>
+                <button class="image-select-option" onclick="selectFromLibrary()">
+                    <i class="fas fa-folder-open"></i>
+                    <span>从图床选择</span>
+                    <small>从已上传的图片中选择</small>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图床选择器 -->
+    <div class="image-library-overlay" id="imageLibraryOverlay" style="display: none;">
+        <div class="image-library-container">
+            <div class="image-library-header">
+                <div class="image-library-info">
+                    <h4><i class="fas fa-folder-open"></i> 本地图床</h4>
+                </div>
+                <button class="image-library-close" onclick="closeImageLibrary()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="image-library-content">
+                <div class="image-library-search">
+                    <div class="search-input-group">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="imageLibrarySearchInput" placeholder="搜索图片..." />
+                        <button class="search-clear-btn" id="imageLibrarySearchClear" style="display: none;"
+                            onclick="clearImageLibrarySearch()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="image-library-loading" id="imageLibraryLoading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                </div>
+                <div class="image-library-grid" id="imageLibraryGrid"></div>
+                <div class="image-library-pagination" id="imageLibraryPagination" style="display: none;">
+                    <div class="pagination-info">
+                        <span id="paginationInfo">第 1 页，共 1 页</span>
+                    </div>
+                    <div class="pagination-controls">
+                        <button class="pagination-btn" id="prevPageBtn" onclick="loadPreviousPage()" disabled>
+                            <i class="fas fa-chevron-left"></i> 上一页
+                        </button>
+                        <button class="pagination-btn" id="nextPageBtn" onclick="loadNextPage()" disabled>
+                            下一页 <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="image-library-empty" id="imageLibraryEmpty" style="display: none;">
+                    <i class="fas fa-images"></i>
+                </div>
+            </div>
+            <div class="image-library-actions">
+                <button class="image-library-action" onclick="confirmImageSelection()" id="confirmSelectionBtn"
+                    disabled>
+                    <i class="fas fa-check"></i> 确认选择 (<span id="selectedCount">0</span>)
+                </button>
+                <button class="image-library-action secondary" onclick="closeImageLibrary()">
+                    <i class="fas fa-times"></i> 取消
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 全屏图片预览 -->
+    <div class="image-preview-overlay" id="imagePreviewOverlay" style="display: none;">
+        <div class="image-preview-container">
+            <div class="image-preview-header">
+                <div class="image-preview-info">
+                    <h4 id="imagePreviewTitle">图片预览</h4>
+                    <p id="imagePreviewDetails">加载中...</p>
+                </div>
+                <button class="image-preview-close" onclick="closeImagePreview()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="image-preview-content">
+                <img id="imagePreviewImg" src="" alt="图片预览">
+                <div class="image-preview-loading" id="imagePreviewLoading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>加载中...</p>
+                </div>
+            </div>
+            <div class="image-preview-actions">
+                <button class="image-preview-action" onclick="downloadCurrentImage()" title="下载图片">
+                    <i class="fas fa-download"></i> 下载
+                </button>
+                <button class="image-preview-action danger" onclick="removeCurrentImage()" title="删除图片">
+                    <i class="fas fa-trash"></i> 删除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI编辑侧栏遮罩层 -->
+    <div class="ai-sidebar-overlay" id="aiSidebarOverlay" onclick="closeAIEditSidebar()"></div>
+
+    <!-- AI编辑侧栏 -->
+    <div class="ai-edit-sidebar" id="aiEditSidebar">
+        <div class="ai-sidebar-resize-handle" id="aiSidebarResizeHandle"></div>
+        <div class="ai-edit-sidebar-header">
+            <h4><i class="fas fa-robot"></i> AI编辑助手</h4>
+            <div class="d-flex align-items-center" style="gap: var(--spacing-sm);">
+                <div class="ai-current-slide-info" id="aiCurrentSlideInfo">
+                    第1页
+                </div>
+                <div class="ai-header-buttons">
+                    <button class="ai-outline-btn" onclick="showSlideOutline()" title="查看当前页大纲">
+                        <i class="fas fa-list"></i>
+                    </button>
+                    {% if enable_auto_layout_repair %}
+                    <button class="ai-outline-btn" onclick="autoRepairSlideLayout()" title="一键修复排版">
+                        <i class="fas fa-border-all"></i>
+                    </button>
+                    {% endif %}
+                    <button class="ai-outline-btn" onclick="autoGenerateSlideImages()" title="一键配图">
+                        <i class="fas fa-magic"></i>
+                    </button>
+                    <button class="ai-edit-sidebar-close" onclick="closeAIEditSidebar()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="ai-edit-content">
+
+
+            <!-- AI对话区域 -->
+            <div class="ai-chat-container">
+                <div class="ai-chat-messages" id="aiChatMessages">
+                    <div class="ai-message system">
+                        <div style="text-align: center; padding: var(--spacing-sm);">
+                            <div
+                                style="font-size: 2rem; margin-bottom: var(--spacing-sm); color: var(--text-secondary);">
+                                <i class="fas fa-magic"></i>
+                            </div>
+                            <div
+                                style="font-weight: 600; margin-bottom: var(--spacing-xs); color: var(--text-primary);">
+                                欢迎使用AI编辑助手！
+                            </div>
+                            <div style="font-size: 0.8125rem; line-height: 1.5; color: var(--text-muted);">
+                                您可以告诉我如何修改当前幻灯片，例如：
+                                <br>• "修改标题颜色为蓝色"
+                                <br>• "添加更多图表"
+                                <br>• "调整布局为左右分栏"
+                                <br>• "根据上传的图片设计内容"
+                                <br>• "将图片居中显示"
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ai-input-container">
+                    <textarea class="ai-input-box" id="aiInputBox" placeholder="请输入您的编辑指令..." rows="3"></textarea>
+
+
+                    <div class="ai-input-buttons">
+                        <button class="ai-send-btn" id="aiSendBtn" onclick="sendAIMessage()">
+                            <i class="fas fa-paper-plane"></i> 发送
+                        </button>
+                        <button class="ai-image-upload-btn" id="aiImageUploadBtn" onclick="triggerImageUpload()"
+                            title="上传图片">
+                            <i class="fas fa-image"></i>
+                        </button>
+                        <button class="ai-vision-toggle-btn" id="aiVisionToggleBtn" onclick="toggleVisionMode()"
+                            title="启用视觉模式 - AI将能看到当前幻灯片">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="ai-native-dialog-btn" type="button" onclick="openNativeChatDialog()"
+                            title="自由对话（仅当前页）">
+                            <i class="fas fa-comments"></i>
+                        </button>
+                        <button class="ai-clear-context-btn" onclick="clearAIContext()" title="清除对话上下文">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+
+                    <!-- 隐藏的文件输入 -->
+                    <input type="file" id="aiImageFileInput" accept="image/*" multiple style="display: none;">
+
+                    <!-- 上传进度 -->
+                    <div class="ai-upload-progress" id="aiUploadProgress" style="display: none;">
+                        <div class="ai-progress-bar">
+                            <div class="ai-progress-fill" id="aiProgressFill"></div>
+                        </div>
+                        <div class="ai-progress-text" id="aiProgressText">上传中...</div>
+                    </div>
+
+                    <!-- 已上传图片预览 -->
+                    <div class="ai-uploaded-images" id="aiUploadedImages"></div>
+
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI自由对话（仅当前页） -->
+    <dialog class="ai-native-chat-dialog" id="aiNativeChatDialog">
+        <div class="ai-native-chat-dialog-header">
+            <div class="ai-native-chat-dialog-title">
+                <i class="fas fa-comments"></i>
+                <span>自由对话（仅当前页）</span>
+            </div>
+            <button class="ai-native-chat-dialog-close" type="button" onclick="closeNativeChatDialog()" title="关闭">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="ai-native-chat-dialog-body">
+            <div class="ai-chat-messages" id="aiNativeChatMessages"></div>
+        </div>
+        <div class="ai-native-chat-dialog-footer">
+            <div class="ai-native-chat-input-row">
+                <input class="ai-native-chat-input" id="aiNativeInputBox" type="text" placeholder="和当前页对话…"
+                    autocomplete="off">
+                <button class="ai-native-chat-send-btn" id="aiNativeSendBtn" type="button"
+                    onclick="sendNativeChatMessage()">
+                    <i class="fas fa-paper-plane"></i> 发送
+                </button>
+                <button class="ai-image-upload-btn" id="aiNativeImageUploadBtn" type="button"
+                    onclick="triggerNativeImageUpload()" title="上传图片（也支持粘贴图片）">
+                    <i class="fas fa-image"></i>
+                </button>
+                <button class="ai-clear-context-btn" id="aiNativeClearContextBtn" type="button"
+                    onclick="clearNativeChatContext()" title="清除对话上下文">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+            <div class="ai-native-chat-hint">
+                <span>不设系统提示词，仅带当前页信息；支持粘贴/上传图片对话。</span>
+            </div>
+            <input type="file" id="aiNativeImageFileInput" accept="image/*" multiple style="display: none;">
+            <div class="ai-uploaded-images" id="aiNativeUploadedImages"></div>
+        </div>
+    </dialog>
+
+    <script id="projectDataScript" type="application/json">{{ {'projectId': project.project_id}|tojson|safe }}</script>
+    <script id="projectSlidesScript"
+        type="application/json">{{ {'slides': project.slides_data or []}|tojson|safe }}</script>
+    <script id="projectMetaScript"
+        type="application/json">{{ {'status': project.status, 'outline': project.outline}|tojson|safe }}</script>
+
+    <script id="projectEditorConfigScript" type="application/json">{{ {
+        'projectId': project.project_id,
+        'projectInfo': {
+            'title': project.title,
+            'topic': project.topic,
+            'scenario': project.scenario,
+        },
+        'projectRequirements': project.requirements or '',
+        'narrationVideoToolsEnabled': narration_video_tools_enabled,
+        'hasSpeechScripts': has_speech_scripts | default(false),
+        'narrationLanguages': narration_languages | default(['zh', 'en']),
+        'exportTitle': (project.title if project and project.title else 'presentation'),
+    } | tojson | safe }}</script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/dom-to-pptx.bundle.js?v=20260405-font-resolve-v3"></script>
+    <script src="/static/js/pages/project/slides_editor/projectEditorShareExport.js?v=20260328-phase3"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.core.js?v=20260408-split-preview-fix-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.quickEdit.js?v=20260408-quick-reset-v2"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.quickAi.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.quickEditActions.js?v=20260408-quick-reset-v2"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.quickEditStyling.js?v=20260408-quick-reset-v2"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideImageOps.js?v=20260408-split-preview-fix-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideMediaUi.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.pretextBridge.js?v=20260406-pretext"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.nativeChat.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.aiChat.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.aiApply.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideGeneration.js?v=20260408-quick-reset-v2"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.changeTemplate.js?v=20260408-free-template-list-v2"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideshow.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideCrud.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.imageSelection.js?v=20260402-split"></script>
+
+    <!-- CodeMirror JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closetag.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchtags.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldgutter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/xml-fold.min.js"></script>
+    <!-- CodeMirror Search功能 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/searchcursor.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/search.min.js"></script>
+
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.tools.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.imageLibrary.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.bulletEnhance.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.speechScriptsDialog.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.speechScriptsManage.js?v=20260409-speech-humanize-v3"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.aiOptimize.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportBase.js?v=20260405-animation-idle-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportIcons.js?v=20260402-split"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportRender.js?v=20260405-font-resolve-v3"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportPptx.js?v=20260405-font-resolve-v3"></script>
+    <script src="/static/js/pages/project/slides_editor/projectEditorNarration.js?v=20260409-narration-audio-export-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.init.js?v=20260402-split"></script>
+
+    <!-- Export PPTX Progress Overlay -->
+    <div class="export-overlay" id="exportOverlay">
+        <div class="export-modal">
+            <div class="export-icon spinning" id="exportIcon">
+                <i class="fas fa-cog"></i>
+            </div>
+            <h5 id="exportTitle">正在导出 PPTX</h5>
+            <div class="export-subtitle" id="exportSubtitle">请稍候，正在将幻灯片转换为 PowerPoint 文件...</div>
+            <div class="export-progress-bar">
+                <div class="export-progress-bar-inner" id="exportProgressBar"></div>
+            </div>
+            <div class="export-status" id="exportStatus">准备中...</div>
+            <div class="export-actions">
+                <button type="button" class="export-cancel-btn" id="exportCancelBtn" onclick="cancelClientExport()"
+                    style="display: none;">
+                    <i class="fas fa-times"></i>
+                    <span>取消导出</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

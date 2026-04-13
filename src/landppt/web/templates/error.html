@@ -1,55 +1,54 @@
 {% extends "base.html" %}
 
-{% block title %}错误 - LandPPT{% endblock %}
+{% block title %}出错了 - LandPPT{% endblock %}
 
 {% block content %}
 <div style="text-align: center; padding: 60px 20px;">
-    <div style="font-size: 6em; margin-bottom: 30px; opacity: 0.6;">😵</div>
-    
-    <h2 style="color: #e74c3c; margin-bottom: 20px;">出现了一些问题</h2>
-    
+    <div style="font-size: 4em; margin-bottom: 24px; opacity: 0.55;">!</div>
+
+    <h2 style="color: #e74c3c; margin-bottom: 20px;">页面处理失败</h2>
+
     <div style="max-width: 600px; margin: 0 auto;">
         {% if error %}
         <div style="background: #f8d7da; color: #721c24; padding: 20px; border-radius: 10px; margin-bottom: 30px; border-left: 4px solid #e74c3c;">
-            <h4 style="margin-bottom: 10px;">错误详情:</h4>
-            <p style="font-family: monospace; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 5px;">
+            <h4 style="margin-bottom: 10px;">错误详情</h4>
+            <p style="font-family: monospace; background: rgba(0,0,0,0.08); padding: 10px; border-radius: 5px; margin: 0;">
                 {{ error }}
             </p>
         </div>
         {% else %}
-        <p style="color: #7f8c8d; font-size: 1.2em; margin-bottom: 30px;">
-            很抱歉，系统遇到了未知错误。请稍后重试或联系技术支持。
+        <p style="color: #7f8c8d; font-size: 1.1em; margin-bottom: 30px;">
+            系统遇到了未预期的问题，请稍后重试。
         </p>
         {% endif %}
-        
-        <div style="margin-top: 40px;">
+
+        <div style="margin-top: 36px;">
             <a href="javascript:history.back()" class="btn" style="background: #95a5a6; margin-right: 10px;">
-                ← 返回上一页
+                返回上一页
             </a>
-            <a href="/web" class="btn btn-primary">
-                🏠 返回首页
+            <a href="/home" class="btn btn-primary">
+                返回首页
             </a>
         </div>
-        
+
         <div style="margin-top: 30px; padding: 20px; background: #e8f4fd; border-radius: 10px; border-left: 4px solid #3498db;">
-            <h4 style="color: #2c3e50; margin-bottom: 15px;">💡 建议解决方案</h4>
-            <ul style="color: #7f8c8d; text-align: left; line-height: 1.8;">
+            <h4 style="color: #2c3e50; margin-bottom: 15px;">建议排查项</h4>
+            <ul style="color: #7f8c8d; text-align: left; line-height: 1.8; margin: 0;">
                 <li>检查网络连接是否正常</li>
-                <li>刷新页面重试操作</li>
-                <li>清除浏览器缓存</li>
-                <li>尝试使用其他浏览器</li>
-                <li>如果问题持续存在，请联系技术支持</li>
+                <li>刷新页面后重新执行当前操作</li>
+                <li>清理浏览器缓存后再试</li>
+                <li>尝试更换浏览器或设备</li>
+                <li>如果问题持续出现，请联系技术支持</li>
             </ul>
         </div>
-        
+
         <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
-            <h4 style="color: #2c3e50; margin-bottom: 15px;">🔗 快速链接</h4>
+            <h4 style="color: #2c3e50; margin-bottom: 15px;">常用入口</h4>
             <div style="display: flex; justify-content: center; gap: 15px; flex-wrap: wrap;">
-                <a href="/scenarios" class="btn btn-primary">🎯 创建 PPT</a>
-                <a href="/projects" class="btn btn-success">📊 项目列表</a>
-                <a href="/dashboard" class="btn btn-info">📈 项目仪表板</a>
-                <a href="/demo" class="btn btn-warning">🎮 查看演示</a>
-                <a href="/docs" class="btn" style="background: #9b59b6;">📚 API 文档</a>
+                <a href="/scenarios" class="btn btn-primary">创建 PPT</a>
+                <a href="/projects" class="btn btn-success">项目列表</a>
+                <a href="/dashboard" class="btn btn-info">项目仪表盘</a>
+                <a href="/docs" class="btn" style="background: #9b59b6;">API 文档</a>
             </div>
         </div>
     </div>

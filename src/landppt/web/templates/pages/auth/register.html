@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注册 - LandPPT</title>
+    <link rel="icon" type="image/svg+xml" href="/static/images/landppt-logo.png">
+    <link rel="alternate icon" href="/static/images/favicon.ico">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/pages/auth/auth.css">
+    <link rel="stylesheet" href="/static/css/shared/site_notice.css">
+</head>
+
+<body class="auth-body" data-initial-tab="register">
+    <div class="auth-bg" aria-hidden="true">
+        <div class="auth-bg__grid"></div>
+        <div class="auth-bg__noise"></div>
+    </div>
+
+    <main class="auth-shell">
+        <div class="auth-card auth-card--single">
+            <aside class="brand-panel">
+                <div class="brand-top">
+                    <img class="brand-logo" src="/static/images/landppt-logo.png" alt="LandPPT">
+                    <div class="brand-name">
+                        <span>LandPPT</span>
+                        <span class="brand-badge">AI PPT</span>
+                    </div>
+                </div>
+
+                <div class="brand-main">
+                    <h1 class="brand-title">开始创作</h1>
+
+                    <div class="pill-row" aria-label="产品能力">
+                        <span class="pill"><i class="fas fa-wand-magic-sparkles"></i>多AI支持</span>
+                        <span class="pill"><i class="fas fa-layer-group"></i>模板体系</span>
+                        <span class="pill"><i class="fas fa-shield-halved"></i>安全防刷</span>
+                    </div>
+
+                    <div class="type-stack" aria-label="特性与功能打字效果">
+                        <div class="type-row">
+                            <span class="type-label">特性：</span>
+                            <span class="type-text" data-typing-words="灵活,PPT Studio,高效创作"></span>
+                            <span class="type-caret" aria-hidden="true"></span>
+                        </div>
+                        <div class="type-row">
+                            <span class="type-label">功能：</span>
+                            <span class="type-text" data-typing-words="深度研究,智能配图,AI编辑,讲稿生成,多格式导出"></span>
+                            <span class="type-caret" aria-hidden="true"></span>
+                        </div>
+                    </div>
+
+                    <div class="brand-visual" aria-hidden="true">
+                        <div class="brand-visual__core"></div>
+                        <div class="brand-visual__ring brand-visual__ring--1"></div>
+                        <div class="brand-visual__ring brand-visual__ring--2"></div>
+                        <div class="brand-visual__ring brand-visual__ring--3"></div>
+                        <div class="brand-visual__orbit brand-visual__orbit--1"><span class="brand-visual__dot"></span></div>
+                        <div class="brand-visual__orbit brand-visual__orbit--2"><span class="brand-visual__dot"></span></div>
+                        <div class="brand-visual__orbit brand-visual__orbit--3"><span class="brand-visual__dot"></span></div>
+                    </div>
+                </div>
+
+                <div class="brand-footer">
+                    <span><i class="fas fa-shield-halved"></i>PPT Studio</span>
+                    <span><i class="fas fa-rocket"></i>高效创作</span>
+                </div>
+            </aside>
+
+            <section class="form-panel">
+                <div class="form-shell">
+                    <div id="authSiteNotice" class="site-notice site-notice--hidden" hidden></div>
+                    <div class="panel is-active" data-panel="register">
+                    <div class="auth-header">
+                        <h2>创建账户</h2>
+                    </div>
+
+                    {% if not registration_enabled %}
+                    <div class="locked">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <i class="fas fa-lock"></i>
+                            <div>
+                                <div style="font-weight:800;">注册已关闭</div>
+                                <div class="muted" style="margin-top:4px;">管理员已关闭用户自助注册。</div>
+                            </div>
+                        </div>
+                        <div style="margin-top:10px;">
+                            <a href="/auth/login">返回登录</a>
+                        </div>
+                    </div>
+                    {% else %}
+
+                    <div class="alert-area" id="registerAlert">
+                        {% if error %}
+                        <div class="alert alert--danger">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <div>{{ error }}</div>
+                        </div>
+                        {% endif %}
+                        {% if success %}
+                        <div class="alert alert--success">
+                            <i class="fas fa-check-circle"></i>
+                            <div>{{ success }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <form class="form" method="post" action="/auth/register" id="registerFormElement" autocomplete="on">
+                        <input type="hidden" name="ui" value="standalone">
+
+                        <div class="field">
+                            <label for="invite_code">邀请码</label>
+                            <div class="control">
+                                <i class="fa-solid fa-ticket"></i>
+                                <input type="text" id="invite_code" name="invite_code" required
+                                    placeholder="输入邀请码后再注册" value="{{ invite_code or '' }}"
+                                    autocomplete="off">
+                            </div>
+                        </div>
+
+                        {% if github_oauth_enabled or linuxdo_oauth_enabled %}
+                        <div class="social-login" style="margin-top: 4px;">
+                            <div class="divider">
+                                <span>使用邀请码快捷注册</span>
+                            </div>
+                            {% if github_oauth_enabled %}
+                            <a href="/auth/github/login" class="btn btn-github js-register-oauth"
+                                data-invite-input="invite_code">
+                                <i class="fab fa-github"></i>
+                                <span>GitHub 注册</span>
+                            </a>
+                            {% endif %}
+                            {% if linuxdo_oauth_enabled %}
+                            <a href="/auth/linuxdo/login" class="btn btn-linuxdo js-register-oauth"
+                                data-invite-input="invite_code">
+                                <img class="linuxdo-icon" src="/static/images/linuxdo.svg" alt="" aria-hidden="true">
+                                <span>LinuxDo 注册</span>
+                            </a>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <div class="field">
+                            <label for="email">邮箱地址</label>
+                            <div class="control">
+                                <i class="fa-regular fa-envelope"></i>
+                                <input type="email" id="email" name="email" required placeholder="your@email.com"
+                                    value="{{ email or '' }}" autocomplete="email">
+                            </div>
+                        </div>
+
+                        {% if turnstile_enabled and turnstile_site_key %}
+                        <div class="turnstile-wrap">
+                            <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="auto"
+                                data-language="zh-CN" data-response-field-name="turnstile_token"></div>
+                        </div>
+                        {% endif %}
+
+                        <div class="field">
+                            <label for="code">验证码</label>
+                            <div class="code-row">
+                                <div class="control">
+                                    <i class="fa-solid fa-shield"></i>
+                                    <input type="text" id="code" name="code" required placeholder="6位验证码" maxlength="6"
+                                        inputmode="numeric">
+                                </div>
+                                <button class="btn btn-secondary js-send-code" type="button" id="sendCodeBtn">
+                                    发送验证码
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="after-code js-after-code {% if error or username %}is-open{% endif %}">
+                            <div class="field">
+                                <label for="username">用户名</label>
+                                <div class="control">
+                                    <i class="fa-regular fa-id-badge"></i>
+                                    <input type="text" id="username" name="username" required placeholder="设置用户名（至少3位）"
+                                        minlength="3" maxlength="20" value="{{ username or '' }}" autocomplete="username"
+                                        data-unlock-on-code="1" {% if not (error or username) %}disabled{% endif %}>
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label for="password">密码</label>
+                                <div class="control">
+                                    <i class="fa-solid fa-key"></i>
+                                    <input type="password" id="password" name="password" required placeholder="设置密码（至少6位）"
+                                        minlength="6" autocomplete="new-password" data-unlock-on-code="1"
+                                        {% if not (error or username) %}disabled{% endif %}>
+                                    <button class="toggle js-toggle-password" type="button" data-target="password"
+                                        aria-label="显示/隐藏密码">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label for="confirm_password">确认密码</label>
+                                <div class="control">
+                                    <i class="fa-solid fa-key"></i>
+                                    <input type="password" id="confirm_password" name="confirm_password" required
+                                        placeholder="再次输入密码" autocomplete="new-password" data-unlock-on-code="1"
+                                        {% if not (error or username) %}disabled{% endif %}>
+                                    <button class="toggle js-toggle-password" type="button" data-target="confirm_password"
+                                        aria-label="显示/隐藏密码">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-primary" type="submit" id="registerBtn" data-unlock-on-code="1"
+                                {% if not (error or username) %}disabled{% endif %}>
+                                <span>注册</span>
+                                <i class="fas fa-user-plus"></i>
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="links">
+                        <span class="muted">已有账号？</span>
+                        <a href="/auth/login">去登录</a>
+                    </div>
+                    {% endif %}
+
+                    <div class="auth-footer">
+                        <span>LandPPT</span>
+                        <span>&copy; 2026</span>
+                    </div>
+                </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        window.authRegistrationConfig = {
+            inviteCodeRequired: {{ 'true' if invite_code_required_for_registration else 'false' }}
+        };
+    </script>
+    <script src="/static/js/shared/site_notice.js?v=20260322"></script>
+    <script>
+        window.SiteNotice?.loadPublicSettings({
+            noticeContainer: 'authSiteNotice',
+        });
+    </script>
+    <script src="/static/js/pages/auth/auth.js?v=20260321" defer></script>
+    {% if turnstile_enabled and turnstile_site_key %}
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    {% endif %}
+</body>
+
+</html>

@@ -18,21 +18,19 @@ import zipfile
 import io
 import time
 from pathlib import Path
+import aiohttp
 
 from ..services.image.image_service import get_image_service
-from ..services.image.config.image_config import get_image_config
+from ..services.image.config.image_config import get_image_config, ImageServiceConfig
+from ..services.db_config_service import get_db_config_service
 from ..auth.middleware import get_current_user_required
+from ..auth.request_context import current_user_id, USER_SCOPE_ALL
 from ..database.models import User
 from ..utils.thread_pool import run_blocking_io, to_thread
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-_MISSING_IMAGE_PLACEHOLDER_PATH = (
-    Path(__file__).resolve().parents[1] / "web" / "static" / "images" / "placeholder.svg"
-)
 
 
 class ImageGenerationRequest(BaseModel):
@@ -56,41 +54,60 @@ async def get_image_service_status(
 ):
     """获取图片服务状态"""
     try:
-        image_config = get_image_config()
-        config = image_config.get_config()
+        config_manager = ImageServiceConfig()
+        await config_manager.load_config_from_db_async(user.id)
+        config = config_manager.get_config()
+
+        db_config_service = get_db_config_service()
+        image_settings = await db_config_service.get_config_by_category('image_service', user_id=user.id)
+        enable_image_service = image_settings.get('enable_image_service', False)
+        enable_local_images = image_settings.get('enable_local_images', False)
+        enable_network_search = image_settings.get('enable_network_search', False)
+        enable_ai_generation = image_settings.get('enable_ai_generation', False)
         
         # 检查可用的提供者
         available_providers = []
 
+        if enable_local_images:
+            available_providers.append('local')
+
         # 检查DALL-E
-        if config.get('dalle', {}).get('api_key'):
+        if enable_ai_generation and config.get('dalle', {}).get('api_key'):
             available_providers.append('dalle')
 
         # 检查Stable Diffusion
-        if config.get('stable_diffusion', {}).get('api_key'):
+        if enable_ai_generation and config.get('stable_diffusion', {}).get('api_key'):
             available_providers.append('stable_diffusion')
 
         # 检查SiliconFlow
-        if config.get('siliconflow', {}).get('api_key'):
+        if enable_ai_generation and config.get('siliconflow', {}).get('api_key'):
             available_providers.append('siliconflow')
 
         # 检查Gemini图片生成
-        if config.get('gemini', {}).get('api_key'):
+        if enable_ai_generation and config.get('gemini', {}).get('api_key'):
             available_providers.append('gemini')
 
-        # 检查OpenAI图片生成（自定义端点）
-        if config.get('openai_image', {}).get('api_key'):
-            available_providers.append('openai_image')
+        # 检查Pollinations图片生成
+        if enable_ai_generation and config.get('pollinations', {}).get('api_key'):
+            available_providers.append('pollinations')
 
-        # 检查Pollinations（免费服务，总是可用）
-        available_providers.append('pollinations')
+        # 检查OpenAI图片生成（自定义端点）
+        if enable_ai_generation and config.get('openai_image', {}).get('api_key'):
+            available_providers.append('openai_image')
         
         # 检查搜索服务
         search_providers = []
-        if config.get('unsplash', {}).get('access_key'):
-            search_providers.append('unsplash')
-        if config.get('pixabay', {}).get('api_key'):
-            search_providers.append('pixabay')
+        if enable_network_search:
+            if config.get('unsplash', {}).get('api_key'):
+                search_providers.append('unsplash')
+            if config.get('pixabay', {}).get('api_key'):
+                search_providers.append('pixabay')
+            if config.get('searxng', {}).get('host'):
+                search_providers.append('searxng')
+
+        for provider in search_providers:
+            if provider not in available_providers:
+                available_providers.append(provider)
         
         # 检查缓存目录
         cache_dir = Path(config.get('cache', {}).get('base_dir', 'temp/images_cache'))
@@ -111,17 +128,55 @@ async def get_image_service_status(
             except Exception as e:
                 logger.warning(f"Failed to get cache info: {e}")
         
+        status = "ok" if enable_image_service and available_providers else "no_providers"
+        if not enable_image_service:
+            status = "disabled"
+
         return {
-            "status": "ok" if available_providers else "no_providers",
+            "status": status,
             "available_providers": available_providers,
             "search_providers": search_providers,
             "cache_info": cache_info,
-            "message": f"Found {len(available_providers)} image generation providers and {len(search_providers)} search providers"
+            "message": f"Found {len(available_providers)} image providers and {len(search_providers)} search providers"
         }
         
     except Exception as e:
         logger.error(f"Failed to get image service status: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get image service status: {str(e)}")
+
+
+@router.get("/api/image/pollinations/models")
+async def get_pollinations_image_models(
+    user: User = Depends(get_current_user_required)
+):
+    """获取 Pollinations 图片模型列表（/image/models）"""
+    try:
+        config_manager = ImageServiceConfig()
+        await config_manager.load_config_from_db_async(user.id)
+        config = (config_manager.get_config() or {}).get('pollinations', {}) or {}
+
+        api_base = (config.get('api_base') or 'https://gen.pollinations.ai').rstrip('/')
+        api_key = (config.get('api_key') or '').strip()
+        if not api_key:
+            raise HTTPException(status_code=400, detail="Pollinations API key not configured")
+
+        url = f"{api_base}/image/models"
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.get(url, headers={'Authorization': f'Bearer {api_key}'}) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    raise HTTPException(status_code=502, detail=f"Pollinations API error: HTTP {response.status}: {body}")
+                models = await response.json()
+
+        return {
+            "success": True,
+            "models": models
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch Pollinations image models: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch Pollinations image models: {str(e)}")
 
 
 @router.post("/api/image/test")
@@ -194,17 +249,24 @@ async def test_image_service(
                 "message": "SiliconFlow API密钥未配置"
             }
 
-        # 测试Pollinations（免费服务）
-        try:
-            test_results["providers"]["pollinations"] = {
-                "available": True,
-                "message": "Pollinations服务可用（免费服务）"
-            }
-        except Exception as e:
+        # 测试Pollinations
+        if config.get('pollinations', {}).get('api_key'):
+            try:
+                test_results["providers"]["pollinations"] = {
+                    "available": True,
+                    "message": "Pollinations API密钥已配置"
+                }
+            except Exception as e:
+                test_results["providers"]["pollinations"] = {
+                    "available": False,
+                    "message": f"Pollinations测试失败: {str(e)}"
+                }
+        else:
             test_results["providers"]["pollinations"] = {
                 "available": False,
-                "message": f"Pollinations测试失败: {str(e)}"
+                "message": "Pollinations API密钥未配置"
             }
+
 
         # 测试缓存
         cache_dir = Path(config.get('cache', {}).get('base_dir', 'temp/images_cache'))
@@ -308,6 +370,8 @@ async def generate_image(
     """生成图片"""
     try:
         image_service = get_image_service()
+        # Ensure per-user provider keys (DB) are loaded before generating.
+        await image_service.reload_providers_for_user(user.id)
 
         # 创建图片生成请求对象
         from ..services.image.models import ImageGenerationRequest as ServiceImageGenerationRequest, ImageProvider
@@ -344,7 +408,12 @@ async def generate_image(
             # 返回通过本地图床服务可访问的图片URL（绝对地址）
             if result.image_info:
                 from ..services.url_service import build_image_url
-                image_url = build_image_url(result.image_info.image_id)
+                metadata = getattr(result.image_info, "metadata", None)
+                image_url = build_image_url(
+                    result.image_info.image_id,
+                    width=getattr(metadata, "width", None),
+                    height=getattr(metadata, "height", None),
+                )
             else:
                 image_url = None
 
@@ -529,7 +598,11 @@ async def get_image_info(
 
         # 构建绝对URL
         from ..services.url_service import build_image_url
-        absolute_url = build_image_url(image_id)
+        absolute_url = build_image_url(
+            image_id,
+            width=image_info.metadata.width,
+            height=image_info.metadata.height,
+        )
 
         return {
             "success": True,
@@ -565,34 +638,10 @@ async def view_image(
         image_info = await image_service.get_image(image_id)
 
         if not image_info or not image_info.local_path:
-            if _MISSING_IMAGE_PLACEHOLDER_PATH.exists():
-                logger.warning(f"Image not found, serving placeholder: {image_id}")
-                return FileResponse(
-                    path=str(_MISSING_IMAGE_PLACEHOLDER_PATH),
-                    media_type="image/svg+xml",
-                    filename="placeholder.svg",
-                    headers={
-                        "X-LandPPT-Missing-Image": "1",
-                        "X-LandPPT-Missing-Image-Id": image_id,
-                        "Cache-Control": "public, max-age=300",
-                    }
-                )
             raise HTTPException(status_code=404, detail="Image not found")
 
         image_path = Path(image_info.local_path)
         if not image_path.exists():
-            if _MISSING_IMAGE_PLACEHOLDER_PATH.exists():
-                logger.warning(f"Image file missing, serving placeholder: {image_id} -> {image_path}")
-                return FileResponse(
-                    path=str(_MISSING_IMAGE_PLACEHOLDER_PATH),
-                    media_type="image/svg+xml",
-                    filename="placeholder.svg",
-                    headers={
-                        "X-LandPPT-Missing-Image": "1",
-                        "X-LandPPT-Missing-Image-Id": image_id,
-                        "Cache-Control": "public, max-age=300",
-                    }
-                )
             raise HTTPException(status_code=404, detail="Image file not found")
 
         return FileResponse(
@@ -954,11 +1003,14 @@ async def deduplicate_gallery(
 async def clear_all_images(
     user: User = Depends(get_current_user_required)
 ):
-    """清空图床 - 删除所有图片"""
+    """清空当前用户图床；仅管理员可显式触发全局清空。"""
     try:
         image_service = get_image_service()
+        is_global_clear = bool(
+            getattr(user, "is_admin", False) and current_user_id.get() == USER_SCOPE_ALL
+        )
 
-        # 获取所有图片的统计信息
+        # 获取当前作用域内的图片统计信息
         stats = await image_service.get_cache_stats()
         total_images = stats.get('total_entries', 0)
 
@@ -966,16 +1018,21 @@ async def clear_all_images(
             return {
                 "success": True,
                 "deleted_count": 0,
-                "message": "图床已经是空的"
+                "message": "图库已经是空的" if is_global_clear else "你的图库已经是空的"
             }
 
-        # 清空所有缓存
-        deleted_count = await image_service.clear_all_cache()
+        # 普通用户只能清空自己的图库；全局清空仅保留给显式 admin/system 作用域。
+        if is_global_clear:
+            deleted_count = await image_service.clear_all_cache()
+            message = f"成功清空全局图库，删除了 {deleted_count} 张图片"
+        else:
+            deleted_count = await image_service.clear_user_cache(user.id)
+            message = f"成功清空你的图库，删除了 {deleted_count} 张图片"
 
         return {
             "success": True,
             "deleted_count": deleted_count,
-            "message": f"成功清空图床，删除了 {deleted_count} 张图片"
+            "message": message
         }
 
     except Exception as e:

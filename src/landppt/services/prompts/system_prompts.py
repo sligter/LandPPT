@@ -9,6 +9,16 @@ from pathlib import Path
 
 class SystemPrompts:
     """PPT系统提示词和默认配置集合"""
+
+    @staticmethod
+    def get_resource_performance_prompt() -> str:
+        """获取资源可达性与性能优化约束提示词"""
+        return """**资源可达性与性能约束**：
+- 不要引入海外公共 CDN 资源（`fonts.googleapis.com`、`fonts.gstatic.com`、`cdn.jsdelivr.net`、`unpkg.com`、`cdnjs.cloudflare.com`、`use.fontawesome.com` 等）。
+- 不要通过海外外链加载字体（如 Google Fonts、Adobe Fonts），字体选择不受限制，但引入方式不能依赖海外域名。
+- 图标少量场景优先内联 SVG / CSS / Unicode，不要为少量图标引入整套远程图标库。
+- 图表可用 Chart.js、ECharts.js、D3.js，公式可用 MathJax，代码高亮可用 Prism.js；仅在确有需要时按需加载，并关闭非必要动画和重复初始化。
+- 背景纹理、分隔线、装饰光效优先 CSS 或内联 SVG 实现；能不引入外链就不引入。"""
     
     @staticmethod
     def get_default_ppt_system_prompt() -> str:
@@ -24,7 +34,9 @@ class SystemPrompts:
 - 内容驱动设计：让设计服务于内容表达
 - 视觉层级清晰：突出重点信息，引导视觉流向
 - 风格统一协调：保持整体PPT的视觉一致性
-- 创意与一致性平衡：在保持风格一致性的前提下展现创意"""
+- 创意与一致性平衡：在保持风格一致性的前提下展现创意
+
+""" + SystemPrompts.get_resource_performance_prompt()
 
     @staticmethod
     def get_keynote_style_prompt() -> str:
@@ -35,11 +47,13 @@ class SystemPrompts:
 3. 使用科技蓝或品牌色作为高亮色
 4. 大字号标题，清晰的视觉层级
 5. 响应式设计，支持多设备显示
-6. 使用Font Awesome图标和Chart.js图表
+6. 图标优先使用内联SVG或简洁几何图形，图表优先使用纯HTML/CSS/SVG实现
 7. 平滑的动画效果
 
 特别注意：
-- **结尾页（thankyou/conclusion类型）**：必须设计得令人印象深刻！使用Apple风格的特殊背景效果、发光文字、动态装饰、庆祝元素等，留下深刻的最后印象"""
+- **结尾页（thankyou/conclusion类型）**：必须设计得令人印象深刻！使用Apple风格的特殊背景效果、发光文字、动态装饰、庆祝元素等，留下深刻的最后印象
+
+""" + SystemPrompts.get_resource_performance_prompt()
 
     @staticmethod
     def load_prompts_md_system_prompt() -> str:
@@ -109,17 +123,9 @@ class SystemPrompts:
    - 减少不必要的资源请求
    - 使用高效的CSS选择器
 
-4. **兼容性**：
-   - 支持主流浏览器
-   - 处理兼容性问题
-   - 提供降级方案
+请确保生成的HTML代码符合现代Web标准。
 
-5. **交互效果**：
-   - 实现平滑的动画效果
-   - 添加适当的交互反馈
-   - 增强用户体验
-
-请确保生成的HTML代码符合现代Web标准。"""
+""" + SystemPrompts.get_resource_performance_prompt()
 
     @staticmethod
     def get_content_analysis_system_prompt() -> str:

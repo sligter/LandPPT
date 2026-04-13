@@ -1,0 +1,708 @@
+<div class="toast-container" id="toastContainer"></div>
+
+    <div class="header">
+        <h1><i class="fas fa-compass-drafting"></i> 后台管理配置</h1>
+        <div class="header-links">
+            <span class="header-user"><i class="fas fa-user-shield"></i> {{ user.username }}</span>
+            <a href="/admin/users"><i class="fas fa-users"></i> 用户</a>
+            {% if credits_enabled %}
+            <a href="/admin/credits"><i class="fas fa-coins"></i> 积分</a>
+            {% endif %}
+            <a href="/admin/community" aria-current="page"><i class="fas fa-compass-drafting"></i> 运营</a>
+            <a href="/admin/oauth"><i class="fas fa-right-to-bracket"></i> OAuth</a>
+            <a href="/admin/smtp"><i class="fas fa-envelope"></i> SMTP</a>
+            <a href="/dashboard"><i class="fas fa-home"></i> 首页</a>
+            <a href="/auth/logout" onclick="return confirm('确定要退出登录吗？')"><i
+                    class="fas fa-arrow-right-from-bracket"></i> 退出</a>
+        </div>
+    </div>
+
+    <div class="container community-grid">
+        <div id="alertArea"></div>
+
+        {% if not credits_enabled %}
+        <div class="status-banner">
+            <i class="fas fa-circle-info"></i> 当前积分系统未启用，签到奖励与邀请码赠分功能暂不生效。
+        </div>
+        {% endif %}
+
+        <div class="community-shell">
+            <div class="community-tabs" role="tablist" aria-label="运营模块">
+                <button class="community-tab is-active" type="button" data-tab-target="system-defaults" role="tab"
+                    aria-selected="true" aria-controls="panel-system-defaults">
+                    <small>System Defaults</small>
+                    <strong>系统默认配置</strong>
+                    <span>统一维护默认生成参数、Tavily 与 LandPPT 渠道。</span>
+                </button>
+                <button class="community-tab" type="button" data-tab-target="notice" role="tab"
+                    aria-selected="false" aria-controls="panel-notice">
+                    <small>Site Notice</small>
+                    <strong>站内公告</strong>
+                    <span>业务页与登录注册页顶部横幅。</span>
+                </button>
+                <button class="community-tab" type="button" data-tab-target="checkin" role="tab"
+                    aria-selected="false" aria-controls="panel-checkin">
+                    <small>Check-In</small>
+                    <strong>签到系统</strong>
+                    <span>每日签到开关与奖励模式。</span>
+                </button>
+                <button class="community-tab" type="button" data-tab-target="invites" role="tab" aria-selected="false"
+                    aria-controls="panel-invites">
+                    <small>Invite Codes</small>
+                    <strong>邀请码注册</strong>
+                    <span>渠道、有效期与注册赠分。</span>
+                </button>
+                <button class="community-tab" type="button" data-tab-target="sponsors" role="tab"
+                    aria-selected="false" aria-controls="panel-sponsors">
+                    <small>Sponsor Wall</small>
+                    <strong>赞助感谢页</strong>
+                    <span>赞助人资料与公开展示。</span>
+                </button>
+            </div>
+
+            <div class="community-panels">
+                <section class="community-panel is-active" id="panel-system-defaults" data-tab-panel="system-defaults"
+                    role="tabpanel">
+                        <div class="section">
+                            <div class="section-header">
+                                        <h2><i class="fas fa-sliders"></i> 后台默认配置中心</h2>
+                                <div class="actions-inline">
+                                    <button class="btn btn-outline" type="button" id="testSystemDefaultsBtn">
+                                        <i class="fas fa-plug"></i> 测试 LandPPT
+                                    </button>
+                                    <button class="btn" type="button" id="saveSystemDefaultsBtn">
+                                        <i class="fas fa-floppy-disk"></i> 保存系统默认配置
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="section-body">
+                                <div class="system-default-note">
+                                    <strong>留空策略：</strong>
+                                    涉及 API Key、接入地址与工作流路径的字段可以留空。留空后系统不会强制覆盖用户自己的同名设置；
+                                    用户未填写时，再回退到系统默认值或内置默认值。
+                                </div>
+
+                                <form id="systemDefaultsForm" class="system-default-form">
+                                    <article class="system-config-block">
+                                        <div class="system-config-block__header">
+                                            <small>AI Defaults</small>
+                                            <h3>默认提供商与 LandPPT 渠道</h3>
+                                            <p>统一设置默认模型来源，支持使用当前表单里的 LandPPT 凭据即时拉取模型列表。</p>
+                                        </div>
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="system_default_ai_provider">默认 AI 提供商</label>
+                                                <select id="system_default_ai_provider" name="default_ai_provider">
+                                                    <option value="landppt">LandPPT</option>
+                                                    <option value="openai">OpenAI</option>
+                                                    <option value="anthropic">Anthropic</option>
+                                                    <option value="google">Google Gemini</option>
+                                                    <option value="ollama">Ollama</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_landppt_model">LandPPT 默认模型</label>
+                                                <div class="system-model-select" id="systemLandPptModelSelect">
+                                                    <input type="text" id="system_landppt_model" name="landppt_model"
+                                                        placeholder="点击右侧箭头选择，或手动输入" autocomplete="off">
+                                                    <button class="system-model-toggle" type="button"
+                                                        id="systemLandPptModelToggleBtn" aria-label="展开模型列表">
+                                                        <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                                                    </button>
+                                                    <div class="system-model-dropdown" id="systemLandPptModelDropdown"
+                                                        role="listbox" aria-label="LandPPT 模型列表"></div>
+                                                </div>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_landppt_base_url">LandPPT Base URL</label>
+                                                <input type="text" id="system_landppt_base_url" name="landppt_base_url"
+                                                    placeholder="https://api.openai.com/v1">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_landppt_api_key">LandPPT API Key</label>
+                                                <div class="password-toggle">
+                                                    <input type="password" id="system_landppt_api_key" name="landppt_api_key"
+                                                        placeholder="sk-...">
+                                                    <button type="button" data-toggle-secret="system_landppt_api_key"
+                                                        aria-label="切换 LandPPT API Key 显示状态">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="system-default-actions">
+                                            <span class="system-default-status" id="systemLandPptStatus">
+                                                点击模型输入框右侧箭头获取列表，也可以直接手动输入。
+                                            </span>
+                                        </div>
+                                    </article>
+
+                                    <article class="system-config-block">
+                                        <div class="system-config-block__header">
+                                            <small>Generation Params</small>
+                                            <h3>系统默认生成参数</h3>
+                                            <p>控制模型输出长度、稳定性、超时与并行生成策略，适用于用户未覆盖时的全局兜底参数。</p>
+                                        </div>
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="system_max_tokens">最大输出 Token</label>
+                                                <input type="number" id="system_max_tokens" name="max_tokens" min="256"
+                                                    step="256" placeholder="16384">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_temperature">Temperature</label>
+                                                <input type="number" id="system_temperature" name="temperature" min="0"
+                                                    max="2" step="0.1" placeholder="0.7">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_top_p">Top P</label>
+                                                <input type="number" id="system_top_p" name="top_p" min="0" max="1"
+                                                    step="0.05" placeholder="1.0">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_llm_timeout_seconds">LLM 超时（秒）</label>
+                                                <input type="number" id="system_llm_timeout_seconds"
+                                                    name="llm_timeout_seconds" min="30" step="30" placeholder="600">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_parallel_slides_count">并行生成页数</label>
+                                                <input type="number" id="system_parallel_slides_count"
+                                                    name="parallel_slides_count" min="1" max="8" placeholder="3">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_research_provider">默认研究提供商</label>
+                                                <select id="system_research_provider" name="research_provider">
+                                                    <option value="tavily">Tavily</option>
+                                                    <option value="searxng">SearXNG</option>
+                                                    <option value="both">两者都用</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="system-toggle-grid">
+                                            <label class="system-toggle-card" for="system_enable_parallel_generation">
+                                                <input type="checkbox" id="system_enable_parallel_generation"
+                                                    name="enable_parallel_generation">
+                                                <div>
+                                                    <strong>启用并行生成</strong>
+                                                    <span>用户未设置时，默认按系统并行策略生成多页内容。</span>
+                                                </div>
+                                            </label>
+                                            <label class="system-toggle-card" for="system_enable_per_slide_creative_guidance">
+                                                <input type="checkbox" id="system_enable_per_slide_creative_guidance"
+                                                    name="enable_per_slide_creative_guidance">
+                                                <div>
+                                                    <strong>启用逐页创意指导</strong>
+                                                    <span>自动为每页补充分镜级创意约束，提升生成画面与版式丰富度。</span>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </article>
+
+                                    <article class="system-config-block">
+                                        <div class="system-config-block__header">
+                                            <small>Research Defaults</small>
+                                            <h3>系统默认研究与检索配置</h3>
+                                            <p>集中管理 Tavily API Key、SearXNG 与内容抽取策略，用户不填时自动继承这里的默认值。</p>
+                                        </div>
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="system_tavily_api_key">Tavily API Key</label>
+                                                <div class="password-toggle">
+                                                    <input type="password" id="system_tavily_api_key" name="tavily_api_key"
+                                                        placeholder="tvly-..." autocomplete="off">
+                                                    <button type="button" data-toggle-secret="system_tavily_api_key"
+                                                        aria-label="切换 Tavily API Key 显示状态">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_tavily_max_results">Tavily 最大结果数</label>
+                                                <input type="number" id="system_tavily_max_results" name="tavily_max_results"
+                                                    min="1" max="20" placeholder="10">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_tavily_search_depth">Tavily 搜索深度</label>
+                                                <select id="system_tavily_search_depth" name="tavily_search_depth">
+                                                    <option value="basic">basic</option>
+                                                    <option value="advanced">advanced</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_searxng_host">SearXNG Host</label>
+                                                <input type="url" id="system_searxng_host" name="searxng_host"
+                                                    placeholder="http://localhost:8888">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_searxng_max_results">SearXNG 最大结果数</label>
+                                                <input type="number" id="system_searxng_max_results"
+                                                    name="searxng_max_results" min="1" max="20" placeholder="10">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_searxng_language">SearXNG 语言</label>
+                                                <input type="text" id="system_searxng_language" name="searxng_language"
+                                                    placeholder="auto">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_searxng_timeout">SearXNG 超时（秒）</label>
+                                                <input type="number" id="system_searxng_timeout" name="searxng_timeout"
+                                                    min="5" max="120" placeholder="30">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_research_max_content_length">抽取最大内容长度</label>
+                                                <input type="number" id="system_research_max_content_length"
+                                                    name="research_max_content_length" min="1000" max="20000"
+                                                    step="500" placeholder="5000">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_research_extraction_timeout">抽取超时（秒）</label>
+                                                <input type="number" id="system_research_extraction_timeout"
+                                                    name="research_extraction_timeout" min="5" max="120" placeholder="30">
+                                            </div>
+                                        </div>
+                                        <div class="system-toggle-grid">
+                                            <label class="system-toggle-card" for="system_research_enable_content_extraction">
+                                                <input type="checkbox" id="system_research_enable_content_extraction"
+                                                    name="research_enable_content_extraction">
+                                                <div>
+                                                    <strong>启用内容抽取</strong>
+                                                    <span>自动抽取搜索结果正文做深度分析，提升报告质量。</span>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </article>
+
+                                    <article class="system-config-block">
+                                        <div class="system-config-block__header">
+                                            <small>TTS & Export</small>
+                                            <h3>语音、文档解析与导出能力</h3>
+                                            <p>统一维护默认发音人、ComfyUI 工作流、MinerU 接入与标准 PPTX 导出开关。</p>
+                                        </div>
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="system_tts_voice_zh">中文 TTS Voice</label>
+                                                <input type="text" id="system_tts_voice_zh" name="tts_voice_zh"
+                                                    placeholder="zh-CN-XiaoxiaoNeural">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_tts_voice_en">英文 TTS Voice</label>
+                                                <input type="text" id="system_tts_voice_en" name="tts_voice_en"
+                                                    placeholder="en-US-JennyNeural">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_comfyui_base_url">ComfyUI Base URL</label>
+                                                <input type="url" id="system_comfyui_base_url" name="comfyui_base_url"
+                                                    placeholder="http://127.0.0.1:8188">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_comfyui_tts_workflow_path">ComfyUI TTS Workflow</label>
+                                                <input type="text" id="system_comfyui_tts_workflow_path"
+                                                    name="comfyui_tts_workflow_path"
+                                                    placeholder="tests/Qwen3-TD-TTS.json">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_comfyui_tts_timeout_seconds">ComfyUI TTS 超时（秒）</label>
+                                                <input type="number" id="system_comfyui_tts_timeout_seconds"
+                                                    name="comfyui_tts_timeout_seconds" min="30" max="3600"
+                                                    placeholder="600">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_comfyui_tts_chunk_chars">ComfyUI 分段字数</label>
+                                                <input type="number" id="system_comfyui_tts_chunk_chars"
+                                                    name="comfyui_tts_chunk_chars" min="40" max="500" placeholder="120">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_comfyui_tts_force_precision">模型精度覆盖</label>
+                                                <input type="text" id="system_comfyui_tts_force_precision"
+                                                    name="comfyui_tts_force_precision" placeholder="fp16 / bf16 / 留空">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_mineru_base_url">MinerU Base URL</label>
+                                                <input type="url" id="system_mineru_base_url" name="mineru_base_url"
+                                                    placeholder="https://mineru.net/api/v4">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_mineru_api_key">MinerU API Key</label>
+                                                <div class="password-toggle">
+                                                    <input type="password" id="system_mineru_api_key" name="mineru_api_key"
+                                                        placeholder="your-mineru-api-key">
+                                                    <button type="button" data-toggle-secret="system_mineru_api_key"
+                                                        aria-label="切换 MinerU API Key 显示状态">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_apryse_license_key">Apryse License Key</label>
+                                                <div class="password-toggle">
+                                                    <input type="password" id="system_apryse_license_key"
+                                                        name="apryse_license_key" placeholder="your-apryse-license-key">
+                                                    <button type="button" data-toggle-secret="system_apryse_license_key"
+                                                        aria-label="切换 Apryse License Key 显示状态">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="system-toggle-grid">
+                                            <label class="system-toggle-card" for="system_enable_apryse_pptx_export">
+                                                <input type="checkbox" id="system_enable_apryse_pptx_export"
+                                                    name="enable_apryse_pptx_export">
+                                                <div>
+                                                    <strong>启用标准 PPTX 导出</strong>
+                                                    <span>用户未设置时，默认开启 Apryse 标准导出能力。</span>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    </article>
+                                </form>
+                                
+                            </div>
+                        </div>
+                </section>
+
+                <section class="community-panel" id="panel-notice" data-tab-panel="notice" role="tabpanel">
+                    <div class="section">
+                        <div class="section-header">
+                            <h2><i class="fas fa-bullhorn"></i> 站内公告</h2>
+                            <button class="btn" type="button" id="saveNoticeSettingsBtn">
+                                <i class="fas fa-floppy-disk"></i> 保存公告配置
+                            </button>
+                        </div>
+                        <div class="section-body panel-stack">
+                            <div class="setting-summary">
+                                <small>当前状态</small>
+                                <strong id="noticeSummary">加载中...</strong>
+                                <p id="noticeWindowSummary">保存后会展示在主要业务页和登录注册相关页面顶部。</p>
+                            </div>
+
+                            <form id="noticeSettingsForm" class="community-grid">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="site_notice_enabled">开启站内公告</label>
+                                        <select id="site_notice_enabled" name="site_notice_enabled">
+                                            <option value="true">开启</option>
+                                            <option value="false">关闭</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="site_notice_level">公告级别</label>
+                                        <select id="site_notice_level" name="site_notice_level">
+                                            <option value="info">信息</option>
+                                            <option value="success">成功</option>
+                                            <option value="warning">提醒</option>
+                                            <option value="danger">警告</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="site_notice_start_at">开始时间</label>
+                                        <input type="datetime-local" id="site_notice_start_at" name="site_notice_start_at">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="site_notice_end_at">结束时间</label>
+                                        <input type="datetime-local" id="site_notice_end_at" name="site_notice_end_at">
+                                    </div>
+                                    <div class="form-group" style="grid-column: 1 / -1;">
+                                        <label for="site_notice_title">公告标题</label>
+                                        <input type="text" id="site_notice_title" name="site_notice_title">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="site_notice_message">公告内容</label>
+                                    <textarea id="site_notice_message" name="site_notice_message" rows="4"></textarea>
+                                </div>
+                                <div class="helper">不填开始/结束时间表示长期展示。关闭开关或清空内容后，前台将不显示该公告。</div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="community-panel" id="panel-checkin" data-tab-panel="checkin" role="tabpanel">
+                    <div class="section">
+                        <div class="section-header">
+                            <h2><i class="fas fa-calendar-check"></i> 签到系统</h2>
+                            <button class="btn" type="button" id="saveCheckinSettingsBtn">
+                                <i class="fas fa-floppy-disk"></i> 保存签到配置
+                            </button>
+                        </div>
+                        <div class="section-body panel-stack">
+                            <div class="setting-summary">
+                                <small>当前规则</small>
+                                <strong id="checkinRuleSummary">加载中...</strong>
+                                <p>保存后立即影响积分页的签到按钮与奖励发放逻辑。</p>
+                            </div>
+
+                            <form id="checkinSettingsForm" class="community-grid">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="daily_checkin_enabled">开启每日签到</label>
+                                        <select id="daily_checkin_enabled" name="daily_checkin_enabled">
+                                            <option value="true">开启</option>
+                                            <option value="false">关闭</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="daily_checkin_reward_mode">签到奖励模式</label>
+                                        <select id="daily_checkin_reward_mode" name="daily_checkin_reward_mode">
+                                            <option value="fixed">固定值</option>
+                                            <option value="random">随机范围</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="daily_checkin_reward_fixed">固定奖励积分</label>
+                                        <input type="number" id="daily_checkin_reward_fixed"
+                                            name="daily_checkin_reward_fixed" min="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="daily_checkin_reward_min">随机最小积分</label>
+                                        <input type="number" id="daily_checkin_reward_min"
+                                            name="daily_checkin_reward_min" min="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="daily_checkin_reward_max">随机最大积分</label>
+                                        <input type="number" id="daily_checkin_reward_max"
+                                            name="daily_checkin_reward_max" min="0">
+                                    </div>
+                                </div>
+                                <div class="helper">固定模式只读取"固定奖励积分"；随机模式读取"随机最小积分"和"随机最大积分"。</div>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="community-panel" id="panel-invites" data-tab-panel="invites" role="tabpanel">
+                    <div class="panel-stack">
+                        <div class="section">
+                            <div class="section-header">
+                                <h2><i class="fas fa-toggle-on"></i> 注册规则</h2>
+                                <button class="btn" type="button" id="saveInviteSettingsBtn">
+                                    <i class="fas fa-floppy-disk"></i> 保存邀请码配置
+                                </button>
+                            </div>
+                            <div class="section-body panel-stack">
+                                <div class="setting-summary">
+                                    <small>当前规则</small>
+                                    <strong id="inviteRegistrationSummary">加载中...</strong>
+                                    <p>控制新用户是否必须填写邀请码。关闭后邀请码改为选填，但用户填写后仍会校验并发放奖励。</p>
+                                </div>
+
+                                <form id="inviteSettingsForm" class="community-grid">
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="invite_code_required_for_registration">新用户注册是否必须邀请码</label>
+                                            <select id="invite_code_required_for_registration" name="invite_code_required_for_registration">
+                                                <option value="true">必须填写</option>
+                                                <option value="false">改为选填</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="helper">该规则同时作用于邮箱注册、GitHub SSO 和 LinuxDo SSO 的首次建号流程。</div>
+                                </form>
+                            </div>
+                        </div>
+                        <div class="section">
+                            <div class="section-header">
+                                <h2><i class="fas fa-ticket"></i> 批量生成邀请码</h2>
+                            </div>
+                            <div class="section-body community-grid">
+                                <form id="inviteForm" class="community-grid">
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="invite_count">生成数量</label>
+                                            <input type="number" id="invite_count" value="5" min="1" max="100">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="invite_channel">绑定渠道</label>
+                                            <select id="invite_channel">
+                                                <option value="universal">通用渠道</option>
+                                                <option value="mail">Mail</option>
+                                                <option value="github">GitHub</option>
+                                                <option value="linuxdo">LinuxDo</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="invite_credits">注册赠送积分</label>
+                                            <input type="number" id="invite_credits" value="0" min="0">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="invite_max_uses">使用次数</label>
+                                            <input type="number" id="invite_max_uses" value="1" min="1">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="invite_expires">有效期（天）</label>
+                                            <input type="number" id="invite_expires" min="1" placeholder="留空表示不过期">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="invite_desc">备注</label>
+                                            <input type="text" id="invite_desc">
+                                        </div>
+                                    </div>
+                                    <div class="actions-inline">
+                                        <button class="btn" type="submit">
+                                            <i class="fas fa-wand-magic-sparkles"></i> 生成邀请码
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="section">
+                            <div class="section-header">
+                                <h2><i class="fas fa-table-list"></i> 邀请码列表</h2>
+                                <button class="btn btn-outline" type="button" id="refreshInvitesBtn">
+                                    <i class="fas fa-rotate"></i> 刷新列表
+                                </button>
+                            </div>
+                            <div class="section-body community-grid">
+                                <div class="table-meta">
+                                    <div id="inviteTableMeta">切换到该标签后加载数据...</div>
+                                    <div class="actions-inline">
+                                        <select id="invitePageSizeSelect" aria-label="每页数量">
+                                            <option value="20" selected>20 / 页</option>
+                                            <option value="50">50 / 页</option>
+                                            <option value="100">100 / 页</option>
+                                        </select>
+                                        <button class="btn btn-outline" type="button" id="exportInvitesBtn">
+                                            <i class="fas fa-file-export"></i> 导出 CSV
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="table-scroll">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>邀请码</th>
+                                                <th>渠道</th>
+                                                <th>奖励积分</th>
+                                                <th>使用情况</th>
+                                                <th>过期时间</th>
+                                                <th>状态</th>
+                                                <th>操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="inviteTable">
+                                            <tr>
+                                                <td colspan="7" class="empty">切换到此标签后加载数据...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="pagination" id="invitePagination"></div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="community-panel" id="panel-sponsors" data-tab-panel="sponsors" role="tabpanel">
+                    <div class="panel-stack">
+                        <div class="section">
+                            <div class="section-header">
+                                <h2><i class="fas fa-heart"></i> 赞助感谢页开关</h2>
+                                <button class="btn" type="button" id="saveSponsorSettingsBtn">
+                                    <i class="fas fa-floppy-disk"></i> 保存页面配置
+                                </button>
+                            </div>
+                            <div class="section-body panel-stack">
+                                <div class="setting-summary">
+                                    <small>公开状态</small>
+                                    <strong id="sponsorPageSummary">加载中...</strong>
+                                    <p>
+                                        <a class="helper-link" id="sponsorPageLink" href="/sponsors" target="_blank">
+                                            <i class="fas fa-arrow-up-right-from-square"></i> 预览前台感谢页
+                                        </a>
+                                    </p>
+                                </div>
+
+                                <form id="sponsorSettingsForm" class="community-grid">
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="sponsor_page_enabled">展示赞助感谢页</label>
+                                            <select id="sponsor_page_enabled" name="sponsor_page_enabled">
+                                                <option value="true">展示</option>
+                                                <option value="false">隐藏</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="helper">关闭后前台 /sponsors 对普通访客不可访问，管理员仍可预览，已录入的赞助人信息会保留。</div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="panel-columns">
+                            <div class="section">
+                                <div class="section-header">
+                                    <h2><i class="fas fa-user-pen"></i> 编辑赞助人</h2>
+                                    <button class="btn btn-outline" type="button" onclick="resetSponsorForm()">
+                                        <i class="fas fa-plus"></i> 新建赞助人
+                                    </button>
+                                </div>
+                                <div class="section-body">
+                                    <form id="sponsorForm" class="community-grid">
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="sponsor_nickname">昵称</label>
+                                                <input type="text" id="sponsor_nickname" required>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="sponsor_avatar_url">头像链接</label>
+                                                <input type="text" id="sponsor_avatar_url">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="sponsor_link_url">跳转链接</label>
+                                                <input type="text" id="sponsor_link_url">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="sponsor_amount">金额</label>
+                                                <input type="text" id="sponsor_amount">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="sponsor_sort_order">排序</label>
+                                                <input type="number" id="sponsor_sort_order" value="0">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="sponsor_is_active">状态</label>
+                                                <select id="sponsor_is_active">
+                                                    <option value="true">展示</option>
+                                                    <option value="false">隐藏</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="sponsor_bio">简介</label>
+                                            <input type="text" id="sponsor_bio">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="sponsor_note">备注</label>
+                                            <input type="text" id="sponsor_note">
+                                        </div>
+                                        <div class="actions-inline">
+                                            <button class="btn" type="submit" id="saveSponsorBtn">
+                                                <i class="fas fa-floppy-disk"></i> 保存赞助人
+                                            </button>
+                                            <button class="btn btn-outline" type="button"
+                                                onclick="resetSponsorForm()">取消编辑</button>
+                                        </div>
+                                        <div class="helper" id="sponsorFormHint">当前为新增模式。</div>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <div class="section">
+                                <div class="section-header">
+                                    <h2><i class="fas fa-list-ul"></i> 赞助人列表</h2>
+                                    <button class="btn btn-outline" type="button" id="refreshSponsorsBtn">
+                                        <i class="fas fa-rotate"></i> 刷新列表
+                                    </button>
+                                </div>
+                                <div class="section-body">
+                                    <div class="sponsor-list" id="sponsorList">
+                                        <div class="empty">切换到此标签后加载数据...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>

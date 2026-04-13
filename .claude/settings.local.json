@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(find . -name \"*.md\" -type f -exec grep -l \"^!image$\" {} ;)"
-    ],
-    "deny": [],
-    "ask": []
-  }
-}

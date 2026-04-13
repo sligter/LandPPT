@@ -5,6 +5,7 @@ Handles document upload and content extraction as specified in requires.md
 
 import os
 import re
+import asyncio
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
@@ -39,16 +40,17 @@ logger = logging.getLogger(__name__)
 class FileProcessor:
     """Processes uploaded files and extracts content for PPT generation"""
     
-    def __init__(self):
+    def __init__(self, default_file_processing_mode: str = "markitdown"):
         self.supported_formats = {
-            '.docx': self._process_docx,
             '.pdf': self._process_pdf,
+            '.docx': self._process_docx,
             '.txt': self._process_txt,
             '.md': self._process_markdown,
             '.jpg': self._process_image,
             '.jpeg': self._process_image,
             '.png': self._process_image,
         }
+        self.default_file_processing_mode = default_file_processing_mode
         
         # Keywords for scenario detection
         self.scenario_keywords = {
@@ -72,14 +74,14 @@ class FileProcessor:
         try:
             file_ext = Path(filename).suffix.lower()
             file_size = os.path.getsize(file_path)
-            
-            if file_ext not in self.supported_formats:
-                raise ValueError(f"Unsupported file format: {file_ext}")
-            
-            # Process file based on type
-            if file_ext == ".pdf":
+
+            if file_ext == '.pdf':
                 content = await self._process_pdf(file_path, file_processing_mode=file_processing_mode)
             else:
+                if file_ext not in self.supported_formats:
+                    raise ValueError(f"Unsupported file format: {file_ext}")
+
+                # Process file based on type
                 processor = self.supported_formats[file_ext]
                 content = await processor(file_path)
             
@@ -141,64 +143,155 @@ class FileProcessor:
             raise ValueError(f"DOCX 文件处理失败: {str(e)}")
     
     async def _process_pdf(self, file_path: str, *, file_processing_mode: Optional[str] = None) -> str:
-        """Process PDF file"""
-        # PyPDF2 is only required for the fallback path. In magic_pdf mode we can use MinerU without PyPDF2.
-        if not PDF_AVAILABLE and (file_processing_mode or "").lower() != "magic_pdf":
-            raise ValueError("PDF processing not available. Please install PyPDF2.")
+        """Process PDF file (manual upload path keeps original behavior)."""
+        mode = (file_processing_mode or self.default_file_processing_mode or "markitdown").strip() or "markitdown"
+        if mode == "magic_pdf":
+            mineru_content = await self._extract_pdf_with_mineru(file_path)
+            if mineru_content:
+                return mineru_content
+            logger.warning("PDF处理模式=magic_pdf，但MinerU不可用或失败；将回退到 PyPDF2")
 
-        def _process_pdf_sync(file_path: str) -> str:
-            """同步处理PDF文件（在线程池中运行）"""
+        return await self._extract_pdf_with_pypdf2(file_path)
+
+    async def process_downloaded_pdf_with_priority(self, file_path: str) -> Tuple[str, str]:
+        """
+        For URL-downloaded PDFs only: MinerU first, then MarkItDown, then PyPDF2 fallback.
+        Returns (content, used_mode).
+        """
+        mineru_content = await self._extract_pdf_with_mineru(file_path)
+        if mineru_content:
+            return mineru_content, "magic_pdf"
+
+        markitdown_content = await self._extract_pdf_with_markitdown(file_path)
+        if markitdown_content:
+            return markitdown_content, "markitdown"
+
+        logger.warning("URL下载PDF: MinerU 与 MarkItDown 均不可用或解析失败，回退到 PyPDF2")
+        return await self._extract_pdf_with_pypdf2(file_path), "pypdf2"
+
+    @staticmethod
+    def _clean_markdown_content(content: str) -> str:
+        """Normalize markdown output to keep formatting consistent."""
+        if not content:
+            return ""
+
+        content = re.sub(r"\n{3,}", "\n\n", content)
+        lines = [line.rstrip() for line in content.split("\n")]
+        content = "\n".join(lines)
+        content = re.sub(r"\n(#{1,6}\\s)", r"\n\n\\1", content)
+        content = re.sub(r"(#{1,6}.*)\n([^#\n])", r"\\1\n\n\\2", content)
+        return content.strip()
+
+    async def _get_current_mineru_config(self) -> Tuple[Optional[str], Optional[str]]:
+        """Load MinerU config for the current request user in async context."""
+        current_uid = None
+        try:
+            from ..auth.request_context import current_user_id
+
+            current_uid = current_user_id.get()
+        except Exception:
+            current_uid = None
+
+        if current_uid is None:
+            return None, None
+
+        try:
+            from .db_config_service import get_db_config_service
+
+            cfg = get_db_config_service()
+            mineru_api_key = await cfg.get_config_value("mineru_api_key", user_id=current_uid)
+            mineru_base_url = await cfg.get_config_value("mineru_base_url", user_id=current_uid)
+            return mineru_api_key, mineru_base_url
+        except Exception as e:
+            logger.debug(f"Failed to load MinerU config from DB (user_id={current_uid}): {e}")
+            return None, None
+
+    async def _extract_pdf_with_mineru(self, file_path: str) -> Optional[str]:
+        """Try MinerU first; return None if unavailable or failed."""
+        try:
+            from summeryanyfile.core.mineru_api_client import MineruAPIClient
+        except Exception as e:
+            logger.debug(f"MinerU客户端不可用，跳过MinerU: {e}")
+            return None
+
+        mineru_api_key, mineru_base_url = await self._get_current_mineru_config()
+        client = MineruAPIClient(api_key=mineru_api_key, base_url=mineru_base_url)
+        try:
+            if not client.is_available:
+                logger.info("MinerU未配置，回退到 MarkItDown")
+                return None
+
+            logger.info("使用 MinerU API 提取 PDF 内容")
+            md_content, _extra = await client.extract_markdown(file_path=file_path)
+            cleaned = self._clean_markdown_content(md_content or "")
+            if cleaned:
+                return cleaned
+            logger.warning("MinerU 返回内容为空，回退到 MarkItDown")
+            return None
+        except Exception as e:
+            logger.warning(f"MinerU 解析失败，回退到 MarkItDown: {e}")
+            return None
+        finally:
+            try:
+                await client.close()
+            except Exception:
+                pass
+
+    async def _extract_pdf_with_markitdown(self, file_path: str) -> Optional[str]:
+        """Fallback parser when MinerU is unavailable."""
+        try:
+            from summeryanyfile.core.markitdown_converter import MarkItDownConverter
+        except Exception as e:
+            logger.warning(f"MarkItDown转换器不可用: {e}")
+            return None
+
+        def _convert_sync(path: str) -> str:
+            converter = MarkItDownConverter(
+                enable_plugins=False,
+                use_magic_pdf=False,
+                enable_cache=True,
+                processing_mode="markitdown",
+            )
+            content, _encoding = converter.convert_file(path)
+            # Keep consistency with other markdown cleaning paths.
+            if hasattr(converter, "clean_markdown_content"):
+                return converter.clean_markdown_content(content or "")
+            return self._clean_markdown_content(content or "")
+
+        try:
+            loop = asyncio.get_running_loop()
+            content = await loop.run_in_executor(None, _convert_sync, file_path)
+            cleaned = (content or "").strip()
+            if cleaned:
+                logger.info("MarkItDown PDF 解析成功")
+                return cleaned
+            logger.warning("MarkItDown 返回内容为空")
+            return None
+        except Exception as e:
+            logger.warning(f"MarkItDown PDF 解析失败: {e}")
+            return None
+
+    async def _extract_pdf_with_pypdf2(self, file_path: str) -> str:
+        """Final fallback parser to avoid complete failure."""
+        if not PDF_AVAILABLE:
+            raise ValueError("PDF processing not available. Please install markitdown[all] or PyPDF2.")
+
+        def _process_pdf_sync(path: str) -> str:
             content_parts = []
-
-            with open(file_path, 'rb') as file:
+            with open(path, 'rb') as file:
                 pdf_reader = PyPDF2.PdfReader(file)
-
                 for page_num in range(len(pdf_reader.pages)):
                     page = pdf_reader.pages[page_num]
                     text = page.extract_text()
-
-                    if text.strip():
+                    if text and text.strip():
                         content_parts.append(text.strip())
-
             return "\n\n".join(content_parts)
 
         try:
-            # 在线程池中执行文件处理以避免阻塞主服务
-            import asyncio
             loop = asyncio.get_running_loop()
-
-            if (file_processing_mode or "").lower() == "magic_pdf":
-                try:
-                    from ..core.config import ai_config
-                    if getattr(ai_config, "mineru_api_key", None):
-                        os.environ["MINERU_API_KEY"] = str(ai_config.mineru_api_key)
-                    if getattr(ai_config, "mineru_base_url", None):
-                        os.environ["MINERU_BASE_URL"] = str(ai_config.mineru_base_url)
-                except Exception:
-                    pass
-
-                try:
-                    from summeryanyfile.core.magic_pdf_converter import MagicPDFConverter
-                    logger.info(f"magic_pdf模式：优先使用MinerU处理PDF: {Path(file_path).name}")
-                    def _mineru_convert_sync() -> str:
-                        converter = MagicPDFConverter()
-                        md_content, _encoding = converter.convert_pdf_file(file_path)
-                        return (md_content or "").strip()
-
-                    md_content = await loop.run_in_executor(None, _mineru_convert_sync)
-                    if md_content:
-                        return md_content
-                    logger.warning("MinerU返回内容为空，回退到PyPDF2解析")
-                except Exception as e:
-                    logger.warning(f"MinerU处理PDF失败，回退到PyPDF2解析: {e}")
-
-            if not PDF_AVAILABLE:
-                raise ValueError("PyPDF2未安装，且MinerU处理失败，无法解析PDF")
-
             return await loop.run_in_executor(None, _process_pdf_sync, file_path)
-
         except Exception as e:
-            logger.error(f"Error processing PDF file: {e}")
+            logger.error(f"Error processing PDF file with PyPDF2: {e}")
             raise ValueError(f"PDF 文件处理失败: {str(e)}")
     
     async def _process_txt(self, file_path: str) -> str:

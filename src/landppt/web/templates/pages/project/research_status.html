@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+
+{% block title %}DEEP Research 状态{% endblock %}
+
+{% block extra_css %}
+<style>
+.research-status-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.status-card {
+    background: white;
+    border-radius: 15px;
+    padding: 30px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: 500;
+    margin-bottom: 15px;
+}
+
+.status-available {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.status-unavailable {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.feature-list {
+    list-style: none;
+    padding: 0;
+}
+
+.feature-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+}
+
+.feature-list li:last-child {
+    border-bottom: none;
+}
+
+.feature-icon {
+    margin-right: 10px;
+    font-size: 1.2em;
+}
+
+.reports-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.report-card {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 20px;
+    border: 1px solid #dee2e6;
+}
+
+.report-meta {
+    font-size: 0.9em;
+    color: #6c757d;
+    margin-bottom: 10px;
+}
+
+.btn-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 0.9em;
+}
+
+.btn-primary {
+    background: #007bff;
+    color: white;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #6c757d;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="research-status-container">
+    <h1 style="text-align: center; margin-bottom: 30px; color: #2c3e50;">
+        🔍 DEEP Research 系统状态
+    </h1>
+    
+    <!-- 服务状态卡片 -->
+    <div class="status-card">
+        <h2 style="margin-bottom: 20px;">服务状态</h2>
+        <div id="service-status" class="loading">
+            正在检查服务状态...
+        </div>
+    </div>
+    
+    <!-- 功能介绍卡片 -->
+    <div class="status-card">
+        <h2 style="margin-bottom: 20px;">DEEP Research 功能</h2>
+        <p style="color: #6c757d; margin-bottom: 20px;">
+            DEEP Research 是一个基于AI的深度研究系统，能够自动进行多步骤网络研究并生成专业报告。
+        </p>
+        
+        <ul class="feature-list">
+            <li>
+                <span class="feature-icon">🎯</span>
+                <strong>D - Define</strong>: 定义研究目标和计划
+            </li>
+            <li>
+                <span class="feature-icon">🔍</span>
+                <strong>E - Explore</strong>: 探索多个信息维度
+            </li>
+            <li>
+                <span class="feature-icon">✅</span>
+                <strong>E - Evaluate</strong>: 评估信息源和证据
+            </li>
+            <li>
+                <span class="feature-icon">📋</span>
+                <strong>P - Present</strong>: 呈现综合研究发现
+            </li>
+        </ul>
+    </div>
+    
+    <!-- 研究报告列表 -->
+    <div class="status-card">
+        <h2 style="margin-bottom: 20px;">已保存的研究报告</h2>
+        <div id="reports-list" class="loading">
+            正在加载报告列表...
+        </div>
+    </div>
+    
+    <!-- 测试研究功能 -->
+    <div class="status-card">
+        <h2 style="margin-bottom: 20px;">测试研究功能</h2>
+        <p style="color: #6c757d; margin-bottom: 20px;">
+            输入一个主题来测试DEEP Research功能：
+        </p>
+        
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" id="test-topic" placeholder="例如：人工智能发展趋势" 
+                   style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+            <button onclick="testResearch()" class="btn btn-primary" id="test-btn">
+                开始研究
+            </button>
+        </div>
+        
+        <div id="test-result" style="margin-top: 20px; display: none;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 页面加载时检查服务状态
+document.addEventListener('DOMContentLoaded', function() {
+    checkServiceStatus();
+    loadReportsList();
+});
+
+async function checkServiceStatus() {
+    try {
+        const response = await fetch('/api/research/status');
+        const data = await response.json();
+        
+        const statusContainer = document.getElementById('service-status');
+        
+        if (data.available) {
+            statusContainer.innerHTML = `
+                <div class="status-indicator status-available">
+                    ✅ DEEP Research 服务可用
+                </div>
+                <div style="margin-top: 15px;">
+                    <p><strong>Tavily API:</strong> ${data.tavily_configured ? '已配置' : '未配置'}</p>
+                    <p><strong>AI Provider:</strong> ${data.status.ai_provider_type}</p>
+                    <p><strong>最大搜索结果:</strong> ${data.status.max_results}</p>
+                    <p><strong>搜索深度:</strong> ${data.status.search_depth}</p>
+                </div>
+            `;
+        } else {
+            statusContainer.innerHTML = `
+                <div class="status-indicator status-unavailable">
+                    ❌ DEEP Research 服务不可用
+                </div>
+                <div style="margin-top: 15px;">
+                    <p><strong>Tavily API:</strong> ${data.tavily_configured ? '已配置' : '未配置'}</p>
+                    <p style="color: #dc3545;">请检查 Tavily API 密钥配置</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        document.getElementById('service-status').innerHTML = `
+            <div class="status-indicator status-unavailable">
+                ❌ 无法连接到研究服务
+            </div>
+            <p style="color: #dc3545; margin-top: 15px;">错误: ${error.message}</p>
+        `;
+    }
+}
+
+async function loadReportsList() {
+    try {
+        const response = await fetch('/api/research/reports');
+        const data = await response.json();
+        
+        const reportsContainer = document.getElementById('reports-list');
+        
+        if (data.success && data.reports.length > 0) {
+            const reportsHtml = data.reports.map(report => `
+                <div class="report-card">
+                    <h4 style="margin-bottom: 10px;">${report.filename}</h4>
+                    <div class="report-meta">
+                        <p>大小: ${(report.size / 1024).toFixed(1)} KB</p>
+                        <p>创建时间: ${new Date(report.created).toLocaleString()}</p>
+                    </div>
+                    <div class="btn-group">
+                        <button onclick="deleteReport('${report.filename}')" class="btn btn-danger">
+                            删除
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            
+            reportsContainer.innerHTML = `
+                <p style="color: #6c757d; margin-bottom: 20px;">
+                    共找到 ${data.total_count} 个研究报告，保存在: ${data.reports_directory}
+                </p>
+                <div class="reports-grid">
+                    ${reportsHtml}
+                </div>
+            `;
+        } else {
+            reportsContainer.innerHTML = `
+                <p style="color: #6c757d; text-align: center; padding: 40px;">
+                    暂无保存的研究报告
+                </p>
+            `;
+        }
+    } catch (error) {
+        document.getElementById('reports-list').innerHTML = `
+            <p style="color: #dc3545; text-align: center; padding: 40px;">
+                加载报告列表失败: ${error.message}
+            </p>
+        `;
+    }
+}
+
+async function testResearch() {
+    const topic = document.getElementById('test-topic').value.trim();
+    if (!topic) {
+        alert('请输入研究主题');
+        return;
+    }
+    
+    const testBtn = document.getElementById('test-btn');
+    const resultDiv = document.getElementById('test-result');
+    
+    testBtn.disabled = true;
+    testBtn.textContent = '研究中...';
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = '<p style="color: #007bff;">正在进行DEEP研究，请稍候...</p>';
+    
+    try {
+        const response = await fetch('/api/research/conduct', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `topic=${encodeURIComponent(topic)}&language=zh`
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            resultDiv.innerHTML = `
+                <div style="background: #d4edda; padding: 20px; border-radius: 10px; border: 1px solid #c3e6cb;">
+                    <h4 style="color: #155724; margin-bottom: 15px;">✅ 研究完成</h4>
+                    <p><strong>主题:</strong> ${data.report.topic}</p>
+                    <p><strong>耗时:</strong> ${data.report.total_duration.toFixed(2)} 秒</p>
+                    <p><strong>信息源:</strong> ${data.report.sources_count} 个</p>
+                    <p><strong>研究步骤:</strong> ${data.report.steps_count} 个</p>
+                    ${data.report_path ? `<p><strong>报告已保存:</strong> ${data.report_path}</p>` : ''}
+                    
+                    <div style="margin-top: 15px;">
+                        <h5>执行摘要:</h5>
+                        <p style="background: white; padding: 10px; border-radius: 5px;">${data.report.executive_summary}</p>
+                    </div>
+                </div>
+            `;
+            
+            // 刷新报告列表
+            loadReportsList();
+        } else {
+            throw new Error(data.message || '研究失败');
+        }
+    } catch (error) {
+        resultDiv.innerHTML = `
+            <div style="background: #f8d7da; padding: 20px; border-radius: 10px; border: 1px solid #f5c6cb;">
+                <h4 style="color: #721c24; margin-bottom: 15px;">❌ 研究失败</h4>
+                <p style="color: #721c24;">${error.message}</p>
+            </div>
+        `;
+    } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = '开始研究';
+    }
+}
+
+async function deleteReport(filename) {
+    if (!confirm(`确定要删除报告 "${filename}" 吗？`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/research/reports/${encodeURIComponent(filename)}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('报告删除成功');
+            loadReportsList();
+        } else {
+            throw new Error(data.message || '删除失败');
+        }
+    } catch (error) {
+        alert(`删除报告失败: ${error.message}`);
+    }
+}
+</script>
+{% endblock %}

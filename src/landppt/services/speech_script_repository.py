@@ -25,6 +25,7 @@ class SpeechScriptRepository:
         self,
         project_id: str,
         slide_index: int,
+        language: str,
         slide_title: str,
         script_content: str,
         generation_params: Dict[str, Any],
@@ -42,7 +43,8 @@ class SpeechScriptRepository:
                 existing_script = self.db.query(SpeechScript).filter(
                     and_(
                         SpeechScript.project_id == project_id,
-                        SpeechScript.slide_index == slide_index
+                        SpeechScript.slide_index == slide_index,
+                        SpeechScript.language == (language or "zh"),
                     )
                 ).first()
 
@@ -50,6 +52,7 @@ class SpeechScriptRepository:
                     # 更新现有记录
                     existing_script.slide_title = slide_title
                     existing_script.script_content = script_content
+                    existing_script.language = (language or "zh")
                     existing_script.estimated_duration = estimated_duration
                     existing_script.speaker_notes = speaker_notes
                     existing_script.generation_type = generation_params.get('generation_type', 'single')
@@ -71,6 +74,7 @@ class SpeechScriptRepository:
                     speech_script = SpeechScript(
                         project_id=project_id,
                         slide_index=slide_index,
+                        language=(language or "zh"),
                         slide_title=slide_title,
                         script_content=script_content,
                         estimated_duration=estimated_duration,
@@ -105,12 +109,16 @@ class SpeechScriptRepository:
     async def get_speech_scripts_by_project(
         self,
         project_id: str,
+        language: str = "zh",
         limit: Optional[int] = None
     ) -> List[SpeechScript]:
         """获取项目的所有演讲稿"""
         
         query = self.db.query(SpeechScript).filter(
-            SpeechScript.project_id == project_id
+            and_(
+                SpeechScript.project_id == project_id,
+                SpeechScript.language == (language or "zh"),
+            )
         ).order_by(
             SpeechScript.slide_index.asc(),
             SpeechScript.created_at.desc()
@@ -125,6 +133,7 @@ class SpeechScriptRepository:
         self,
         project_id: str,
         slide_index: int,
+        language: str = "zh",
         limit: Optional[int] = None
     ) -> List[SpeechScript]:
         """获取特定幻灯片的演讲稿历史"""
@@ -132,7 +141,8 @@ class SpeechScriptRepository:
         query = self.db.query(SpeechScript).filter(
             and_(
                 SpeechScript.project_id == project_id,
-                SpeechScript.slide_index == slide_index
+                SpeechScript.slide_index == slide_index,
+                SpeechScript.language == (language or "zh"),
             )
         ).order_by(desc(SpeechScript.created_at))
         
@@ -143,25 +153,31 @@ class SpeechScriptRepository:
     
     async def get_current_speech_scripts_by_project(
         self,
-        project_id: str
+        project_id: str,
+        language: str = "zh",
     ) -> List[SpeechScript]:
         """获取项目每个幻灯片的当前演讲稿（每页只有一个）"""
 
         return self.db.query(SpeechScript).filter(
-            SpeechScript.project_id == project_id
+            and_(
+                SpeechScript.project_id == project_id,
+                SpeechScript.language == (language or "zh"),
+            )
         ).order_by(SpeechScript.slide_index.asc()).all()
 
     async def get_speech_script_by_slide(
         self,
         project_id: str,
-        slide_index: int
+        slide_index: int,
+        language: str = "zh",
     ) -> Optional[SpeechScript]:
         """获取特定幻灯片的演讲稿"""
 
         return self.db.query(SpeechScript).filter(
             and_(
                 SpeechScript.project_id == project_id,
-                SpeechScript.slide_index == slide_index
+                SpeechScript.slide_index == slide_index,
+                SpeechScript.language == (language or "zh"),
             )
         ).first()
     
@@ -193,11 +209,12 @@ class SpeechScriptRepository:
     
     async def get_speech_scripts_grouped_by_slide(
         self,
-        project_id: str
+        project_id: str,
+        language: str = "zh",
     ) -> Dict[int, List[SpeechScript]]:
         """获取按幻灯片分组的演讲稿"""
         
-        scripts = await self.get_speech_scripts_by_project(project_id)
+        scripts = await self.get_speech_scripts_by_project(project_id, language=language)
         grouped = {}
         
         for script in scripts:

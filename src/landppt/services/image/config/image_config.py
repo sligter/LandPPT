@@ -61,23 +61,6 @@ class ImageServiceConfig:
                 'timeout': 120  # 请求超时（秒）
             },
 
-            # Pollinations配置
-            'pollinations': {
-                'api_base': 'https://gen.pollinations.ai',
-                'api_token': '',  # API token（可选，用于认证和移除logo）
-                'referrer': '',  # 推荐人标识符（可选，用于认证）
-                'model': 'flux',  # flux, turbo, gptimage, gptimage-large, kontext, seedream, seedream-pro, nanobanana, nanobanana-pro, zimage
-                'default_width': 1024,
-                'default_height': 1024,
-                'default_enhance': False,  # 是否增强提示词
-                'default_safe': False,  # 是否启用安全过滤
-                'default_nologo': False,  # 是否移除logo（需要注册用户或token）
-                'default_private': False,  # 是否私有模式
-                'default_transparent': False,  # 是否生成透明背景（仅gptimage模型）
-                'rate_limit_requests': 60,  # 每分钟请求数
-                'rate_limit_window': 60,  # 时间窗口（秒）
-                'timeout': 300  # 请求超时（秒，增加以适应图片生成时间）
-            },
 
             # Gemini图片生成配置
             'gemini': {
@@ -98,6 +81,19 @@ class ImageServiceConfig:
                 'default_size': '1024x1024',
                 'default_quality': 'auto',  # auto, low, medium, high
                 'rate_limit_requests': 50,  # 每分钟请求数
+                'rate_limit_window': 60,  # 时间窗口（秒）
+                'timeout': 180  # 请求超时（秒）
+            },
+
+            # Pollinations 图片生成配置（gen.pollinations.ai）
+            'pollinations': {
+                'api_key': '',
+                'api_base': 'https://gen.pollinations.ai',
+                'model': 'flux',
+                'default_negative_prompt': 'worst quality, blurry',
+                'default_enhance': False,
+                'default_safe': False,
+                'rate_limit_requests': 60,  # 每分钟请求数
                 'rate_limit_window': 60,  # 时间窗口（秒）
                 'timeout': 180  # 请求超时（秒）
             },
@@ -138,7 +134,9 @@ class ImageServiceConfig:
             'cache': {
                 'base_dir': 'temp/images_cache',
                 'max_size_gb': 5.0,  # 默认最大缓存大小5GB
-                'cleanup_interval_hours': 24  # 默认24小时清理一次（虽然图片永久有效，但保留配置项）
+                'cleanup_interval_hours': 24,  # 默认24小时清理一次（虽然图片永久有效，但保留配置项）
+                # Per-user image hosting quota (MB). Set <= 0 to disable quota.
+                'user_quota_mb': 100
             },
             
             # 图片处理配置
@@ -146,6 +144,11 @@ class ImageServiceConfig:
                 'max_file_size_mb': 50,
                 'supported_formats': ['jpg', 'jpeg', 'png', 'webp', 'gif'],
                 'default_quality': 85,
+                # Store uploads/generations as WebP to reduce storage usage
+                'upload_convert_to_webp': True,
+                'upload_webp_quality': 80,
+                'upload_webp_method': 6,
+                'upload_skip_animated': True,
                 'thumbnail_size': (300, 200),
                 'watermark_enabled': False,
                 'watermark_text': 'LandPPT',
@@ -195,6 +198,20 @@ class ImageServiceConfig:
         if os.getenv('SILICONFLOW_API_BASE'):
             self._config['siliconflow']['api_base'] = os.getenv('SILICONFLOW_API_BASE')
 
+        # Pollinations 配置
+        if os.getenv('POLLINATIONS_API_KEY'):
+            self._config['pollinations']['api_key'] = os.getenv('POLLINATIONS_API_KEY')
+        if os.getenv('POLLINATIONS_API_BASE'):
+            self._config['pollinations']['api_base'] = os.getenv('POLLINATIONS_API_BASE')
+        if os.getenv('POLLINATIONS_MODEL'):
+            self._config['pollinations']['model'] = os.getenv('POLLINATIONS_MODEL')
+        if os.getenv('POLLINATIONS_NEGATIVE_PROMPT'):
+            self._config['pollinations']['default_negative_prompt'] = os.getenv('POLLINATIONS_NEGATIVE_PROMPT')
+        if os.getenv('POLLINATIONS_ENHANCE') is not None:
+            self._config['pollinations']['default_enhance'] = str(os.getenv('POLLINATIONS_ENHANCE')).lower() in ("true", "1", "yes", "on")
+        if os.getenv('POLLINATIONS_SAFE') is not None:
+            self._config['pollinations']['default_safe'] = str(os.getenv('POLLINATIONS_SAFE')).lower() in ("true", "1", "yes", "on")
+
         # 从配置服务加载SiliconFlow配置
         try:
             from ...config_service import get_config_service
@@ -218,6 +235,24 @@ class ImageServiceConfig:
             siliconflow_guidance = all_config.get('siliconflow_guidance_scale')
             if siliconflow_guidance:
                 self._config['siliconflow']['default_guidance_scale'] = float(siliconflow_guidance)
+
+            # 加载 Pollinations 配置
+            pollinations_api_key = all_config.get('pollinations_api_key')
+            if pollinations_api_key:
+                self._config['pollinations']['api_key'] = pollinations_api_key
+            pollinations_api_base = all_config.get('pollinations_api_base')
+            if pollinations_api_base:
+                self._config['pollinations']['api_base'] = pollinations_api_base
+            pollinations_model = all_config.get('pollinations_model')
+            if pollinations_model:
+                self._config['pollinations']['model'] = pollinations_model
+            pollinations_negative_prompt = all_config.get('pollinations_negative_prompt')
+            if pollinations_negative_prompt:
+                self._config['pollinations']['default_negative_prompt'] = pollinations_negative_prompt
+            if 'pollinations_enhance' in all_config:
+                self._config['pollinations']['default_enhance'] = bool(all_config.get('pollinations_enhance'))
+            if 'pollinations_safe' in all_config:
+                self._config['pollinations']['default_safe'] = bool(all_config.get('pollinations_safe'))
 
             # 加载Unsplash配置
             unsplash_access_key = all_config.get('unsplash_access_key')
@@ -244,15 +279,14 @@ class ImageServiceConfig:
         if os.getenv('SEARXNG_HOST'):
             self._config['searxng']['host'] = os.getenv('SEARXNG_HOST')
 
-        # Pollinations配置（环境变量）
-        if os.getenv('POLLINATIONS_API_BASE'):
-            self._config['pollinations']['api_base'] = os.getenv('POLLINATIONS_API_BASE')
-        if os.getenv('POLLINATIONS_API_TOKEN'):
-            self._config['pollinations']['api_token'] = os.getenv('POLLINATIONS_API_TOKEN')
-        if os.getenv('POLLINATIONS_REFERRER'):
-            self._config['pollinations']['referrer'] = os.getenv('POLLINATIONS_REFERRER')
-        if os.getenv('POLLINATIONS_MODEL'):
-            self._config['pollinations']['model'] = os.getenv('POLLINATIONS_MODEL')
+        # Per-user image hosting quota (MB). Set <= 0 to disable quota.
+        quota_mb = os.getenv('IMAGE_USER_STORAGE_QUOTA_MB')
+        if quota_mb is not None and str(quota_mb).strip() != "":
+            try:
+                self._config['cache']['user_quota_mb'] = int(float(quota_mb))
+            except Exception:
+                logger.warning("Invalid IMAGE_USER_STORAGE_QUOTA_MB=%r, using default=%r", quota_mb, self._config['cache'].get('user_quota_mb'))
+
 
         # Gemini图片生成配置（环境变量）- 使用独立的配置，不与文本生成共用
         if os.getenv('GEMINI_IMAGE_API_KEY'):
@@ -309,62 +343,6 @@ class ImageServiceConfig:
         except Exception as e:
             logger.debug(f"Could not load Gemini/OpenAI image config from config service: {e}")
 
-        # 从配置服务加载Pollinations配置
-        try:
-            from ...config_service import config_service
-            all_config = config_service.get_all_config()
-
-            # 加载Pollinations配置
-            pollinations_token = all_config.get('pollinations_api_token')
-            if pollinations_token:
-                self._config['pollinations']['api_token'] = pollinations_token
-
-            pollinations_referrer = all_config.get('pollinations_referrer')
-            if pollinations_referrer:
-                self._config['pollinations']['referrer'] = pollinations_referrer
-
-            pollinations_model = all_config.get('pollinations_model')
-            if pollinations_model:
-                self._config['pollinations']['model'] = pollinations_model
-
-            pollinations_enhance = all_config.get('pollinations_enhance')
-            if pollinations_enhance is not None:
-                # 处理布尔值或字符串
-                if isinstance(pollinations_enhance, bool):
-                    self._config['pollinations']['default_enhance'] = pollinations_enhance
-                else:
-                    self._config['pollinations']['default_enhance'] = str(pollinations_enhance).lower() == 'true'
-
-            pollinations_safe = all_config.get('pollinations_safe')
-            if pollinations_safe is not None:
-                if isinstance(pollinations_safe, bool):
-                    self._config['pollinations']['default_safe'] = pollinations_safe
-                else:
-                    self._config['pollinations']['default_safe'] = str(pollinations_safe).lower() == 'true'
-
-            pollinations_nologo = all_config.get('pollinations_nologo')
-            if pollinations_nologo is not None:
-                if isinstance(pollinations_nologo, bool):
-                    self._config['pollinations']['default_nologo'] = pollinations_nologo
-                else:
-                    self._config['pollinations']['default_nologo'] = str(pollinations_nologo).lower() == 'true'
-
-            pollinations_private = all_config.get('pollinations_private')
-            if pollinations_private is not None:
-                if isinstance(pollinations_private, bool):
-                    self._config['pollinations']['default_private'] = pollinations_private
-                else:
-                    self._config['pollinations']['default_private'] = str(pollinations_private).lower() == 'true'
-
-            pollinations_transparent = all_config.get('pollinations_transparent')
-            if pollinations_transparent is not None:
-                if isinstance(pollinations_transparent, bool):
-                    self._config['pollinations']['default_transparent'] = pollinations_transparent
-                else:
-                    self._config['pollinations']['default_transparent'] = str(pollinations_transparent).lower() == 'true'
-
-        except Exception as e:
-            logger.debug(f"Could not load Pollinations config from config service: {e}")
 
         # 缓存目录配置
         if os.getenv('IMAGE_CACHE_DIR'):
@@ -373,6 +351,274 @@ class ImageServiceConfig:
     def get_config(self) -> Dict[str, Any]:
         """获取完整配置"""
         return self._config.copy()
+    
+    async def load_config_from_db_async(self, user_id: Optional[int] = None):
+        """
+        从数据库异步加载用户特定的配置。
+        这会覆盖环境变量中加载的配置，以用户在UI中配置的值为准。
+        
+        Args:
+            user_id: 用户ID，如果为None则加载系统级配置
+        """
+        try:
+            from ...db_config_service import get_db_config_service
+            db_config_service = get_db_config_service()
+            all_config = await db_config_service.get_all_config(user_id)
+            
+            logger.info(f"Loading image config from database for user {user_id}")
+            
+            # 加载SiliconFlow配置
+            siliconflow_api_key = all_config.get('siliconflow_api_key')
+            if siliconflow_api_key and str(siliconflow_api_key).strip():
+                self._config['siliconflow']['api_key'] = siliconflow_api_key
+                logger.info(f"Loaded SiliconFlow API key from database for user {user_id}: ***{siliconflow_api_key[-4:] if len(siliconflow_api_key) > 4 else '****'}")
+            else:
+                logger.warning(f"SiliconFlow API key not found or empty in database for user {user_id}")
+            
+            siliconflow_size = all_config.get('siliconflow_image_size')
+            if siliconflow_size:
+                self._config['siliconflow']['default_size'] = siliconflow_size
+            
+            siliconflow_steps = all_config.get('siliconflow_steps')
+            if siliconflow_steps:
+                try:
+                    self._config['siliconflow']['default_steps'] = int(siliconflow_steps)
+                except (ValueError, TypeError):
+                    pass
+            
+            siliconflow_guidance = all_config.get('siliconflow_guidance_scale')
+            if siliconflow_guidance:
+                try:
+                    self._config['siliconflow']['default_guidance_scale'] = float(siliconflow_guidance)
+                except (ValueError, TypeError):
+                    pass
+            
+            # 加载DALL-E配置
+            dalle_api_key = all_config.get('openai_api_key_image')
+            if dalle_api_key:
+                self._config['dalle']['api_key'] = dalle_api_key
+                logger.debug(f"Loaded DALL-E API key from database for user {user_id}")
+            
+            dalle_size = all_config.get('dalle_image_size')
+            if dalle_size:
+                self._config['dalle']['default_size'] = dalle_size
+            
+            dalle_quality = all_config.get('dalle_image_quality')
+            if dalle_quality:
+                self._config['dalle']['default_quality'] = dalle_quality
+            
+            dalle_style = all_config.get('dalle_image_style')
+            if dalle_style:
+                self._config['dalle']['default_style'] = dalle_style
+            
+            # 加载Stable Diffusion配置
+            stability_api_key = all_config.get('stability_api_key')
+            if stability_api_key:
+                self._config['stable_diffusion']['api_key'] = stability_api_key
+                logger.debug(f"Loaded Stability API key from database for user {user_id}")
+            
+            # 加载Gemini图片生成配置
+            gemini_api_key = all_config.get('gemini_image_api_key')
+            if gemini_api_key:
+                self._config['gemini']['api_key'] = gemini_api_key
+                logger.debug(f"Loaded Gemini Image API key from database for user {user_id}")
+            
+            gemini_api_base = all_config.get('gemini_image_api_base')
+            if gemini_api_base:
+                self._config['gemini']['api_base'] = gemini_api_base
+            
+            gemini_model = all_config.get('gemini_image_model')
+            if gemini_model:
+                self._config['gemini']['model'] = gemini_model
+            
+            # 加载OpenAI图片生成配置
+            openai_image_api_key = all_config.get('openai_image_api_key')
+            if openai_image_api_key:
+                self._config['openai_image']['api_key'] = openai_image_api_key
+                logger.debug(f"Loaded OpenAI Image API key from database for user {user_id}")
+            
+            openai_image_api_base = all_config.get('openai_image_api_base')
+            if openai_image_api_base:
+                self._config['openai_image']['api_base'] = openai_image_api_base
+            
+            openai_image_model = all_config.get('openai_image_model')
+            if openai_image_model:
+                self._config['openai_image']['model'] = openai_image_model
+            
+            openai_image_quality = all_config.get('openai_image_quality')
+            if openai_image_quality:
+                self._config['openai_image']['default_quality'] = openai_image_quality
+
+            # 加载 Pollinations 图片生成配置
+            pollinations_api_key = all_config.get('pollinations_api_key')
+            if pollinations_api_key and str(pollinations_api_key).strip():
+                self._config['pollinations']['api_key'] = pollinations_api_key
+
+            pollinations_api_base = all_config.get('pollinations_api_base')
+            if pollinations_api_base and str(pollinations_api_base).strip():
+                self._config['pollinations']['api_base'] = pollinations_api_base
+
+            pollinations_model = all_config.get('pollinations_model')
+            if pollinations_model and str(pollinations_model).strip():
+                self._config['pollinations']['model'] = pollinations_model
+
+            pollinations_negative_prompt = all_config.get('pollinations_negative_prompt')
+            if pollinations_negative_prompt and str(pollinations_negative_prompt).strip():
+                self._config['pollinations']['default_negative_prompt'] = pollinations_negative_prompt
+
+            if 'pollinations_enhance' in all_config:
+                self._config['pollinations']['default_enhance'] = bool(all_config.get('pollinations_enhance'))
+            if 'pollinations_safe' in all_config:
+                self._config['pollinations']['default_safe'] = bool(all_config.get('pollinations_safe'))
+             
+            # 加载Unsplash配置
+            unsplash_access_key = all_config.get('unsplash_access_key')
+            if unsplash_access_key:
+                self._config['unsplash']['api_key'] = unsplash_access_key
+            
+            # 加载Pixabay配置
+            pixabay_api_key = all_config.get('pixabay_api_key')
+            if pixabay_api_key:
+                self._config['pixabay']['api_key'] = pixabay_api_key
+
+            # 加载 SearXNG 配置
+            searxng_host = all_config.get('searxng_host')
+            if searxng_host and str(searxng_host).strip():
+                self._config['searxng']['host'] = searxng_host
+             
+            logger.info(f"Successfully loaded image service config from database for user {user_id}")
+             
+        except Exception as e:
+            logger.warning(f"Failed to load image config from database for user {user_id}: {e}")
+
+    def load_config_from_db_sync(self, user_id: Optional[int] = None):
+        """Sync variant of DB-backed image config loading."""
+        try:
+            from ...db_config_service import get_db_config_service
+
+            db_config_service = get_db_config_service()
+            all_config = db_config_service.get_all_config_sync(user_id)
+
+            logger.info(f"Loading image config from database for user {user_id}")
+
+            siliconflow_api_key = all_config.get('siliconflow_api_key')
+            if siliconflow_api_key and str(siliconflow_api_key).strip():
+                self._config['siliconflow']['api_key'] = siliconflow_api_key
+                logger.info(
+                    "Loaded SiliconFlow API key from database for user %s: ***%s",
+                    user_id,
+                    siliconflow_api_key[-4:] if len(siliconflow_api_key) > 4 else "****",
+                )
+            else:
+                logger.warning(f"SiliconFlow API key not found or empty in database for user {user_id}")
+
+            siliconflow_size = all_config.get('siliconflow_image_size')
+            if siliconflow_size:
+                self._config['siliconflow']['default_size'] = siliconflow_size
+
+            siliconflow_steps = all_config.get('siliconflow_steps')
+            if siliconflow_steps:
+                try:
+                    self._config['siliconflow']['default_steps'] = int(siliconflow_steps)
+                except (ValueError, TypeError):
+                    pass
+
+            siliconflow_guidance = all_config.get('siliconflow_guidance_scale')
+            if siliconflow_guidance:
+                try:
+                    self._config['siliconflow']['default_guidance_scale'] = float(siliconflow_guidance)
+                except (ValueError, TypeError):
+                    pass
+
+            dalle_api_key = all_config.get('openai_api_key_image')
+            if dalle_api_key:
+                self._config['dalle']['api_key'] = dalle_api_key
+                logger.debug(f"Loaded DALL-E API key from database for user {user_id}")
+
+            dalle_size = all_config.get('dalle_image_size')
+            if dalle_size:
+                self._config['dalle']['default_size'] = dalle_size
+
+            dalle_quality = all_config.get('dalle_image_quality')
+            if dalle_quality:
+                self._config['dalle']['default_quality'] = dalle_quality
+
+            dalle_style = all_config.get('dalle_image_style')
+            if dalle_style:
+                self._config['dalle']['default_style'] = dalle_style
+
+            stability_api_key = all_config.get('stability_api_key')
+            if stability_api_key:
+                self._config['stable_diffusion']['api_key'] = stability_api_key
+                logger.debug(f"Loaded Stability API key from database for user {user_id}")
+
+            gemini_api_key = all_config.get('gemini_image_api_key')
+            if gemini_api_key:
+                self._config['gemini']['api_key'] = gemini_api_key
+                logger.debug(f"Loaded Gemini Image API key from database for user {user_id}")
+
+            gemini_api_base = all_config.get('gemini_image_api_base')
+            if gemini_api_base:
+                self._config['gemini']['api_base'] = gemini_api_base
+
+            gemini_model = all_config.get('gemini_image_model')
+            if gemini_model:
+                self._config['gemini']['model'] = gemini_model
+
+            openai_image_api_key = all_config.get('openai_image_api_key')
+            if openai_image_api_key:
+                self._config['openai_image']['api_key'] = openai_image_api_key
+                logger.debug(f"Loaded OpenAI Image API key from database for user {user_id}")
+
+            openai_image_api_base = all_config.get('openai_image_api_base')
+            if openai_image_api_base:
+                self._config['openai_image']['api_base'] = openai_image_api_base
+
+            openai_image_model = all_config.get('openai_image_model')
+            if openai_image_model:
+                self._config['openai_image']['model'] = openai_image_model
+
+            openai_image_quality = all_config.get('openai_image_quality')
+            if openai_image_quality:
+                self._config['openai_image']['default_quality'] = openai_image_quality
+
+            pollinations_api_key = all_config.get('pollinations_api_key')
+            if pollinations_api_key and str(pollinations_api_key).strip():
+                self._config['pollinations']['api_key'] = pollinations_api_key
+
+            pollinations_api_base = all_config.get('pollinations_api_base')
+            if pollinations_api_base and str(pollinations_api_base).strip():
+                self._config['pollinations']['api_base'] = pollinations_api_base
+
+            pollinations_model = all_config.get('pollinations_model')
+            if pollinations_model and str(pollinations_model).strip():
+                self._config['pollinations']['model'] = pollinations_model
+
+            pollinations_negative_prompt = all_config.get('pollinations_negative_prompt')
+            if pollinations_negative_prompt and str(pollinations_negative_prompt).strip():
+                self._config['pollinations']['default_negative_prompt'] = pollinations_negative_prompt
+
+            if 'pollinations_enhance' in all_config:
+                self._config['pollinations']['default_enhance'] = bool(all_config.get('pollinations_enhance'))
+            if 'pollinations_safe' in all_config:
+                self._config['pollinations']['default_safe'] = bool(all_config.get('pollinations_safe'))
+
+            unsplash_access_key = all_config.get('unsplash_access_key')
+            if unsplash_access_key:
+                self._config['unsplash']['api_key'] = unsplash_access_key
+
+            pixabay_api_key = all_config.get('pixabay_api_key')
+            if pixabay_api_key:
+                self._config['pixabay']['api_key'] = pixabay_api_key
+
+            searxng_host = all_config.get('searxng_host')
+            if searxng_host and str(searxng_host).strip():
+                self._config['searxng']['host'] = searxng_host
+
+            logger.info(f"Successfully loaded image service config from database for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to load image config from database for user {user_id}: {e}")
+
     
     def get_provider_config(self, provider: str) -> Dict[str, Any]:
         """获取特定提供者的配置"""
@@ -398,9 +644,6 @@ class ImageServiceConfig:
             host = provider_config.get('host', '')
             return bool(host and host.strip())
 
-        # Pollinations不需要API密钥，只要配置存在就认为已配置
-        if provider == 'pollinations':
-            return True  # Pollinations是免费服务，不需要API密钥
 
         # 其他提供者检查API密钥是否存在
         api_key = provider_config.get('api_key', '')
@@ -431,7 +674,7 @@ class ImageServiceConfig:
         """获取已配置的提供者列表"""
         providers = []
 
-        for provider in ['dalle', 'stable_diffusion', 'siliconflow', 'pollinations', 'gemini', 'openai_image', 'unsplash', 'pixabay', 'searxng']:
+        for provider in ['dalle', 'stable_diffusion', 'siliconflow', 'gemini', 'openai_image', 'pollinations', 'unsplash', 'pixabay', 'searxng']:
             if self.is_provider_configured(provider):
                 providers.append(provider)
 

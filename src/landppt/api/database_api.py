@@ -6,6 +6,8 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 
+from ..auth.middleware import get_current_admin_user, get_current_user_required
+from ..database.models import User
 from ..database.health_check import health_checker
 from ..database.migrations import migration_manager
 from ..services.db_project_manager import DatabaseProjectManager
@@ -39,7 +41,8 @@ class DatabaseStatsResponse(BaseModel):
 
 @router.get("/health", response_model=HealthCheckResponse)
 async def get_database_health(
-    checks: Optional[List[str]] = Query(None, description="Specific checks to run")
+    checks: Optional[List[str]] = Query(None, description="Specific checks to run"),
+    _admin_user: User = Depends(get_current_admin_user),
 ):
     """
     Get database health status
@@ -59,7 +62,9 @@ async def get_database_health(
 
 
 @router.get("/health/quick")
-async def get_quick_health_check():
+async def get_quick_health_check(
+    _admin_user: User = Depends(get_current_admin_user),
+):
     """
     Quick health check (connection only)
     """
@@ -75,7 +80,9 @@ async def get_quick_health_check():
 
 
 @router.get("/stats", response_model=DatabaseStatsResponse)
-async def get_database_stats():
+async def get_database_stats(
+    _admin_user: User = Depends(get_current_admin_user),
+):
     """
     Get comprehensive database statistics
     """
@@ -87,7 +94,9 @@ async def get_database_stats():
 
 
 @router.get("/migrations/status", response_model=MigrationStatusResponse)
-async def get_migration_status():
+async def get_migration_status(
+    _admin_user: User = Depends(get_current_admin_user),
+):
     """
     Get database migration status
     """
@@ -103,7 +112,8 @@ async def get_migration_status():
 @router.post("/migrations/run")
 async def run_migrations(
     target_version: Optional[str] = None,
-    rollback: bool = False
+    rollback: bool = False,
+    _admin_user: User = Depends(get_current_admin_user),
 ):
     """
     Run database migrations
@@ -135,7 +145,9 @@ async def run_migrations(
 
 
 @router.get("/projects/summary")
-async def get_projects_summary():
+async def get_projects_summary(
+    user: User = Depends(get_current_user_required),
+):
     """
     Get summary of projects in database
     """
@@ -143,7 +155,8 @@ async def get_projects_summary():
         project_manager = DatabaseProjectManager()
         
         # Get project list
-        project_list = await project_manager.list_projects(page=1, page_size=100)
+        scoped_user_id = None if user.is_admin else user.id
+        project_list = await project_manager.list_projects(page=1, page_size=100, user_id=scoped_user_id)
         
         # Calculate summary statistics
         total_projects = project_list.total
@@ -173,7 +186,10 @@ async def get_projects_summary():
 
 
 @router.delete("/projects/{project_id}")
-async def delete_project(project_id: str):
+async def delete_project(
+    project_id: str,
+    user: User = Depends(get_current_user_required),
+):
     """
     Delete a project from database
     """
@@ -181,12 +197,13 @@ async def delete_project(project_id: str):
         project_manager = DatabaseProjectManager()
         
         # Check if project exists
-        project = await project_manager.get_project(project_id)
+        scoped_user_id = None if user.is_admin else user.id
+        project = await project_manager.get_project(project_id, user_id=scoped_user_id)
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
+
         # Delete project
-        success = await project_manager.delete_project(project_id)
+        success = await project_manager.delete_project(project_id, user_id=scoped_user_id)
         await project_manager.close()
         
         if success:
@@ -204,7 +221,9 @@ async def delete_project(project_id: str):
 
 
 @router.post("/cleanup/orphaned")
-async def cleanup_orphaned_data():
+async def cleanup_orphaned_data(
+    _admin_user: User = Depends(get_current_admin_user),
+):
     """
     Clean up orphaned data in database
     """
@@ -258,7 +277,9 @@ async def cleanup_orphaned_data():
 
 
 @router.get("/backup/info")
-async def get_backup_info():
+async def get_backup_info(
+    _admin_user: User = Depends(get_current_admin_user),
+):
     """
     Get backup information and recommendations
     """

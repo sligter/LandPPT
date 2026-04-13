@@ -9,22 +9,40 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    UV_PROJECT_ENVIRONMENT=/opt/venv \
     PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers \
     PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1
 
 # Install build dependencies
-RUN apt-get update && \
+ARG APT_DEBIAN_URL=http://deb.debian.org/debian
+ARG APT_SECURITY_URL=http://deb.debian.org/debian-security
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i "s|http://deb.debian.org/debian|${APT_DEBIAN_URL}|g" /etc/apt/sources.list.d/debian.sources; \
+      sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_URL}|g" /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+      sed -i "s|http://deb.debian.org/debian|${APT_DEBIAN_URL}|g" /etc/apt/sources.list; \
+      sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_URL}|g" /etc/apt/sources.list; \
+    fi; \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update; \
     apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     curl \
     git \
+    libpq-dev \
     libatomic1 \
-    && rm -rf /var/lib/apt/lists/*
+    ; \
+    rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster dependency management
 RUN pip install --no-cache-dir uv
+
+# Create a dedicated virtualenv for runtime dependencies.
+# Note: `uv sync` defaults to `.venv`; we explicitly sync to this env via `--active`.
+RUN uv venv /opt/venv --python python3.11
+
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 
 # Set work directory and copy dependency files
 WORKDIR /app
@@ -33,31 +51,23 @@ COPY src/ ./src/
 
 # Install Python dependencies using uv
 # uv sync will create venv at UV_PROJECT_ENVIRONMENT and install all dependencies
-RUN uv sync --frozen --no-dev --extra-index-url=https://pypi.apryse.com && \
-    # Verify key packages are installed
-    /opt/venv/bin/python -c "import uvicorn; import playwright; import fastapi" && \
+RUN uv sync --active --no-dev --frozen --extra-index-url=https://pypi.apryse.com && \
     # Clean up build artifacts
     find /opt/venv -name "*.pyc" -delete && \
     find /opt/venv -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
+# Sanity check: fail the build early if core runtime deps are missing.
+RUN /opt/venv/bin/python -c "import fastapi, uvicorn, edge_tts; print('Core deps installed')"
+
 # Install Playwright browsers in builder stage
-# This downloads chromium to /opt/playwright-browsers (system libs are installed in production stage)
-RUN set -eux; \
-    mkdir -p /opt/playwright-browsers; \
-    /opt/venv/bin/python -c "from importlib.metadata import version; print('Playwright version:', version('playwright'))"; \
-    export DEBUG=pw:install; \
-    for i in 1 2 3; do \
-      /opt/venv/bin/python -m playwright install chromium && exit 0; \
-      echo "Playwright Chromium install failed (attempt $i)" >&2; \
-      sleep 5; \
-    done; \
-    echo "Retrying Playwright download with mirror (npmmirror.com)..." >&2; \
-    PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright /opt/venv/bin/python -m playwright install chromium
+RUN mkdir -p /opt/playwright-browsers && \
+    /opt/venv/bin/python -m playwright install chromium || \
+    (echo "Retrying with mirror..." && \
+     PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright \
+     /opt/venv/bin/python -m playwright install chromium)
 
 # Production stage
 FROM python:3.11-slim-bookworm AS production
-
-ARG TARGETARCH
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -66,13 +76,29 @@ ENV PYTHONUNBUFFERED=1 \
     PATH=/opt/venv/bin:$PATH \
     PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers \
     HOME=/root \
-    VIRTUAL_ENV=/opt/venv
+    VIRTUAL_ENV=/opt/venv \
+    WORKERS=4 \
+    RELOAD=false
 
-# Install essential runtime dependencies and wkhtmltopdf
-RUN apt-get update && \
+# Allow overriding Debian mirrors (useful in restricted networks).
+ARG APT_DEBIAN_URL=http://deb.debian.org/debian
+ARG APT_SECURITY_URL=http://deb.debian.org/debian-security
+
+# Install essential runtime dependencies
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i "s|http://deb.debian.org/debian|${APT_DEBIAN_URL}|g" /etc/apt/sources.list.d/debian.sources; \
+      sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_URL}|g" /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+      sed -i "s|http://deb.debian.org/debian|${APT_DEBIAN_URL}|g" /etc/apt/sources.list; \
+      sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_URL}|g" /etc/apt/sources.list; \
+    fi; \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update; \
     apt-get install -y --no-install-recommends \
+    ffmpeg \
     poppler-utils \
     libmagic1 \
+    libpq5 \
     ca-certificates \
     curl \
     wget \
@@ -82,8 +108,6 @@ RUN apt-get update && \
     fonts-noto-cjk \
     fontconfig \
     netcat-openbsd \
-    xfonts-75dpi \
-    xfonts-base \
     libjpeg62-turbo \
     libxrender1 \
     libfontconfig1 \
@@ -104,16 +128,13 @@ RUN apt-get update && \
     libasound2 \
     libpango-1.0-0 \
     libcairo2 \
-    && \
-    # Download and install wkhtmltopdf from official releases
-    WKHTMLTOPDF_VERSION="0.12.6.1-3" && \
-    WKHTML_ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" && \
-    case "$WKHTML_ARCH" in amd64|arm64) ;; *) echo "Unsupported wkhtmltopdf arch: $WKHTML_ARCH" >&2; exit 1 ;; esac && \
-    wget -q "https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOPDF_VERSION}/wkhtmltox_${WKHTMLTOPDF_VERSION}.bookworm_${WKHTML_ARCH}.deb" -O /tmp/wkhtmltox.deb && \
-    dpkg -i /tmp/wkhtmltox.deb || apt-get install -f -y && \
-    rm /tmp/wkhtmltox.deb && \
-    fc-cache -fv && \
-    apt-get clean && \
+    # GPU acceleration support (optional, for NVIDIA containers)
+    libegl1 \
+    libgl1 \
+    libgles2 \
+    ; \
+    fc-cache -fv; \
+    apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.cache
 
 # Create non-root user (for compatibility, but run as root)
@@ -125,6 +146,9 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Copy Playwright browsers from builder
 COPY --from=builder /opt/playwright-browsers /opt/playwright-browsers
+
+# Sanity check: ensure the copied venv is usable in the runtime image.
+RUN /opt/venv/bin/python -c "import fastapi, uvicorn; print('Runtime venv OK')"
 
 # Set permissions for landppt user and playwright browsers
 RUN chown -R landppt:landppt /home/landppt && \
@@ -148,9 +172,6 @@ RUN chmod +x docker-healthcheck.sh docker-entrypoint.sh && \
     chmod -R 755 /app /home/landppt && \
     chmod 666 /app/.env
 
-# Keep landppt user but run as root to handle file permissions
-# USER landppt
-
 # Expose port
 EXPOSE 8000
 
@@ -160,4 +181,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=2 \
 
 # Set entrypoint and command
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["python", "run.py"]
+CMD ["/opt/venv/bin/python", "run.py"]

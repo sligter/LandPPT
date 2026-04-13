@@ -1,0 +1,2946 @@
+        // 全局变量
+        let currentConfig = {};
+        let modelRoleSettingsExpanded = false;
+        let roleOpenAIModels = null;
+        let roleOpenAIModelsPromise = null;
+        let availableProviders = ['openai', 'anthropic', 'google'];
+
+        // 搜索选择框管理
+        class SearchableSelect {
+            constructor(containerId) {
+                this.container = document.getElementById(containerId);
+                this.input = this.container.querySelector('.searchable-select-input');
+                this.dropdown = this.container.querySelector('.searchable-select-dropdown');
+                this.options = [];
+                this.originalPlaceholder = this.input.placeholder;
+                this.selectedValue = '';
+
+                this.init();
+            }
+
+            init() {
+                // 点击输入框显示下拉框
+                this.input.addEventListener('click', () => {
+                    this.show();
+                });
+
+                // 输入搜索
+                this.input.addEventListener('input', (e) => {
+                    this.search(e.target.value);
+                });
+
+                // 按键处理
+                this.input.addEventListener('keydown', (e) => {
+                    this.handleKeyDown(e);
+                });
+
+                // 点击外部关闭
+                document.addEventListener('click', (e) => {
+                    if (!this.container.contains(e.target)) {
+                        this.hide();
+                    }
+                });
+
+                // 输入框失去焦点时设置显示值
+                this.input.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        if (!this.container.classList.contains('open')) {
+                            this.updateDisplayValue();
+                        }
+                    }, 100);
+                });
+            }
+
+            setOptions(options) {
+                this.options = options;
+                this.updateDropdown(options);
+            }
+
+            updateDropdown(filteredOptions) {
+                this.dropdown.innerHTML = '';
+
+                if (filteredOptions.length === 0) {
+                    const noResultOption = document.createElement('div');
+                    noResultOption.className = 'searchable-select-option';
+                    noResultOption.textContent = '暂无匹配项';
+                    noResultOption.style.color = '#999';
+                    this.dropdown.appendChild(noResultOption);
+                    return;
+                }
+
+                filteredOptions.forEach((option, index) => {
+                    const optionElement = document.createElement('div');
+                    optionElement.className = 'searchable-select-option';
+                    optionElement.dataset.value = option.value;
+                    optionElement.textContent = option.label;
+
+                    if (index === 0) {
+                        optionElement.classList.add('highlighted');
+                    }
+
+                    optionElement.addEventListener('click', () => {
+                        this.selectOption(option);
+                    });
+
+                    this.dropdown.appendChild(optionElement);
+                });
+            }
+
+            search(query) {
+                const filteredOptions = this.options.filter(option =>
+                    option.label.toLowerCase().includes(query.toLowerCase()) ||
+                    option.value.toLowerCase().includes(query.toLowerCase())
+                );
+                this.updateDropdown(filteredOptions);
+
+                if (!this.container.classList.contains('open')) {
+                    this.show();
+                }
+            }
+
+            show() {
+                this.container.classList.add('open');
+                this.dropdown.classList.add('show');
+                this.input.placeholder = '搜索模型...';
+                if (this.selectedValue) {
+                    this.input.value = '';
+                }
+            }
+
+            hide() {
+                this.container.classList.remove('open');
+                this.dropdown.classList.remove('show');
+                this.updateDisplayValue();
+            }
+
+            selectOption(option) {
+                this.selectedValue = option.value;
+                this.input.value = option.label;
+
+                // 更新对应的隐藏输入框的值
+                const hiddenInput = this.container.parentNode.querySelector('.model-input');
+                if (hiddenInput) {
+                    hiddenInput.value = option.value;
+                }
+
+                this.hide();
+            }
+
+            updateDisplayValue() {
+                if (this.selectedValue) {
+                    const option = this.options.find(opt => opt.value === this.selectedValue);
+                    if (option) {
+                        this.input.value = option.label;
+                    } else {
+                        this.input.value = this.selectedValue;
+                    }
+                } else {
+                    this.input.value = '';
+                    this.input.placeholder = this.originalPlaceholder;
+                }
+            }
+
+            handleKeyDown(e) {
+                const options = this.dropdown.querySelectorAll('.searchable-select-option');
+                let highlighted = this.dropdown.querySelector('.highlighted');
+
+                switch (e.key) {
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        if (highlighted) {
+                            highlighted.classList.remove('highlighted');
+                            const next = highlighted.nextElementSibling;
+                            if (next) {
+                                next.classList.add('highlighted');
+                            } else if (options.length > 0) {
+                                options[0].classList.add('highlighted');
+                            }
+                        } else if (options.length > 0) {
+                            options[0].classList.add('highlighted');
+                        }
+                        break;
+
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        if (highlighted) {
+                            highlighted.classList.remove('highlighted');
+                            const prev = highlighted.previousElementSibling;
+                            if (prev) {
+                                prev.classList.add('highlighted');
+                            } else if (options.length > 0) {
+                                options[options.length - 1].classList.add('highlighted');
+                            }
+                        } else if (options.length > 0) {
+                            options[options.length - 1].classList.add('highlighted');
+                        }
+                        break;
+
+                    case 'Enter':
+                        e.preventDefault();
+                        if (highlighted && highlighted.dataset.value !== undefined) {
+                            const option = this.options.find(opt => opt.value === highlighted.dataset.value);
+                            if (option) {
+                                this.selectOption(option);
+                            }
+                        }
+                        break;
+
+                    case 'Escape':
+                        this.hide();
+                        break;
+                }
+            }
+
+            setValue(value) {
+                this.selectedValue = value;
+                const option = this.options.find(opt => opt.value === value);
+                if (option) {
+                    this.input.value = option.label;
+                } else {
+                    this.input.value = value;
+                }
+
+                // 更新对应的隐藏输入框的值
+                const hiddenInput = this.container.parentNode.querySelector('.model-input');
+                if (hiddenInput) {
+                    hiddenInput.value = value;
+                }
+            }
+        }
+
+        // 初始化搜索选择框实例
+        let openaiModelSelect, landpptModelSelect;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function () {
+            // 初始化搜索选择框
+            initSearchableSelects();
+            // 加载初始配置
+            loadAllConfigs();
+            // 检查图片服务状态
+            checkImageServiceStatus();
+            // 初始化模型任务配置的provider切换监听
+            initModelRoleProviderListeners();
+            initOpenAIReasoningControls();
+            pruneEmptyProviderFormGroups();
+        });
+
+        // 初始化搜索选择框
+        function initSearchableSelects() {
+            // 初始化LandPPT模型搜索选择框
+            if (document.getElementById('landppt_model_container')) {
+                landpptModelSelect = new SearchableSelect('landppt_model_container');
+            }
+
+            // 初始化OpenAI模型搜索选择框
+            if (document.getElementById('openai_model_container')) {
+                openaiModelSelect = new SearchableSelect('openai_model_container');
+            }
+
+        }
+
+        // 标签页切换功能
+        function switchTab(tabName) {
+            // 隐藏所有标签页内容
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.style.display = 'none';
+                content.classList.remove('active');
+            });
+
+            // 移除所有标签按钮的激活状态
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // 显示选中的标签页内容
+            const targetTab = document.getElementById(tabName);
+            if (targetTab) {
+                targetTab.style.display = 'block';
+                targetTab.classList.add('active');
+            }
+
+            // 激活选中的标签按钮
+            const targetBtn = document.querySelector(`[data-tab="${tabName}"]`);
+            if (targetBtn) {
+                targetBtn.classList.add('active');
+            }
+
+            // 加载对应的配置数据
+            loadTabConfig(tabName);
+        }
+
+        // 加载标签页配置数据
+        async function loadTabConfig(tabName) {
+            try {
+                const categoryMap = {
+                    'ai-providers': 'ai_providers',
+                    'model-roles': 'model_roles',
+                    'generation-params': 'generation_params',
+                    'app-config': 'app_config',
+                    'image-service': 'image_service'
+                };
+
+                const category = categoryMap[tabName];
+                if (!category) return;
+
+                const response = await fetch(`/api/config/${category}`);
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        populateTabForm(tabName, result.config);
+                    }
+                }
+            } catch (error) {
+                console.error('加载配置失败:', error);
+            }
+        }
+
+        // 填充表单数据
+        function populateTabForm(tabName, config) {
+            const tabElement = document.getElementById(tabName);
+            if (!tabElement) return;
+
+            // 填充输入框
+            tabElement.querySelectorAll('input, select, textarea').forEach(input => {
+                const name = input.name;
+                if (config[name] !== undefined) {
+                    if (input.type === 'checkbox') {
+                        input.checked = config[name];
+                    } else if (input.type === 'password') {
+                        // 对于密码字段，如果有配置值且输入框为空，则显示配置值
+                        if (!input.value && config[name]) {
+                            input.value = config[name];
+                        }
+                        // 如果有配置值，更新placeholder为掩码显示
+                        if (config[name]) {
+                            input.placeholder = '••••••••';
+                        }
+                    } else {
+                        input.value = config[name];
+                    }
+                }
+            });
+
+            // 如果是图片服务标签页，触发选项显示更新
+            if (tabName === 'image-service') {
+                setTimeout(() => {
+                    toggleImageServiceOptions();
+                }, 100);
+            }
+        }
+
+        // AI提供者测试功能
+        async function testProvider(providerName) {
+            showLoading(`正在测试 ${providerName} 提供者...`);
+
+            try {
+                // 从前端页面获取配置信息
+                const card = document.querySelector(`[data-provider="${providerName}"]`);
+                if (!card) {
+                    throw new Error('找不到提供者配置卡片');
+                }
+
+                const config = collectProviderConfig(card);
+
+                // 根据不同的提供者进行测试
+                let testResult;
+                switch (providerName) {
+                    case 'landppt':
+                        testResult = await testLandPPTProvider(config);
+                        break;
+                    case 'openai':
+                        testResult = await testOpenAIProvider(config);
+                        break;
+                    case 'anthropic':
+                        testResult = await testAnthropicProvider(config);
+                        break;
+                    case 'google':
+                        testResult = await testGoogleProvider(config);
+                        break;
+                    case 'ollama':
+                        testResult = await testOllamaProvider(config);
+                        break;
+                    default:
+                        throw new Error(`不支持的提供者: ${providerName}`);
+                }
+
+                showTestResult(testResult, testResult.success);
+            } catch (error) {
+                showTestResult({ error: error.message }, false);
+            }
+        }
+
+        // 测试 LandPPT 官方提供者（通过后端代理，API Key 不暴露给前端）
+        async function testLandPPTProvider(config) {
+            try {
+                // 通过后端代理进行测试（API Key 不暴露给前端）
+                const response = await fetch('/api/config/landppt/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+                return result;
+
+            } catch (error) {
+                console.error('测试 LandPPT 失败:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // 测试 OpenAI 提供者（仅通过后端代理）
+        async function testOpenAIProvider(config) {
+            try {
+                // 获取配置 - 使用前端页面填写的信息
+                let apiKey = config.openai_api_key;
+                let baseUrl = config.openai_base_url;
+                let model = config.openai_model;
+                let useResponsesApi = isTruthyValue(config.openai_use_responses_api);
+                let enableReasoning = isTruthyValue(config.openai_enable_reasoning);
+                let reasoningEffort = config.openai_reasoning_effort || 'medium';
+
+                // 如果前端没有填写API Key，尝试从后端获取
+                if (!apiKey || config.openai_use_responses_api === undefined || config.openai_enable_reasoning === undefined || !config.openai_reasoning_effort) {
+                    const configResponse = await fetch('/api/config/ai_providers');
+                    if (configResponse.ok) {
+                        const configResult = await configResponse.json();
+                        if (configResult.success) {
+                            if (!apiKey && configResult.config.openai_api_key) {
+                                apiKey = configResult.config.openai_api_key;
+                            }
+                            if (config.openai_use_responses_api === undefined) {
+                                useResponsesApi = isTruthyValue(configResult.config.openai_use_responses_api);
+                            }
+                            if (config.openai_enable_reasoning === undefined) {
+                                enableReasoning = isTruthyValue(configResult.config.openai_enable_reasoning);
+                            }
+                            if (!config.openai_reasoning_effort && configResult.config.openai_reasoning_effort) {
+                                reasoningEffort = configResult.config.openai_reasoning_effort;
+                            }
+                        }
+                    }
+                }
+
+                // 如果仍然没有API Key，提示用户
+                if (!apiKey) {
+                    throw new Error('请先配置 OpenAI API Key');
+                }
+
+                // 如果没有填写 Base URL，使用默认值
+                if (!baseUrl) {
+                    baseUrl = 'https://api.openai.com/v1';
+                }
+
+                // 如果没有填写模型，使用默认值
+                if (!model) {
+                    model = 'gpt-4o';
+                }
+
+                // 确保 Base URL 格式正确
+                if (!baseUrl.endsWith('/v1')) {
+                    baseUrl = baseUrl.endsWith('/') ? baseUrl + 'v1' : baseUrl + '/v1';
+                }
+
+                // 只通过后端代理测试，避免CORS问题
+                const proxyResponse = await fetch('/api/ai/providers/openai/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        base_url: baseUrl,
+                        api_key: apiKey,
+                        model: model,
+                        use_responses_api: useResponsesApi,
+                        enable_reasoning: enableReasoning,
+                        reasoning_effort: reasoningEffort,
+                        // 测试时使用足够大的生成长度，避免空响应
+                        max_tokens: 500
+                    })
+                });
+
+                if (!proxyResponse.ok) {
+                    // 尝试解析错误响应
+                    let errorMessage = `HTTP ${proxyResponse.status}: ${proxyResponse.statusText}`;
+                    try {
+                        const errorData = await proxyResponse.json();
+                        if (errorData.error) {
+                            errorMessage = errorData.error;
+                        } else if (errorData.detail) {
+                            errorMessage = errorData.detail;
+                        } else if (errorData.message) {
+                            errorMessage = errorData.message;
+                        }
+                    } catch (parseError) {
+                        // 如果无法解析错误响应，使用默认错误信息
+                    }
+                    throw new Error(errorMessage);
+                }
+
+                const proxyResult = await proxyResponse.json();
+
+                // 处理不同的响应格式
+                // 后端可能返回 status: "success" 或 success: true
+                if (proxyResult.status === 'success' || proxyResult.success === true) {
+                    // 标准化响应格式
+                    return {
+                        success: true,
+                        provider: proxyResult.provider || 'openai',
+                        model: proxyResult.model || model,
+                        response_preview: proxyResult.response_preview || '',
+                        usage: proxyResult.usage || {
+                            prompt_tokens: 0,
+                            completion_tokens: 0,
+                            total_tokens: 0
+                        }
+                    };
+                } else if (proxyResult.status === 'error' || proxyResult.success === false) {
+                    throw new Error(proxyResult.error || proxyResult.detail || proxyResult.message || '测试失败');
+                } else {
+                    // 如果没有明确的状态字段，假设成功（因为HTTP状态码是200）
+                    return {
+                        success: true,
+                        provider: proxyResult.provider || 'openai',
+                        model: proxyResult.model || model,
+                        response_preview: proxyResult.response_preview || '',
+                        usage: proxyResult.usage || {
+                            prompt_tokens: 0,
+                            completion_tokens: 0,
+                            total_tokens: 0
+                        }
+                    };
+                }
+
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error.message,
+                    detail: `OpenAI 测试失败: ${error.message}`
+                };
+            }
+        }
+
+        // 测试 Anthropic 提供者（通过后端代理）
+        async function testAnthropicProvider(config) {
+            try {
+                let apiKey = config.anthropic_api_key;
+                let baseUrl = config.anthropic_base_url || 'https://api.anthropic.com';
+                let model = config.anthropic_model || 'claude-3-5-sonnet-20241022';
+
+                // 如果前端没有输入API Key，尝试从后端获取
+                if (!apiKey || !config.anthropic_base_url) {
+                    const configResponse = await fetch('/api/config/ai_providers');
+                    if (configResponse.ok) {
+                        const configResult = await configResponse.json();
+                        if (configResult.success) {
+                            if (!apiKey && configResult.config.anthropic_api_key) {
+                                apiKey = configResult.config.anthropic_api_key;
+                            }
+                            if (!config.anthropic_base_url && configResult.config.anthropic_base_url) {
+                                baseUrl = configResult.config.anthropic_base_url;
+                            }
+                        }
+                    }
+                }
+
+                if (!apiKey) {
+                    throw new Error('请配置 Anthropic API Key');
+                }
+
+                // 通过后端代理测试，避免CORS问题
+                const proxyResponse = await fetch('/api/ai/providers/anthropic/test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        base_url: baseUrl,
+                        api_key: apiKey,
+                        model: model
+                    })
+                });
+
+                if (!proxyResponse.ok) {
+                    // 尝试解析错误响应
+                    let errorMessage = `HTTP ${proxyResponse.status}: ${proxyResponse.statusText}`;
+                    try {
+                        const errorData = await proxyResponse.json();
+                        if (errorData.error) {
+                            errorMessage = errorData.error;
+                        } else if (errorData.detail) {
+                            errorMessage = errorData.detail;
+                        } else if (errorData.message) {
+                            errorMessage = errorData.message;
+                        }
+                    } catch (parseError) {
+                        // 如果无法解析错误响应，使用默认错误信息
+                    }
+                    throw new Error(errorMessage);
+                }
+
+                const proxyResult = await proxyResponse.json();
+
+                // 处理不同的响应格式
+                if (proxyResult.status === 'success' || proxyResult.success === true) {
+                    return {
+                        success: true,
+                        provider: proxyResult.provider || 'anthropic',
+                        model: proxyResult.model || model,
+                        response_preview: proxyResult.response_preview || '',
+                        usage: proxyResult.usage || {
+                            prompt_tokens: 0,
+                            completion_tokens: 0,
+                            total_tokens: 0
+                        }
+                    };
+                } else if (proxyResult.status === 'error' || proxyResult.success === false) {
+                    throw new Error(proxyResult.error || proxyResult.detail || proxyResult.message || '测试失败');
+                } else {
+                    return {
+                        success: true,
+                        provider: proxyResult.provider || 'anthropic',
+                        model: proxyResult.model || model,
+                        response_preview: proxyResult.response_preview || '',
+                        usage: proxyResult.usage || {
+                            prompt_tokens: 0,
+                            completion_tokens: 0,
+                            total_tokens: 0
+                        }
+                    };
+                }
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error.message,
+                    detail: `Anthropic 测试失败: ${error.message}`
+                };
+            }
+        }
+
+        // 测试 Google 提供者
+        async function testGoogleProvider(config) {
+            try {
+                let apiKey = config.google_api_key;
+                let baseUrl = config.google_base_url || 'https://generativelanguage.googleapis.com';
+                let model = config.google_model || 'gemini-1.5-flash';
+
+                // 如果前端没有输入API Key或Base URL，尝试从后端获取
+                if (!apiKey || !config.google_base_url) {
+                    const configResponse = await fetch('/api/config/ai_providers');
+                    if (configResponse.ok) {
+                        const configResult = await configResponse.json();
+                        if (configResult.success) {
+                            if (!apiKey && configResult.config.google_api_key) {
+                                apiKey = configResult.config.google_api_key;
+                            }
+                            if (!config.google_base_url && configResult.config.google_base_url) {
+                                baseUrl = configResult.config.google_base_url;
+                            }
+                        }
+                    }
+                }
+
+                if (!apiKey) {
+                    throw new Error('请配置 Google API Key');
+                }
+
+                // 确保base URL格式正确
+                if (!baseUrl.startsWith('http')) {
+                    baseUrl = 'https://' + baseUrl;
+                }
+                baseUrl = baseUrl.replace(/\/$/, ''); // 移除末尾的斜杠
+
+                // 调用 Google Gemini API 进行测试
+                const response = await fetch(`${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: [
+                            {
+                                parts: [
+                                    {
+                                        text: 'Say "Hello, I am working!" in exactly 5 words.'
+                                    }
+                                ]
+                            }
+                        ],
+                        generationConfig: {
+                            maxOutputTokens: 1000,
+                            temperature: 0
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                // 检查响应数据结构
+                if (!data.candidates || !data.candidates[0]) {
+                    throw new Error('API响应中没有candidates: ' + JSON.stringify(data));
+                }
+
+                const candidate = data.candidates[0];
+                let responseText = '';
+
+                // 检查不同的响应格式
+                if (candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text) {
+                    responseText = candidate.content.parts[0].text;
+                } else if (candidate.text) {
+                    responseText = candidate.text;
+                } else {
+                    // 如果没有文本内容，可能是因为被安全过滤或其他原因
+                    const finishReason = candidate.finishReason || 'UNKNOWN';
+                    if (finishReason === 'MAX_TOKENS') {
+                        responseText = '[响应被截断 - 令牌数量达到上限]';
+                    } else if (finishReason === 'SAFETY') {
+                        responseText = '[响应被安全过滤器阻止]';
+                    } else {
+                        responseText = `[无文本响应 - 结束原因: ${finishReason}]`;
+                    }
+                }
+
+                return {
+                    success: true,
+                    provider: 'google',
+                    model: model,
+                    response_preview: responseText,
+                    usage: {
+                        prompt_tokens: data.usageMetadata?.promptTokenCount || 0,
+                        completion_tokens: data.usageMetadata?.candidatesTokenCount || 0,
+                        total_tokens: data.usageMetadata?.totalTokenCount || 0
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error.message,
+                    detail: `Google Gemini 测试失败: ${error.message}`
+                };
+            }
+        }
+
+        // 测试 Azure OpenAI 提供者
+        async function testAzureOpenAIProvider(config) {
+            try {
+                let apiKey = config['azure' + '_openai_api_key'];
+                let endpoint = config['azure' + '_openai_endpoint'];
+                let deploymentName = config['azure' + '_openai_deployment_name'];
+                let apiVersion = config['azure' + '_openai_api_version'] || '2024-02-15-preview';
+
+                // 如果前端没有输入，尝试从后端获取
+                if (!apiKey || !endpoint || !deploymentName) {
+                    const configResponse = await fetch('/api/config/ai_providers');
+                    if (configResponse.ok) {
+                        const configResult = await configResponse.json();
+                        if (configResult.success) {
+                            apiKey = apiKey || configResult.config['azure' + '_openai_api_key'];
+                            endpoint = endpoint || configResult.config['azure' + '_openai_endpoint'];
+                            deploymentName = deploymentName || configResult.config['azure' + '_openai_deployment_name'];
+                        }
+                    }
+                }
+
+                if (!apiKey || !endpoint || !deploymentName) {
+                    throw new Error('请配置 Azure OpenAI 的所有必需参数');
+                }
+
+                // 确保 endpoint 格式正确
+                if (!endpoint.endsWith('/')) {
+                    endpoint += '/';
+                }
+
+                // 调用 Azure OpenAI API 进行测试
+                const url = `${endpoint}openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'api-key': apiKey
+                    },
+                    body: JSON.stringify({
+                        messages: [
+                            {
+                                role: 'user',
+                                content: 'Say "Hello, I am working!" in exactly 5 words.'
+                            }
+                        ],
+                        temperature: 0
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                return {
+                    success: true,
+                    provider: 'azure' + '_openai',
+                    model: deploymentName,
+                    response_preview: data.choices[0].message.content,
+                    usage: data.usage || {
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                        total_tokens: 0
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error.message,
+                    detail: `Azure OpenAI 测试失败: ${error.message}`
+                };
+            }
+        }
+
+        // 测试 Ollama 提供者
+        async function testOllamaProvider(config) {
+            try {
+                let baseUrl = config.ollama_base_url || 'http://localhost:11434';
+                let model = config.ollama_model || 'llama2';
+
+                // 调用 Ollama API 进行测试
+                const response = await fetch(`${baseUrl}/api/generate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: model,
+                        prompt: 'Say "Hello, I am working!" in exactly 5 words.',
+                        stream: false,
+                        options: {
+                            num_predict: 20,
+                            temperature: 0
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                return {
+                    success: true,
+                    provider: 'ollama',
+                    model: model,
+                    response_preview: data.response,
+                    usage: {
+                        prompt_tokens: data.prompt_eval_count || 0,
+                        completion_tokens: data.eval_count || 0,
+                        total_tokens: (data.prompt_eval_count || 0) + (data.eval_count || 0)
+                    }
+                };
+            } catch (error) {
+                // Ollama 可能未运行或无法连接
+                if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    return {
+                        success: false,
+                        error: 'Ollama 服务未运行或无法连接',
+                        detail: `请确保 Ollama 正在运行并可以通过 ${config.ollama_base_url || 'http://localhost:11434'} 访问`
+                    };
+                }
+                return {
+                    success: false,
+                    error: error.message,
+                    detail: `Ollama 测试失败: ${error.message}`
+                };
+            }
+        }
+
+        async function testCurrentProvider() {
+            await testProvider('{{ current_provider }}');
+        }
+
+        function refreshProviders() {
+            window.location.reload();
+        }
+
+        // 配置管理功能
+        function collectProviderConfig(card) {
+            const config = {};
+            if (!card) return config;
+
+            const inputs = card.querySelectorAll('input, select');
+            inputs.forEach(input => {
+                if (!input.name || input.name === 'default_provider') {
+                    return;
+                }
+
+                if (input.type === 'checkbox') {
+                    config[input.name] = input.checked;
+                    return;
+                }
+
+                if (input.type === 'radio') {
+                    if (input.checked) {
+                        config[input.name] = input.value;
+                    }
+                    return;
+                }
+
+                const value = typeof input.value === 'string' ? input.value.trim() : input.value;
+                if (value) {
+                    config[input.name] = value;
+                }
+            });
+
+            return config;
+        }
+
+        function isTruthyValue(value) {
+            if (typeof value === 'string') {
+                return ['true', '1', 'yes', 'on'].includes(value.toLowerCase());
+            }
+            return value === true || value === 1;
+        }
+
+        function enhanceOpenAIProviderUI() {
+            const openaiCard = document.querySelector('.provider-accordion-item[data-provider="openai"]');
+            if (!openaiCard) {
+                return;
+            }
+
+            const OPENAI_RESPONSES_LABEL = '\u542f\u7528 /v1/responses \u8bf7\u6c42';
+            const OPENAI_RESPONSES_DESC = '\u52fe\u9009\u540e\uff0cOpenAI \u63d0\u4f9b\u5546\u4f1a\u7acb\u5373\u5207\u6362\u5230 Responses API\u3002';
+            const OPENAI_REASONING_LABEL = '\u542f\u7528\u601d\u8003\u6a21\u5f0f';
+            const OPENAI_REASONING_DESC = '\u5f00\u542f\u540e\u4f1a\u5728 OpenAI \u8bf7\u6c42\u4e2d\u9644\u5e26 reasoning \u53c2\u6570\uff1b\u5173\u95ed\u65f6\u4fdd\u6301\u6a21\u578b\u9ed8\u8ba4\u884c\u4e3a\u3002';
+            const OPENAI_REASONING_EFFORT_LABEL = '\u63a8\u7406\u7a0b\u5ea6';
+            const OPENAI_REASONING_EFFORT_DESC = '\u4e0d\u540c OpenAI \u6a21\u578b\u652f\u6301\u7684\u6863\u4f4d\u4e0d\u540c\uff1b\u82e5\u6a21\u578b\u4e0d\u652f\u6301\uff0c\u6d4b\u8bd5\u6216\u8c03\u7528\u4f1a\u8fd4\u56de\u53c2\u6570\u9519\u8bef\u3002';
+            const DEFAULT_MODEL_LABEL = '\u9ed8\u8ba4\u6a21\u578b';
+
+            const responsesInput = openaiCard.querySelector('input[name="openai_use_responses_api"]');
+            const reasoningInput = openaiCard.querySelector('input[name="openai_enable_reasoning"]');
+            const reasoningEffortSelect = openaiCard.querySelector('select[name="openai_reasoning_effort"]');
+            const openaiModelInput = openaiCard.querySelector('input[name="openai_model"]');
+            const landpptModelInput = document.querySelector('.provider-accordion-item[data-provider="landppt"] input[name="landppt_model"]');
+
+            const applyToggleCard = (input, title, description, options = {}) => {
+                if (!input) {
+                    return;
+                }
+
+                const group = input.closest('.form-group');
+                const label = group?.querySelector('label');
+                const titleSpan = label?.querySelector('span');
+                const note = group?.querySelector('div');
+
+                if (!group || !label || !titleSpan) {
+                    return;
+                }
+
+                group.classList.add('openai-setting-card');
+                if (options.fullWidth) {
+                    group.classList.add('openai-setting-card--full');
+                }
+                label.classList.add('openai-setting-toggle');
+                titleSpan.textContent = title;
+
+                if (note) {
+                    note.textContent = description;
+                    note.classList.add('openai-setting-note');
+                }
+            };
+
+            const applyFieldCard = (input, title, description, options = {}) => {
+                if (!input) {
+                    return;
+                }
+
+                const group = input.closest('.form-group');
+                const label = group?.querySelector('label');
+                const notes = group ? Array.from(group.querySelectorAll('div')) : [];
+                const note = notes.length ? notes[notes.length - 1] : null;
+
+                if (!group || !label) {
+                    return;
+                }
+
+                group.classList.add('openai-setting-card');
+                if (options.fullWidth) {
+                    group.classList.add('openai-setting-card--full');
+                }
+                if (options.model) {
+                    group.classList.add('openai-setting-model');
+                }
+                label.textContent = title;
+                label.classList.add('openai-field-label');
+
+                if (description && note && note !== input.parentElement) {
+                    note.textContent = description;
+                    note.classList.add('openai-setting-note');
+                }
+            };
+
+            applyToggleCard(responsesInput, OPENAI_RESPONSES_LABEL, OPENAI_RESPONSES_DESC, { fullWidth: true });
+            applyToggleCard(reasoningInput, OPENAI_REASONING_LABEL, OPENAI_REASONING_DESC);
+            applyFieldCard(reasoningEffortSelect, OPENAI_REASONING_EFFORT_LABEL, OPENAI_REASONING_EFFORT_DESC);
+            applyFieldCard(openaiModelInput, DEFAULT_MODEL_LABEL, '', { fullWidth: true, model: true });
+            applyFieldCard(landpptModelInput, DEFAULT_MODEL_LABEL, '', { fullWidth: true, model: true });
+        }
+
+        function syncOpenAIReasoningControls() {
+            const responsesToggle = document.querySelector('input[name="openai_use_responses_api"]');
+            const reasoningToggle = document.querySelector('input[name="openai_enable_reasoning"]');
+            const reasoningEffortSelect = document.querySelector('select[name="openai_reasoning_effort"]');
+            if (!reasoningToggle || !reasoningEffortSelect) {
+                return;
+            }
+
+            reasoningEffortSelect.disabled = !reasoningToggle.checked;
+            reasoningEffortSelect.style.opacity = reasoningToggle.checked ? '1' : '0.65';
+
+            const responsesGroup = responsesToggle?.closest('.openai-setting-card');
+            const reasoningGroup = reasoningToggle.closest('.openai-setting-card');
+            const effortGroup = reasoningEffortSelect.closest('.openai-setting-card');
+
+            if (responsesGroup) {
+                responsesGroup.classList.toggle('is-active', !!responsesToggle?.checked);
+            }
+            if (reasoningGroup) {
+                reasoningGroup.classList.toggle('is-active', reasoningToggle.checked);
+            }
+            if (effortGroup) {
+                effortGroup.classList.toggle('is-disabled', !reasoningToggle.checked);
+            }
+        }
+
+        function initOpenAIReasoningControls() {
+            enhanceOpenAIProviderUI();
+
+            const responsesToggle = document.querySelector('input[name="openai_use_responses_api"]');
+            const reasoningToggle = document.querySelector('input[name="openai_enable_reasoning"]');
+            if (!reasoningToggle || reasoningToggle.dataset.bound === 'true') {
+                syncOpenAIReasoningControls();
+                return;
+            }
+
+            responsesToggle?.addEventListener('change', syncOpenAIReasoningControls);
+            reasoningToggle.addEventListener('change', syncOpenAIReasoningControls);
+            reasoningToggle.dataset.bound = 'true';
+            syncOpenAIReasoningControls();
+        }
+
+        function pruneEmptyProviderFormGroups() {
+            document.querySelectorAll('.provider-accordion-item .provider-content .form-group').forEach(group => {
+                const hasControl = group.querySelector('input, select, textarea, .model-select-wrapper, .model-dropdown');
+                if (!hasControl && group.textContent.trim()) {
+                    group.remove();
+                }
+            });
+        }
+
+        async function loadAllConfigs() {
+            try {
+                const response = await fetch('/api/config/all');
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        currentConfig = result.config;
+                        roleOpenAIModels = null;
+                        roleOpenAIModelsPromise = null;
+                        populateAllForms();
+                        initPollinationsModelSelect();
+                    }
+                }
+            } catch (error) {
+                console.error('加载配置失败:', error);
+            }
+        }
+
+        function populateAllForms() {
+            // 填充AI提供者配置
+            populateProviderForms();
+
+            // 填充生成参数
+            populateGenerationParams();
+
+            // 填充应用配置
+            populateAppConfig();
+
+            // 填充图片服务配置
+            populateImageServiceConfig();
+        }
+
+        function populateProviderForms() {
+            document.querySelectorAll('.provider-accordion-item, .provider-config-card').forEach(card => {
+                const provider = card.dataset.provider;
+                const inputs = card.querySelectorAll('input, select');
+
+                inputs.forEach(input => {
+                    const configKey = input.name;
+                    if (currentConfig[configKey] !== undefined && currentConfig[configKey] !== null) {
+                        if (input.type === 'checkbox') {
+                            const normalized = typeof currentConfig[configKey] === 'string'
+                                ? currentConfig[configKey].toLowerCase()
+                                : currentConfig[configKey];
+                            input.checked = normalized === true || normalized === 1 || normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+                        } else if (input.type === 'password') {
+                            // 对于密码字段，如果有配置值且输入框为空，则显示配置值
+                            if (!input.value && currentConfig[configKey]) {
+                                input.value = currentConfig[configKey];
+                            }
+                            // 如果有配置值，更新placeholder为掩码显示
+                            if (currentConfig[configKey]) {
+                                input.placeholder = '••••••••';
+                            }
+                        } else {
+                            // 只有当输入框为空时才设置值，避免覆盖模板中已设置的值
+                            if (!input.value && currentConfig[configKey]) {
+                                input.value = currentConfig[configKey];
+                            }
+                        }
+                    }
+                });
+            });
+
+            // LandPPT 默认模型：若用户未配置，默认显示/保存为 MODEL1
+            const landpptModelInput = document.getElementById('landppt_model_input');
+            if (landpptModelInput && !landpptModelInput.value.trim()) {
+                landpptModelInput.value = 'MODEL1';
+            }
+
+            enhanceOpenAIProviderUI();
+            syncOpenAIReasoningControls();
+            pruneEmptyProviderFormGroups();
+        }
+
+        // 切换模型任务配置显示
+        function toggleModelRoleSettings() {
+            const settingsDiv = document.getElementById('model-role-settings');
+            const toggleBtn = document.getElementById('model-role-toggle-btn');
+
+            if (settingsDiv && toggleBtn) {
+                if (settingsDiv.style.display === 'none' || !settingsDiv.style.display) {
+                    settingsDiv.style.display = 'block';
+                    toggleBtn.textContent = '收起设置';
+                } else {
+                    settingsDiv.style.display = 'none';
+                    toggleBtn.textContent = '展开设置';
+                }
+            }
+        }
+
+        // 存储每个role的SearchableSelect实例
+        const roleModelSelects = {};
+
+        // 初始化模型任务配置的provider切换监听器
+        function initModelRoleProviderListeners() {
+            const providerSelects = document.querySelectorAll('.model-role-provider');
+
+            providerSelects.forEach(select => {
+                // 初始化时检查provider
+                updateModelRoleFetchButton(select);
+
+                // 添加change事件监听
+                select.addEventListener('change', function () {
+                    updateModelRoleFetchButton(this);
+                });
+            });
+        }
+
+        // 更新获取模型按钮的显示状态
+        function updateModelRoleFetchButton(selectElement) {
+            const modelField = selectElement.getAttribute('data-model-field');
+            const fetchBtn = document.querySelector(`.openai-fetch-btn[data-model-field="${modelField}"]`);
+            const searchableContainer = document.querySelector(`.role-model-searchable-select[data-model-field="${modelField}"]`);
+            const modelInput = document.querySelector(`.role-model-input[data-model-field="${modelField}"]`);
+
+            if (!fetchBtn) return;
+
+            const selectedProvider = selectElement.value.toLowerCase();
+
+            // 只有选择 openai 时显示按钮
+            if (selectedProvider === 'openai') {
+                fetchBtn.style.display = 'flex';
+            } else {
+                fetchBtn.style.display = 'none';
+                // 隐藏searchable select容器，显示普通输入框
+                if (searchableContainer) searchableContainer.style.display = 'none';
+                if (modelInput) modelInput.style.display = 'block';
+            }
+        }
+
+        // 获取OpenAI模型列表
+        async function fetchRoleOpenAIModels(buttonElement) {
+            const modelField = buttonElement.getAttribute('data-model-field');
+            const card = buttonElement.closest('.card');
+            const providerSelect = card.querySelector('.model-role-provider');
+            const searchableContainer = document.querySelector(`.role-model-searchable-select[data-model-field="${modelField}"]`);
+            const modelInput = document.querySelector(`.role-model-input[data-model-field="${modelField}"]`);
+
+            if (!providerSelect || !searchableContainer || !modelInput) return;
+
+            const provider = providerSelect.value.toLowerCase();
+
+            // 获取provider的配置信息
+            const providerCard = document.querySelector(`[data-provider="${provider}"]`);
+            if (!providerCard) {
+                showNotification(`未找到 ${provider} 提供者的配置`, 'error');
+                return;
+            }
+
+            try {
+                buttonElement.disabled = true;
+                buttonElement.classList.add('loading');
+                buttonElement.innerHTML = '⏳';
+
+                let models = null;
+
+                if (provider === 'openai') {
+                    // 获取OpenAI配置
+                    const apiKeyInput = providerCard.querySelector('input[name="openai_api_key"]');
+                    const baseUrlInput = providerCard.querySelector('input[name="openai_base_url"]');
+
+                    const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+                    let baseUrl = baseUrlInput ? baseUrlInput.value.trim() : '';
+
+                    if (!apiKey) {
+                        showNotification('请先配置OpenAI API Key', 'warning');
+                        return;
+                    }
+
+                    if (!baseUrl) {
+                        baseUrl = 'https://api.openai.com/v1';
+                    }
+
+                    models = await fetchOpenAIModels(baseUrl, apiKey);
+
+                }
+
+                if (!models || models.length === 0) {
+                    showNotification('未获取到可用模型', 'warning');
+                    return;
+                }
+
+                // 创建或更新SearchableSelect实例
+                const selectId = `role-select-${modelField}`;
+
+                // 如果还没有创建SearchableSelect实例，先设置容器ID
+                if (!roleModelSelects[modelField]) {
+                    searchableContainer.id = selectId;
+                    roleModelSelects[modelField] = new SearchableSelect(selectId);
+                }
+
+                // 设置模型选项
+                const modelOptions = models.map(model => ({
+                    value: model.id || model,
+                    label: model.id || model
+                }));
+                roleModelSelects[modelField].setOptions(modelOptions);
+
+                // 隐藏普通输入框，显示searchable select
+                modelInput.style.display = 'none';
+                searchableContainer.style.display = 'block';
+
+                // 如果当前有值，设置到searchable select
+                if (modelInput.value) {
+                    roleModelSelects[modelField].selectedValue = modelInput.value;
+                    roleModelSelects[modelField].updateDisplayValue();
+                }
+
+                showNotification(`成功获取 ${models.length} 个模型`, 'success');
+
+            } catch (error) {
+                console.error('获取模型列表失败:', error);
+                showNotification('获取模型列表失败: ' + error.message, 'error');
+            } finally {
+                buttonElement.disabled = false;
+                buttonElement.classList.remove('loading');
+                buttonElement.innerHTML = '列表';
+            }
+        }
+
+        // 切换批量生成选项显示
+        function toggleParallelGenerationOptions() {
+            const enableCheckbox = document.getElementById('enable_parallel_generation');
+            const optionsDiv = document.getElementById('parallel-generation-options');
+
+            if (enableCheckbox && optionsDiv) {
+                if (enableCheckbox.checked) {
+                    optionsDiv.style.display = 'block';
+                } else {
+                    optionsDiv.style.display = 'none';
+                }
+            }
+        }
+
+        // 更新并行页数显示
+        function updateParallelSlidesDisplay(value) {
+            const displaySpan = document.getElementById('parallel_slides_display');
+            if (displaySpan) {
+                displaySpan.textContent = value + ' 页';
+            }
+        }
+
+        function populateGenerationParams() {
+            const tab = document.getElementById('generation-params');
+            if (!tab) return;
+
+            const inputs = tab.querySelectorAll('input, select');
+            inputs.forEach(input => {
+                const configKey = input.name;
+                const configValue = currentConfig[configKey];
+
+                // Tavily Key：即使后端出于安全考虑不返回实际 key，也要用 `tavily_api_key_configured`
+                // 来让管理员/用户看到“已配置”的状态（掩码 placeholder）。若用户有自己的覆盖值，后端会返回它。
+                if (input.type === 'password' && configKey === 'tavily_api_key') {
+                    if (!input.value && configValue) {
+                        input.value = configValue;
+                    }
+                    if (configValue || currentConfig.tavily_api_key_configured) {
+                        input.placeholder = '••••••••';
+                    }
+                    return;
+                }
+
+                if (configValue !== undefined && configValue !== null) {
+                    if (input.type === 'checkbox') {
+                        const normalized = typeof configValue === 'string'
+                            ? configValue.toLowerCase()
+                            : configValue;
+                        input.checked = normalized === true || normalized === 1 || normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+                    } else if (input.type === 'password') {
+                        // 对于密码字段，如果有配置值且输入框为空，则显示配置值
+                        if (!input.value && configValue) {
+                            input.value = configValue;
+                        }
+                        // 如果有配置值，更新placeholder为掩码显示
+                        if (configValue) {
+                            input.placeholder = '••••••••';
+                        }
+                    } else {
+                        // 只有当输入框为空时才设置值，避免覆盖模板中已设置的值
+                        if (!input.value && configValue !== '') {
+                            input.value = configValue;
+                        }
+                    }
+                }
+            });
+
+            // 触发批量生成选项显示更新
+            setTimeout(() => {
+                toggleParallelGenerationOptions();
+                const countInput = document.getElementById('parallel_slides_count');
+                if (countInput) {
+                    updateParallelSlidesDisplay(countInput.value || countInput.getAttribute('value') || '0');
+                }
+            }, 100);
+        }
+
+
+
+        function populateAppConfig() {
+            const tab = document.getElementById('app-config');
+            if (!tab) return;
+
+            const inputs = tab.querySelectorAll('input, select');
+            inputs.forEach(input => {
+                const configKey = input.name;
+                if (currentConfig[configKey]) {
+                    if (input.type === 'checkbox') {
+                        input.checked = currentConfig[configKey] === 'true';
+                    } else if (input.type === 'password') {
+                        // 对于密码字段，如果有配置值且输入框为空，则显示配置值
+                        if (!input.value && currentConfig[configKey]) {
+                            input.value = currentConfig[configKey];
+                        }
+                        // 如果有配置值，更新placeholder为掩码显示
+                        if (currentConfig[configKey]) {
+                            input.placeholder = '••••••••';
+                        }
+                    } else {
+                        // 只有当输入框为空时才设置值，避免覆盖模板中已设置的值
+                        if (!input.value && currentConfig[configKey]) {
+                            input.value = currentConfig[configKey];
+                        }
+                    }
+                }
+            });
+        }
+
+        function populateImageServiceConfig() {
+            const tab = document.getElementById('image-service');
+            if (!tab) return;
+
+            const inputs = tab.querySelectorAll('input, select, textarea');
+            inputs.forEach(input => {
+                const configKey = input.name;
+                if (currentConfig[configKey] !== undefined) {
+                    if (input.type === 'checkbox') {
+                        input.checked = currentConfig[configKey] === 'true' || currentConfig[configKey] === true;
+                    } else if (input.type === 'password') {
+                        // 对于密码字段，如果有配置值且输入框为空，则显示配置值
+                        if (!input.value && currentConfig[configKey]) {
+                            input.value = currentConfig[configKey];
+                        }
+                        // 如果有配置值，更新placeholder为掩码显示
+                        if (currentConfig[configKey]) {
+                            input.placeholder = '••••••••';
+                        }
+                    } else {
+                        // 只有当输入框为空时才设置值，避免覆盖模板中已设置的值
+                        if (!input.value && currentConfig[configKey]) {
+                            input.value = currentConfig[configKey];
+                        }
+                    }
+                }
+            });
+
+            // 触发图片服务选项显示更新
+            setTimeout(() => {
+                toggleImageServiceOptions();
+            }, 100);
+        }
+
+        let pollinationsModelSelectInitialized = false;
+
+        function normalizePollinationsBaseUrl(value) {
+            const fallback = 'https://gen.pollinations.ai';
+            const raw = (value || '').trim();
+            if (!raw) return fallback;
+            return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+        }
+
+        async function fetchPollinationsModelsFromRemote(baseUrl, apiKey) {
+            const url = `${normalizePollinationsBaseUrl(baseUrl)}/image/models`;
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}
+            });
+            if (!response.ok) return null;
+            return await response.json();
+        }
+
+        async function fetchPollinationsModelsFromBackend() {
+            const response = await fetch('/api/image/pollinations/models', { method: 'GET' });
+            if (!response.ok) return null;
+            const data = await response.json();
+            if (Array.isArray(data)) return data;
+            return data.models || null;
+        }
+
+        function setPollinationsModelOptions(models) {
+            const select = document.getElementById('pollinations_model_select');
+            if (!select) return;
+
+            const previousValue = select.value;
+            const filtered = (Array.isArray(models) ? models : [])
+                .filter(m => Array.isArray(m.output_modalities) && m.output_modalities.includes('image'))
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+            select.innerHTML = '';
+
+            const addOption = (value, label, title) => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = label;
+                if (title) opt.title = title;
+                select.appendChild(opt);
+            };
+
+            addOption('', '（留空/默认）');
+
+            filtered.forEach(m => {
+                const name = m.name || '';
+                const titleParts = [];
+                if (m.description) titleParts.push(m.description);
+                if (Array.isArray(m.aliases) && m.aliases.length) titleParts.push(`aliases: ${m.aliases.join(', ')}`);
+                addOption(name, name, titleParts.join(' | '));
+            });
+
+            if (previousValue && !Array.from(select.options).some(o => o.value === previousValue)) {
+                addOption(previousValue, previousValue);
+            }
+            select.value = previousValue || '';
+        }
+
+        async function fetchAndPopulatePollinationsModels({ silent = false } = {}) {
+            const select = document.getElementById('pollinations_model_select');
+            const button = document.getElementById('pollinations_model_fetch_btn');
+            if (!select || !button) return;
+
+            try {
+                button.disabled = true;
+                button.classList.add('loading');
+
+                const pageBaseUrlInput = document.querySelector('input[name="pollinations_api_base"]');
+                const pageApiKeyInput = document.querySelector('input[name="pollinations_api_key"]');
+                let baseUrl = pageBaseUrlInput ? pageBaseUrlInput.value.trim() : '';
+                let apiKey = pageApiKeyInput ? pageApiKeyInput.value.trim() : '';
+
+                if (!apiKey) {
+                    try {
+                        const configResponse = await fetch('/api/config/image_service');
+                        if (configResponse.ok) {
+                            const configResult = await configResponse.json();
+                            if (configResult && configResult.success && configResult.config) {
+                                apiKey = configResult.config.pollinations_api_key || '';
+                                baseUrl = baseUrl || configResult.config.pollinations_api_base || '';
+                            }
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+
+                let models = await fetchPollinationsModelsFromRemote(baseUrl, apiKey);
+                if (!models) {
+                    models = await fetchPollinationsModelsFromBackend();
+                }
+
+                if (models) {
+                    setPollinationsModelOptions(models);
+                    if (!silent) showNotification('已加载 Pollinations 模型列表', 'success');
+                    return;
+                }
+
+                if (!silent) showNotification('加载 Pollinations 模型列表失败（请检查 API Key/Base URL）', 'warning');
+            } catch (e) {
+                if (!silent) showNotification('加载 Pollinations 模型列表失败: ' + e.message, 'error');
+            } finally {
+                button.disabled = false;
+                button.classList.remove('loading');
+            }
+        }
+
+        function initPollinationsModelSelect() {
+            if (pollinationsModelSelectInitialized) return;
+            const select = document.getElementById('pollinations_model_select');
+            const button = document.getElementById('pollinations_model_fetch_btn');
+            if (!select || !button) return;
+
+            pollinationsModelSelectInitialized = true;
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                fetchAndPopulatePollinationsModels();
+            });
+
+            // Auto-load once (best effort)
+            setTimeout(() => fetchAndPopulatePollinationsModels({ silent: true }), 150);
+        }
+
+        const DEFAULT_RESOLUTION_PRESETS = '{"dalle":["1792x1024","1024x1792","1024x1024"],"openai_image":["1536x1024","1024x1536","1024x1024"],"siliconflow":["1024x1024","1344x768","768x1344"],"gemini":["1024x1024","1344x768","768x1344"],"pollinations":["1024x1024","1344x768","768x1344","1536x1024","1024x1536"]}';
+
+        function resetResolutionPresets() {
+            const textarea = document.querySelector('textarea[name="ai_image_resolution_presets"]');
+            if (!textarea) return;
+            textarea.value = DEFAULT_RESOLUTION_PRESETS;
+        }
+
+        // 设置默认提供者
+        async function setDefaultProvider(provider) {
+            try {
+                showLoading('正在设置默认提供者...');
+
+                const response = await fetch('/api/config/default-provider', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ provider: provider })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        showNotification(`默认提供者已设置为 ${provider}，配置已实时生效`, 'success');
+
+                        // 更新页面显示的当前提供者
+                        updateCurrentProviderDisplay(provider);
+
+                        // 可选：刷新提供者状态
+                        setTimeout(() => {
+                            refreshProviders();
+                        }, 1000);
+                    } else {
+                        showNotification('设置默认提供者失败: ' + (result.message || '未知错误'), 'error');
+                    }
+                } else {
+                    showNotification('设置默认提供者失败', 'error');
+                }
+
+                closeTestModal();
+            } catch (error) {
+                showNotification('设置默认提供者失败: ' + error.message, 'error');
+                closeTestModal();
+            }
+        }
+
+        // 更新当前提供者显示
+        function updateCurrentProviderDisplay(provider) {
+            const currentProviderSpan = document.querySelector('.card p span');
+            if (currentProviderSpan) {
+                currentProviderSpan.textContent = provider;
+            }
+        }
+
+        // 保存模型任务配置
+        async function saveModelRoleConfig() {
+            const tab = document.getElementById('model-roles');
+            if (!tab) return;
+
+            const config = {};
+            tab.querySelectorAll('select, input').forEach(control => {
+                if (!control.name) return;
+                config[control.name] = control.value && typeof control.value === 'string' ? control.value.trim() : control.value;
+            });
+
+            try {
+                // showLoading('正在保存模型任务配置...');
+                const response = await fetch('/api/config/model_roles', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ config })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        showNotification('模型任务配置保存成功,已实时生效', 'success');
+                        loadAllConfigs();
+                    } else {
+                        const errorMsg = result.errors ? JSON.stringify(result.errors) : (result.message || '未知错误');
+                        showNotification('模型任务配置保存失败: ' + errorMsg, 'error');
+                    }
+                } else {
+                    let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.error) errorMsg = errorData.error;
+                        else if (errorData.detail) errorMsg = errorData.detail;
+                    } catch (_) { }
+                    showNotification('模型任务配置保存失败: ' + errorMsg, 'error');
+                }
+            } catch (error) {
+                console.error('保存模型任务配置失败:', error);
+                showNotification('保存模型任务配置失败: ' + error.message, 'error');
+            }
+        }
+
+        async function saveProviderConfig(provider) {
+            const card = document.querySelector(`[data-provider="${provider}"]`);
+            if (!card) return;
+
+            const config = collectProviderConfig(card);
+
+            if (provider === 'landppt') {
+                const landpptModelInput = card.querySelector('input[name="landppt_model"]');
+                if (landpptModelInput && !landpptModelInput.value.trim()) {
+                    // Default to MODEL1; best-effort verify with backend model list.
+                    landpptModelInput.value = 'MODEL1';
+                    try {
+                        const models = await fetchProviderModels('landppt');
+                        if (models && models.length > 0) {
+                            landpptModelInput.value = models.includes('MODEL1') ? 'MODEL1' : models[0];
+                        }
+                    } catch (_) {
+                        // ignore
+                    }
+                }
+            }
+
+            try {
+                showLoading(`正在保存 ${provider} 配置...`);
+
+                const response = await fetch('/api/config/ai_providers', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ config: config })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        showNotification(`${provider} 配置保存成功，已实时生效`, 'success');
+                        // 重新加载配置
+                        loadAllConfigs();
+                    } else {
+                        // 正确处理错误消息
+                        let errorMsg = '未知错误';
+                        if (result.errors) {
+                            if (typeof result.errors === 'string') {
+                                errorMsg = result.errors;
+                            } else if (Array.isArray(result.errors)) {
+                                errorMsg = result.errors.join('; ');
+                            } else if (typeof result.errors === 'object') {
+                                // 处理对象形式的错误
+                                const errorMessages = [];
+                                for (const [key, value] of Object.entries(result.errors)) {
+                                    if (Array.isArray(value)) {
+                                        errorMessages.push(`${key}: ${value.join(', ')}`);
+                                    } else {
+                                        errorMessages.push(`${key}: ${value}`);
+                                    }
+                                }
+                                errorMsg = errorMessages.length > 0 ? errorMessages.join('; ') : JSON.stringify(result.errors);
+                            } else {
+                                errorMsg = String(result.errors);
+                            }
+                        } else if (result.message) {
+                            errorMsg = result.message;
+                        } else if (result.error) {
+                            errorMsg = result.error;
+                        } else if (result.detail) {
+                            errorMsg = result.detail;
+                        }
+                        showNotification(`${provider} 配置保存失败: ${errorMsg}`, 'error');
+                    }
+                } else {
+                    // 尝试解析错误响应
+                    let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.error) {
+                            errorMsg = errorData.error;
+                        } else if (errorData.detail) {
+                            errorMsg = errorData.detail;
+                        } else if (errorData.message) {
+                            errorMsg = errorData.message;
+                        }
+                    } catch (parseError) {
+                        console.error('解析错误响应失败:', parseError);
+                    }
+                    showNotification(`${provider} 配置保存失败: ${errorMsg}`, 'error');
+                }
+
+                closeTestModal();
+            } catch (error) {
+                console.error('保存配置失败:', error);
+                let errorMsg = error.message || '网络连接失败';
+                if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+                    errorMsg = '网络连接失败，请检查服务器状态';
+                }
+                showNotification('保存配置失败: ' + errorMsg, 'error');
+                closeTestModal();
+            }
+        }
+
+        // 保存生成参数
+        async function saveGenerationParams() {
+            const tab = document.getElementById('generation-params');
+            if (!tab) return;
+
+            const config = {};
+            const inputs = tab.querySelectorAll('input, select');
+
+            inputs.forEach(input => {
+                if (input.name) {
+                    if (input.type === 'checkbox') {
+                        config[input.name] = input.checked;
+                    } else if (input.value) {
+                        config[input.name] = input.value;
+                    }
+                }
+            });
+
+            try {
+                const response = await fetch('/api/config/generation_params', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ config: config })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        showNotification('生成参数保存成功，已实时生效', 'success');
+                        // 重新加载配置
+                        loadAllConfigs();
+                    } else {
+                        showNotification('生成参数保存失败: ' + (result.errors || '未知错误'), 'error');
+                    }
+                } else {
+                    showNotification('生成参数保存失败', 'error');
+                }
+            } catch (error) {
+                showNotification('保存失败: ' + error.message, 'error');
+            }
+        }
+
+
+
+        // 保存应用配置
+        async function saveAppConfig() {
+            const tab = document.getElementById('app-config');
+            if (!tab) return;
+
+            const config = {};
+            const inputs = tab.querySelectorAll('input, select');
+
+            inputs.forEach(input => {
+                if (input.name) {
+                    if (input.type === 'checkbox') {
+                        config[input.name] = input.checked;
+                    } else if (input.value) {
+                        config[input.name] = input.value;
+                    }
+                }
+            });
+
+            try {
+                const response = await fetch('/api/config/app_config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ config: config })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        showNotification('应用配置保存成功，已实时生效', 'success');
+                        // 重新加载配置
+                        loadAllConfigs();
+                    } else {
+                        showNotification('应用配置保存失败: ' + (result.errors || '未知错误'), 'error');
+                    }
+                } else {
+                    showNotification('应用配置保存失败', 'error');
+                }
+            } catch (error) {
+                showNotification('保存失败: ' + error.message, 'error');
+            }
+        }
+
+        // 保存所有配置
+        async function saveAllConfigs() {
+            showLoading('正在保存所有配置...');
+
+            try {
+                // 收集所有配置
+                const allConfig = {};
+
+                // 收集AI提供者配置
+                document.querySelectorAll('.provider-accordion-item, .provider-config-card').forEach(card => {
+                    Object.assign(allConfig, collectProviderConfig(card));
+                });
+
+                // 收集其他配置
+                ['generation-params', 'app-config'].forEach(tabId => {
+                    const tab = document.getElementById(tabId);
+                    if (tab) {
+                        const inputs = tab.querySelectorAll('input, select');
+                        inputs.forEach(input => {
+                            if (input.name) {
+                                if (input.type === 'checkbox') {
+                                    allConfig[input.name] = input.checked;
+                                } else if (input.value) {
+                                    allConfig[input.name] = input.value;
+                                }
+                            }
+                        });
+                    }
+                });
+
+                const response = await fetch('/api/config/all', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ config: allConfig })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        showNotification('所有配置保存成功', 'success');
+                    } else {
+                        showNotification('配置保存失败: ' + (result.errors || '未知错误'), 'error');
+                    }
+                    closeTestModal();
+                } else {
+                    showNotification('配置保存失败', 'error');
+                    closeTestModal();
+                }
+            } catch (error) {
+                showNotification('保存失败: ' + error.message, 'error');
+                closeTestModal();
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+        // 通知功能
+        function showNotification(message, type = 'info') {
+            // 创建通知元素
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        z-index: 10000;
+        max-width: 400px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+    `;
+
+            // 设置背景颜色
+            switch (type) {
+                case 'success':
+                    notification.style.background = 'linear-gradient(135deg, #0f0f0f 0%, #2a2a2a 100%)';
+                    break;
+                case 'error':
+                    notification.style.background = 'linear-gradient(135deg, #555555 0%, #1f1f1f 100%)';
+                    break;
+                case 'warning':
+                    notification.style.background = 'linear-gradient(135deg, #666666 0%, #2f2f2f 100%)';
+                    break;
+                default:
+                    notification.style.background = 'linear-gradient(135deg, #2a2a2a 0%, #0f0f0f 100%)';
+            }
+
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            // 显示动画
+            setTimeout(() => {
+                notification.style.transform = 'translateX(0)';
+            }, 100);
+
+            // 自动隐藏
+            setTimeout(() => {
+                notification.style.transform = 'translateX(100%)';
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        function showLoading(message) {
+            document.getElementById('testResults').innerHTML = `
+        <div style="text-align: center; padding: 20px;">
+            <div style="font-size: 2em; margin-bottom: 10px;">⏳</div>
+            <p>${message}</p>
+        </div>
+    `;
+            document.getElementById('testModal').style.display = 'block';
+        }
+
+        function showTestResult(result, success) {
+            const responseText = (typeof result.response_preview === 'string' ? result.response_preview.trim() : '');
+            // 成功必须包含 AI 的文字响应，否则判定失败
+            if (success && !responseText) {
+                success = false;
+                result = {
+                    ...result,
+                    error: result.error || '未获得 AI 的文字响应内容'
+                };
+            }
+
+            const statusIcon = success ? '✅' : '❌';
+            const statusColor = success ? '#0f0f0f' : '#555555';
+
+            let content = `
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="font-size: 3em; margin-bottom: 10px;">${statusIcon}</div>
+            <h4 style="color: ${statusColor};">${success ? '测试成功' : '测试失败'}</h4>
+        </div>
+    `;
+
+            if (success) {
+                content += `
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                <p><strong>提供者:</strong> ${result.provider || 'LandPPT'}</p>
+                <p><strong>模型:</strong> ${result.model || 'N/A'}</p>
+                <p><strong>响应预览:</strong></p>
+                <div style="background: white; padding: 15px; border-radius: 5px; margin-top: 10px; font-family: monospace; font-size: 0.9em;">
+                    ${responseText || result.message || '测试成功'}
+                </div>
+                ${result.usage ? `
+                <p style="margin-top: 15px;"><strong>使用统计:</strong></p>
+                <ul style="margin-left: 20px;">
+                    <li>提示词令牌: ${result.usage.prompt_tokens || 0}</li>
+                    <li>完成令牌: ${result.usage.completion_tokens || 0}</li>
+                    <li>总令牌: ${result.usage.total_tokens || 0}</li>
+                </ul>
+                ` : ''}
+            </div>
+        `;
+            } else {
+                content += `
+            <div style="background: #f1f1f1; padding: 20px; border-radius: 8px; border-left: 4px solid #111111;">
+                <p><strong>错误信息:</strong></p>
+                <div style="background: rgba(0,0,0,0.1); padding: 10px; border-radius: 5px; font-family: monospace; font-size: 0.9em;">
+                    ${result.detail || result.error || '未知错误'}
+                </div>
+            </div>
+        `;
+            }
+
+            document.getElementById('testResults').innerHTML = content;
+            document.getElementById('testModal').style.display = 'block';
+        }
+
+        function showAllTestResults(results) {
+            let content = '<div style="margin-bottom: 20px;">';
+
+            results.forEach(({ provider, result, success }) => {
+                const statusIcon = success ? '✅' : '❌';
+                const statusColor = success ? '#0f0f0f' : '#555555';
+
+                content += `
+            <div style="border: 1px solid #ecf0f1; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong>${provider}</strong>
+                    <span style="color: ${statusColor};">${statusIcon} ${success ? '成功' : '失败'}</span>
+                </div>
+                ${success ?
+                        `<p style="color: #7f8c8d; font-size: 0.9em;">模型: ${result.model} | 响应: ${result.response_preview.substring(0, 50)}...</p>` :
+                        `<p style="color: #555555; font-size: 0.9em;">错误: ${result.detail || result.error}</p>`
+                    }
+            </div>
+        `;
+            });
+
+            content += '</div>';
+
+            document.getElementById('testResults').innerHTML = content;
+            document.getElementById('testModal').style.display = 'block';
+        }
+
+        function closeTestModal() {
+            document.getElementById('testModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('testModal').addEventListener('click', function (e) {
+            if (e.target === this) {
+                closeTestModal();
+            }
+        });
+
+        // 图片服务相关功能
+        async function checkImageServiceStatus() {
+            try {
+                const response = await fetch('/api/image/status');
+                if (response.ok) {
+                    const result = await response.json();
+                    updateImageServiceStatus(result);
+                } else {
+                    updateImageServiceStatus({
+                        status: 'error',
+                        available_providers: [],
+                        message: '无法连接到图片服务'
+                    });
+                }
+            } catch (error) {
+                updateImageServiceStatus({
+                    status: 'error',
+                    available_providers: [],
+                    message: '检查图片服务状态失败: ' + error.message
+                });
+            }
+        }
+
+        function updateImageServiceStatus(status) {
+            const statusElement = document.getElementById('image-service-status');
+            const providersElement = document.getElementById('available-image-providers');
+
+            if (statusElement) {
+                if (status.status === 'ok' && status.available_providers.length > 0) {
+                    statusElement.textContent = '✅ 正常运行';
+                    statusElement.style.background = '#0f0f0f';
+                } else {
+                    statusElement.textContent = '❌ 服务异常';
+                    statusElement.style.background = '#555555';
+                }
+            }
+
+            if (providersElement) {
+                if (status.available_providers && status.available_providers.length > 0) {
+                    providersElement.textContent = status.available_providers.join(', ') + ` (${status.available_providers.length}个)`;
+                } else {
+                    providersElement.textContent = '无可用提供者';
+                }
+            }
+        }
+
+        function showImageTestResult(result, success) {
+            const statusIcon = success ? '✅' : '❌';
+            const statusColor = success ? '#0f0f0f' : '#555555';
+
+            let content = `
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="font-size: 3em; margin-bottom: 10px;">${statusIcon}</div>
+            <h4 style="color: ${statusColor};">${success ? '图片服务测试成功' : '图片服务测试失败'}</h4>
+        </div>
+    `;
+
+            if (success) {
+                content += `
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                <p><strong>测试结果:</strong></p>
+                <ul style="margin-left: 20px;">
+        `;
+
+                if (result.providers) {
+                    Object.entries(result.providers).forEach(([provider, status]) => {
+                        const icon = status.available ? '✅' : '❌';
+                        content += `<li>${icon} ${provider}: ${status.message}</li>`;
+                    });
+                }
+
+                content += `
+                </ul>
+                <p style="margin-top: 15px;"><strong>缓存信息:</strong></p>
+                <ul style="margin-left: 20px;">
+                    <li>缓存目录: ${result.cache_info?.directory || 'temp/images_cache'}</li>
+                    <li>缓存大小: ${result.cache_info?.size || '0 MB'}</li>
+                    <li>文件数量: ${result.cache_info?.file_count || 0}</li>
+                </ul>
+            </div>
+        `;
+            } else {
+                content += `
+            <div style="background: #f1f1f1; padding: 20px; border-radius: 8px; border-left: 4px solid #111111;">
+                <p><strong>错误信息:</strong></p>
+                <div style="background: rgba(0,0,0,0.1); padding: 10px; border-radius: 5px; font-family: monospace; font-size: 0.9em;">
+                    ${result.detail || result.error || '未知错误'}
+                </div>
+            </div>
+        `;
+            }
+
+            document.getElementById('testResults').innerHTML = content;
+            document.getElementById('testModal').style.display = 'block';
+        }
+
+
+        async function saveImageServiceConfig() {
+            const tab = document.getElementById('image-service');
+            if (!tab) return;
+
+            const config = {};
+            const inputs = tab.querySelectorAll('input, select, textarea');
+
+            inputs.forEach(input => {
+                if (!input.name) return;
+
+                if (input.type === 'checkbox') {
+                    config[input.name] = input.checked;
+                    return;
+                }
+
+                const rawValue = input.value;
+                if (!rawValue) return;
+
+                const isTextarea = input.tagName && input.tagName.toLowerCase() === 'textarea';
+                const normalizedValue = isTextarea
+                    ? rawValue.trim().replace(/[\r\n]+/g, ' ')
+                    : rawValue.trim();
+
+                if (normalizedValue) {
+                    config[input.name] = normalizedValue;
+                }
+            });
+
+            try {
+                const response = await fetch('/api/config/image_service', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ config: config })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        showNotification('图片服务配置保存成功，已实时生效', 'success');
+                        // 重新检查图片服务状态
+                        checkImageServiceStatus();
+                        // 重新加载配置
+                        loadAllConfigs();
+                    } else {
+                        // 正确处理错误信息
+                        let errorMessage = '未知错误';
+                        if (result.errors) {
+                            if (typeof result.errors === 'string') {
+                                errorMessage = result.errors;
+                            } else if (typeof result.errors === 'object') {
+                                // 如果errors是对象，将其转换为可读的字符串
+                                errorMessage = JSON.stringify(result.errors, null, 2);
+                            }
+                        } else if (result.message) {
+                            errorMessage = result.message;
+                        }
+                        showNotification('图片服务配置保存失败: ' + errorMessage, 'error');
+                    }
+                } else {
+                    // 尝试解析错误响应
+                    try {
+                        const errorResult = await response.json();
+                        let errorMessage = '请求失败';
+                        if (errorResult.detail) {
+                            errorMessage = errorResult.detail;
+                        } else if (errorResult.message) {
+                            errorMessage = errorResult.message;
+                        }
+                        showNotification('图片服务配置保存失败: ' + errorMessage, 'error');
+                    } catch (parseError) {
+                        showNotification('图片服务配置保存失败: HTTP ' + response.status, 'error');
+                    }
+                }
+            } catch (error) {
+                showNotification('保存失败: ' + error.message, 'error');
+            }
+        }
+
+        // 提供者手风琴展开/收起
+        function toggleProviderAccordion(provider) {
+            const content = document.getElementById(`provider_content_${provider}`);
+            const chevron = document.getElementById(`chevron_${provider}`);
+
+            if (!content || !chevron) return;
+
+            const isOpen = content.style.display !== 'none';
+
+            // 关闭所有其他的
+            document.querySelectorAll('.provider-content').forEach(el => {
+                el.style.display = 'none';
+            });
+            document.querySelectorAll('.provider-chevron').forEach(el => {
+                el.style.transform = 'rotate(0deg)';
+            });
+
+            // 切换当前的
+            if (!isOpen) {
+                content.style.display = 'block';
+                chevron.style.transform = 'rotate(90deg)';
+            }
+        }
+
+        // 测试提供者连接
+        async function testProviderConnection(provider) {
+            showNotification(`正在测试 ${provider} 连接...`, 'info');
+
+            try {
+                // 构建请求体
+                const payload = { provider };
+
+                // 对于 LandPPT，只需获取模型名称（凭证由后端获取）
+                if (provider === 'landppt') {
+                    const modelInput = document.querySelector(`input[name="landppt_model"]`);
+                    if (modelInput?.value) payload.model = modelInput.value.trim();
+                } else {
+                    // 对于其他提供者，从页面获取完整凭证
+                    const apiKeyInput = document.querySelector(`input[name="${provider}_api_key"]`);
+                    const baseUrlInput = document.querySelector(`input[name="${provider}_base_url"]`);
+                    const modelInput = document.querySelector(`input[name="${provider}_model"]`);
+
+                    if (apiKeyInput?.value) payload.api_key = apiKeyInput.value.trim();
+                    if (baseUrlInput?.value) payload.base_url = baseUrlInput.value.trim();
+                    if (modelInput?.value) payload.model = modelInput.value.trim();
+                }
+
+                if (provider === 'openai') {
+                    const responsesApiInput = document.querySelector('input[name="openai_use_responses_api"]');
+                    if (responsesApiInput) {
+                        payload.use_responses_api = responsesApiInput.checked;
+                    }
+                    const reasoningToggleInput = document.querySelector('input[name="openai_enable_reasoning"]');
+                    if (reasoningToggleInput) {
+                        payload.enable_reasoning = reasoningToggleInput.checked;
+                    }
+                    const reasoningEffortInput = document.querySelector('select[name="openai_reasoning_effort"]');
+                    if (reasoningEffortInput?.value) {
+                        payload.reasoning_effort = reasoningEffortInput.value;
+                    }
+                }
+
+                const response = await fetch('/api/ai/providers/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    showNotification(`${provider} ${result.message}`, 'success');
+                } else {
+                    showNotification(`${provider} 连接失败: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`${provider} 连接失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 模型下拉选择器 - 当前打开的下拉框
+        let currentOpenDropdown = null;
+
+        // 点击打开模型下拉框并加载模型列表
+        async function openModelDropdown(provider) {
+            const input = document.getElementById(`${provider}_model_input`);
+            const dropdown = document.getElementById(`${provider}_model_dropdown`);
+
+            if (!input || !dropdown) return;
+
+            // 关闭其他下拉框
+            document.querySelectorAll('.model-dropdown').forEach(el => {
+                if (el !== dropdown) el.style.display = 'none';
+            });
+
+            // 如果已经打开，则关闭
+            if (dropdown.style.display === 'block') {
+                dropdown.style.display = 'none';
+                currentOpenDropdown = null;
+                return;
+            }
+
+            // 显示加载状态
+            dropdown.innerHTML = '<div style="padding: 12px; text-align: center; color: #666;"><i class="fas fa-spinner fa-spin"></i> 正在加载模型列表...</div>';
+            dropdown.style.display = 'block';
+            currentOpenDropdown = dropdown;
+
+            try {
+                const models = await fetchProviderModels(provider);
+
+                if (models && models.length > 0) {
+                    if (provider === 'landppt' && input && !input.value.trim()) {
+                        input.value = (models || []).includes('MODEL1') ? 'MODEL1' : models[0];
+                    }
+                    dropdown.innerHTML = models.map(model =>
+                        `<div class="model-option" onclick="selectModel('${provider}', '${model}')" style="padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.15s;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fff'">${model}</div>`
+                    ).join('');
+                } else {
+                    dropdown.innerHTML = '<div style="padding: 12px; text-align: center; color: #999;">未找到可用模型，请检查API配置</div>';
+                }
+            } catch (error) {
+                dropdown.innerHTML = `<div style="padding: 12px; text-align: center; color: #e74c3c;">${error.message}</div>`;
+            }
+        }
+
+        // 获取指定提供者的模型列表
+        function sortModelList(models) {
+            if (!Array.isArray(models)) return [];
+            return models
+                .filter(Boolean)
+                .map(m => String(m))
+                .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+        }
+
+        function preferModelFirst(models, preferredModel) {
+            if (!Array.isArray(models) || !preferredModel) return models || [];
+            const preferred = String(preferredModel);
+            const idx = models.findIndex(m => String(m) === preferred);
+            if (idx <= 0) return models;
+            const copy = models.slice();
+            const [item] = copy.splice(idx, 1);
+            copy.unshift(item);
+            return copy;
+        }
+
+        async function fetchProviderModels(provider) {
+            // LandPPT 使用后端 API 获取模型列表（不暴露凭证）
+            if (provider === 'landppt') {
+                const response = await fetch('/api/ai/providers/landppt/models');
+                if (!response.ok) {
+                    throw new Error(`请求失败: ${response.status}`);
+                }
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.error || '获取模型失败');
+                }
+                // LandPPT 默认模型优先使用 MODEL1（如果存在）
+                return preferModelFirst(sortModelList(result.models || []), 'MODEL1');
+            }
+
+            // 其他提供者从页面或后端配置获取凭证
+            let baseUrl = '';
+            let apiKey = '';
+
+            const pageApiKeyInput = document.querySelector(`input[name="${provider}_api_key"]`);
+            const pageBaseUrlInput = document.querySelector(`input[name="${provider}_base_url"]`);
+
+            apiKey = pageApiKeyInput?.value?.trim() || '';
+            baseUrl = pageBaseUrlInput?.value?.trim() || '';
+
+            // 如果页面没有值，从后端配置获取
+            if (!apiKey || !baseUrl) {
+                try {
+                    const configResponse = await fetch('/api/config/ai_providers');
+                    if (configResponse.ok) {
+                        const configResult = await configResponse.json();
+                        if (configResult.success && configResult.config) {
+                            if (!apiKey) apiKey = configResult.config[`${provider}_api_key`] || '';
+                            if (!baseUrl) baseUrl = configResult.config[`${provider}_base_url`] || '';
+                        }
+                    }
+                } catch (e) {
+                    console.error('获取后端配置失败:', e);
+                }
+            }
+
+            // 默认base_url
+            if (provider === 'openai' && !baseUrl) {
+                baseUrl = 'https://api.openai.com/v1';
+            }
+
+            if (!apiKey) {
+                throw new Error('请先配置 API Key');
+            }
+
+            const response = await fetch(`${baseUrl}/models`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`请求失败: ${response.status}`);
+            }
+
+            const data = await response.json();
+            let models = [];
+
+            if (data.data && Array.isArray(data.data)) {
+                models = data.data.map(m => m.id).sort();
+            } else if (Array.isArray(data)) {
+                models = data.map(m => m.id || m.name).sort();
+            }
+
+            return models;
+        }
+
+        // 选择模型
+        function selectModel(provider, model) {
+            const input = document.getElementById(`${provider}_model_input`);
+            const dropdown = document.getElementById(`${provider}_model_dropdown`);
+
+            if (input) input.value = model;
+            if (dropdown) dropdown.style.display = 'none';
+            currentOpenDropdown = null;
+        }
+
+        // 点击外部关闭下拉框
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('.model-select-wrapper')) {
+                document.querySelectorAll('.model-dropdown').forEach(el => {
+                    el.style.display = 'none';
+                });
+                currentOpenDropdown = null;
+            }
+        });
+
+        // 图片服务选项控制函数
+        function toggleImageServiceOptions() {
+            const enableCheckbox = document.querySelector('input[name="enable_image_service"]');
+            const optionsDiv = document.getElementById('image-service-options');
+
+            if (enableCheckbox && optionsDiv) {
+                if (enableCheckbox.checked) {
+                    optionsDiv.style.display = 'block';
+                    // 触发一次配置显示更新
+                    toggleImageSourceConfig();
+                } else {
+                    optionsDiv.style.display = 'none';
+                }
+            }
+        }
+
+        function toggleImageSourceConfig() {
+            const localCheckbox = document.querySelector('input[name="enable_local_images"]');
+            const networkCheckbox = document.querySelector('input[name="enable_network_search"]');
+            const aiCheckbox = document.querySelector('input[name="enable_ai_generation"]');
+
+            const localConfig = document.getElementById('local-images-config');
+            const networkConfig = document.getElementById('network-search-config');
+            const aiConfig = document.getElementById('ai-generation-config');
+
+            if (!localConfig || !networkConfig || !aiConfig) return;
+
+            // 根据复选框状态显示/隐藏对应配置
+            if (localCheckbox && localCheckbox.checked) {
+                localConfig.style.display = 'block';
+            } else {
+                localConfig.style.display = 'none';
+            }
+
+            if (networkCheckbox && networkCheckbox.checked) {
+                networkConfig.style.display = 'block';
+            } else {
+                networkConfig.style.display = 'none';
+            }
+
+            if (aiCheckbox && aiCheckbox.checked) {
+                aiConfig.style.display = 'block';
+                // 当AI生成配置显示时，也检查提供商特定配置
+                toggleProviderSpecificConfig();
+            } else {
+                aiConfig.style.display = 'none';
+            }
+        }
+
+        function toggleProviderSpecificConfig() {
+            // No provider-specific config sections to toggle
+        }
+
+        // 获取并显示OpenAI模型列表
+        async function fetchAndShowModels() {
+            const inputElement = document.getElementById('openai_model_input');
+            const fetchButton = document.getElementById('openai_model_fetch_btn');
+            const containerElement = document.getElementById('openai_model_container');
+
+            if (!inputElement || !fetchButton || !openaiModelSelect) return;
+
+            try {
+                // 设置加载状态
+                fetchButton.classList.add('loading');
+                fetchButton.disabled = true;
+                fetchButton.textContent = '⏳';
+
+                // 获取Base URL - 只使用前端页面填写的信息
+                const baseUrlInput = document.querySelector('input[name="openai_base_url"]');
+                let baseUrl = baseUrlInput ? baseUrlInput.value.trim() : '';
+
+                // 如果没有设置Base URL，使用默认值
+                if (!baseUrl) {
+                    baseUrl = 'https://api.openai.com/v1';
+                }
+
+                // 确保Base URL以/v1结尾
+                if (!baseUrl.endsWith('/v1')) {
+                    if (baseUrl.endsWith('/')) {
+                        baseUrl += 'v1';
+                    } else {
+                        baseUrl += '/v1';
+                    }
+                }
+
+                // 获取API Key - 优先使用前端页面填写的信息，如果没有则从后端获取
+                const apiKeyInput = document.querySelector('input[name="openai_api_key"]');
+                let apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+
+                // 如果前端没有填写API Key，尝试从后端获取
+                if (!apiKey) {
+                    try {
+                        const configResponse = await fetch('/api/config/ai_providers');
+                        if (configResponse.ok) {
+                            const configResult = await configResponse.json();
+                            if (configResult.success && configResult.config.openai_api_key) {
+                                apiKey = configResult.config.openai_api_key;
+                            }
+                        }
+                    } catch (error) {
+                        console.error('获取后端配置失败:', error);
+                    }
+                }
+
+                if (!apiKey) {
+                    showNotification('请先配置 OpenAI API Key', 'warning');
+                    return;
+                }
+
+                // 获取模型列表
+                const models = await fetchOpenAIModels(baseUrl, apiKey);
+
+                if (models && models.length > 0) {
+                    // 转换为搜索选择框的选项格式
+                    const options = models.map(model => ({
+                        value: model.id,
+                        label: model.id
+                    }));
+
+                    // 保存当前输入框的值
+                    const currentValue = inputElement.value;
+
+                    // 设置搜索选择框的选项
+                    openaiModelSelect.setOptions(options);
+
+                    // 如果当前搜索选择框是隐藏的，显示它并隐藏输入框
+                    if (containerElement.style.display === 'none') {
+                        containerElement.style.display = 'block';
+                        inputElement.style.display = 'none';
+
+                        // 如果有当前值，设置到搜索选择框中
+                        if (currentValue) {
+                            openaiModelSelect.setValue(currentValue);
+                        }
+                    } else {
+                        // 如果搜索选择框已经显示，切换回输入模式
+                        containerElement.style.display = 'none';
+                        inputElement.style.display = 'block';
+                    }
+
+                    showNotification(`成功获取到 ${models.length} 个模型，请选择一个模型`, 'success');
+                } else {
+                    showNotification('未能获取到模型列表，请检查Base URL和API Key配置', 'warning');
+                }
+
+            } catch (error) {
+                console.error('获取模型列表失败:', error);
+                showNotification('获取模型列表失败: ' + error.message, 'error');
+            } finally {
+                // 恢复按钮状态
+                fetchButton.classList.remove('loading');
+                fetchButton.disabled = false;
+                fetchButton.textContent = '列表';
+            }
+        }
+
+        // 获取并显示LandPPT模型列表 (使用后端代理，API Key不暴露给前端)
+        async function fetchLandPPTModels() {
+            const inputElement = document.getElementById('landppt_model_input');
+            const fetchButton = document.getElementById('landppt_model_fetch_btn');
+            const containerElement = document.getElementById('landppt_model_container');
+
+            if (!inputElement || !fetchButton || !landpptModelSelect) return;
+
+            try {
+                // 设置加载状态
+                fetchButton.classList.add('loading');
+                fetchButton.disabled = true;
+                fetchButton.textContent = '⏳';
+
+                // 通过后端代理获取模型列表（API Key 不暴露给前端）
+                const response = await fetch('/api/config/landppt/models');
+                const result = await response.json();
+
+                if (!result.success) {
+                    showNotification(result.error || '获取模型列表失败', 'warning');
+                    return;
+                }
+
+                // LandPPT 默认模型优先使用 MODEL1（如果存在）
+                const models = preferModelFirst(sortModelList(result.models || []), 'MODEL1');
+
+                if (models.length > 0) {
+                    // 转换为搜索选择框的选项格式
+                    const options = models.map(modelId => ({
+                        value: modelId,
+                        label: modelId
+                    }));
+
+                    // 保存当前输入框的值
+                    const currentValue = inputElement.value;
+
+                    // 设置搜索选择框的选项
+                    landpptModelSelect.setOptions(options);
+
+                    // 如果当前搜索选择框是隐藏的，显示它并隐藏输入框
+                    if (containerElement.style.display === 'none') {
+                        containerElement.style.display = 'block';
+                        inputElement.style.display = 'none';
+
+                        // 如果有当前值，设置到搜索选择框中
+                        if (currentValue) {
+                            landpptModelSelect.setValue(currentValue);
+                        }
+                    } else {
+                        // 如果搜索选择框已经显示，切换回输入模式
+                        containerElement.style.display = 'none';
+                        inputElement.style.display = 'block';
+                    }
+
+                    showNotification(`成功获取到 ${models.length} 个模型，请选择一个模型`, 'success');
+                } else {
+                    showNotification('未能获取到模型列表，请联系管理员检查配置', 'warning');
+                }
+
+            } catch (error) {
+                console.error('获取LandPPT模型列表失败:', error);
+                showNotification('获取模型列表失败: ' + error.message, 'error');
+            } finally {
+                // 恢复按钮状态
+                fetchButton.classList.remove('loading');
+                fetchButton.disabled = false;
+                fetchButton.textContent = '列表';
+            }
+        }
+
+        // 当模型角色的提供者选择改变时，显示/隐藏模型获取按钮
+        function onRoleProviderChange(selectElement) {
+            const modelField = selectElement.dataset.modelField;
+            const row = selectElement.closest('tr');
+            if (!row) return;
+
+            const fetchBtn = row.querySelector('.role-fetch-btn');
+            if (!fetchBtn) return;
+
+            const selectedProvider = selectElement.value.toLowerCase();
+            // 对于 landppt、openai 显示模型获取按钮
+            if (['landppt', 'openai'].includes(selectedProvider)) {
+                fetchBtn.style.display = 'inline-flex';
+                fetchBtn.dataset.provider = selectedProvider;
+            } else {
+                fetchBtn.style.display = 'none';
+            }
+        }
+
+        // 为模型角色获取模型列表
+        async function fetchRoleModels(button) {
+            const modelField = button.dataset.modelField;
+            const provider = button.dataset.provider;
+            const row = button.closest('tr');
+            if (!row) return;
+
+            const modelInput = row.querySelector('.role-model-input');
+            if (!modelInput) return;
+
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+            try {
+                let models = [];
+
+                // LandPPT 使用后端 API 获取模型列表（不暴露凭证）
+                if (provider === 'landppt') {
+                    const response = await fetch('/api/ai/providers/landppt/models');
+                    if (!response.ok) {
+                        throw new Error(`请求失败: ${response.status}`);
+                    }
+                    const result = await response.json();
+                    if (!result.success) {
+                        throw new Error(result.error || '获取模型失败');
+                    }
+                    models = result.models || [];
+                } else {
+                    // 其他提供者使用凭证获取
+                    let baseUrl = '';
+                    let apiKey = '';
+
+                    if (provider === 'openai') {
+                        const baseUrlInput = document.querySelector('input[name="openai_base_url"]');
+                        const apiKeyInput = document.querySelector('input[name="openai_api_key"]');
+                        baseUrl = baseUrlInput?.value?.trim() || 'https://api.openai.com/v1';
+                        apiKey = apiKeyInput?.value?.trim() || '';
+
+                        if (!apiKey) {
+                            try {
+                                const configResponse = await fetch('/api/config/ai_providers');
+                                if (configResponse.ok) {
+                                    const configResult = await configResponse.json();
+                                    if (configResult.success && configResult.config) {
+                                        apiKey = configResult.config.openai_api_key || '';
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('获取后端配置失败:', e);
+                            }
+                        }
+                    }
+
+                    if (!baseUrl || !apiKey) {
+                        showNotification(`请先配置 ${provider} 的 API Key`, 'warning');
+                        return;
+                    }
+
+                    const response = await fetch(`${baseUrl}/models`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.data && Array.isArray(data.data)) {
+                            models = data.data.map(m => m.id).sort();
+                        } else if (Array.isArray(data)) {
+                            models = data.map(m => m.id || m.name).sort();
+                        }
+                    }
+                }
+
+                if (models.length > 0) {
+                    // 创建简单的下拉选择
+                    const currentValue = modelInput.value;
+                    const select = document.createElement('select');
+                    select.style.cssText = modelInput.style.cssText;
+                    select.className = modelInput.className;
+                    select.name = modelInput.name;
+
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = '选择模型...';
+                    select.appendChild(defaultOption);
+
+                    models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        if (model === currentValue) option.selected = true;
+                        select.appendChild(option);
+                    });
+
+                    select.onchange = function () {
+                        modelInput.value = this.value;
+                        this.replaceWith(modelInput);
+                    };
+
+                    modelInput.replaceWith(select);
+                    showNotification(`获取到 ${models.length} 个模型`, 'success');
+                } else {
+                    showNotification('未能获取到模型列表', 'warning');
+                }
+            } catch (error) {
+                console.error('获取模型列表失败:', error);
+                showNotification('获取模型列表失败: ' + error.message, 'error');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-list"></i>';
+            }
+        }
+
+        // 页面加载时初始化模型角色的提供者按钮状态
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.model-role-provider').forEach(select => {
+                onRoleProviderChange(select);
+            });
+        });
+
+        // 从OpenAI API获取模型列表（仅通过后端代理）
+        async function fetchOpenAIModels(baseUrl, apiKey) {
+            try {
+                // 只通过后端代理请求，避免CORS问题
+                const response = await fetch('/api/ai/providers/openai/models', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        base_url: baseUrl,
+                        api_key: apiKey
+                    })
+                });
+
+                if (!response.ok) {
+                    // 尝试解析错误响应
+                    let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.error) {
+                            errorMessage = errorData.error;
+                        } else if (errorData.detail) {
+                            errorMessage = errorData.detail;
+                        } else if (errorData.message) {
+                            errorMessage = errorData.message;
+                        }
+                    } catch (parseError) {
+                        // 如果无法解析错误响应，使用默认错误信息
+                    }
+                    throw new Error(errorMessage);
+                }
+
+                const data = await response.json();
+
+                // 处理不同的响应格式
+                let models = null;
+
+                // 检查各种可能的响应格式
+                if (data.models && Array.isArray(data.models)) {
+                    models = data.models;
+                } else if (data.data && Array.isArray(data.data)) {
+                    // 兼容 OpenAI 原始格式
+                    models = data.data;
+                } else if (Array.isArray(data)) {
+                    // 直接返回数组的情况
+                    models = data;
+                }
+
+                if (models) {
+                    // 过滤并排序模型列表，优先显示常用的聊天模型
+                    const sortedModels = models
+                        .filter(model => model.id || model.name) // 确保有ID或name
+                        .map(model => {
+                            // 标准化模型对象
+                            return {
+                                id: model.id || model.name,
+                                name: model.name || model.id
+                            };
+                        })
+                        .sort((a, b) => {
+                            // 优先级排序：gpt-4 > gpt-3.5 > gemini > 其他
+                            const getPriority = (id) => {
+                                if (id.includes('gpt-4')) return 4;
+                                if (id.includes('gpt-3.5')) return 3;
+                                if (id.includes('gemini')) return 2;
+                                return 1;
+                            };
+
+                            const priorityA = getPriority(a.id);
+                            const priorityB = getPriority(b.id);
+
+                            if (priorityA !== priorityB) {
+                                return priorityB - priorityA; // 降序
+                            }
+
+                            return a.id.localeCompare(b.id); // 字母序
+                        });
+
+                    return sortedModels;
+                } else {
+                    throw new Error('后端代理返回的数据格式不正确，未找到模型数据');
+                }
+
+            } catch (error) {
+                console.error('通过后端代理获取模型列表失败:', error);
+                throw error;
+            }
+        }
+
+        // 初始化OpenAI模型输入框状态
+        function initOpenAIModelInput() {
+            const inputElement = document.getElementById('openai_model_input');
+            if (inputElement && !inputElement.value.trim()) {
+                inputElement.placeholder = '选择模型...';
+            }
+        }
+
+        // 页面加载时初始化图片服务选项显示
+        document.addEventListener('DOMContentLoaded', function () {
+            // 延迟执行以确保DOM完全加载
+            setTimeout(() => {
+                toggleImageServiceOptions();
+                toggleParallelGenerationOptions();
+                initOpenAIModelInput();
+                const landpptModelInput = document.getElementById('landppt_model_input');
+                if (landpptModelInput && !landpptModelInput.value.trim()) {
+                    fetchProviderModels('landppt')
+                        .then(models => {
+                            if (models && models.length > 0 && !landpptModelInput.value.trim()) {
+                                landpptModelInput.value = models[0];
+                            }
+                        })
+                        .catch(() => { });
+                }
+            }, 100);
+        });

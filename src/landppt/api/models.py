@@ -80,6 +80,7 @@ class PPTScenario(BaseModel):
     icon: str
     template_config: Dict[str, Any]
 
+
 class PPTGenerationRequest(BaseModel):
     scenario: str = Field(..., description="PPT scenario type")
     topic: str = Field(..., description="PPT topic/theme")
@@ -87,6 +88,8 @@ class PPTGenerationRequest(BaseModel):
     network_mode: bool = Field(False, description="Whether to use network mode for enhanced generation")
     language: str = Field("zh", description="Language for the PPT content")
     uploaded_content: Optional[str] = Field(None, description="Content from uploaded files")
+    # User ownership
+    user_id: Optional[int] = Field(None, description="User ID for project ownership")
     # 目标受众和风格相关参数
     target_audience: Optional[str] = Field(None, description="Target audience for the PPT")
     ppt_style: str = Field("general", description="PPT style: 'general', 'conference', 'custom'")
@@ -97,12 +100,15 @@ class PPTGenerationRequest(BaseModel):
     file_processing_mode: str = Field("markitdown", description="File processing mode: 'markitdown' or 'magic_pdf'")
     content_analysis_depth: str = Field("standard", description="Content analysis depth: 'fast', 'standard', 'deep'")
 
+
 class PPTOutline(BaseModel):
     title: str
     slides: List[Dict[str, Any]]
     metadata: Dict[str, Any]
 
+
 class PPTGenerationResponse(BaseModel):
+
     task_id: str
     status: str
     outline: Optional[PPTOutline] = None
@@ -114,7 +120,7 @@ class TodoStage(BaseModel):
     id: str
     name: str
     description: str
-    status: Literal["pending", "running", "completed", "failed"] = "pending"
+    status: Literal["pending", "running", "completed", "failed", "cancelled"] = "pending"
     progress: float = 0.0
     subtasks: List[str] = []
     result: Optional[Dict[str, Any]] = None
@@ -193,9 +199,9 @@ class FileOutlineGenerationRequest(BaseModel):
     target_audience: Optional[str] = Field(None, description="Target audience for the PPT")
     language: str = Field("zh", description="Language for the PPT content: 'zh' for Chinese, 'en' for English")
     page_count_mode: str = Field("ai_decide", description="Page count mode: 'ai_decide', 'custom_range', 'fixed'")
-    min_pages: Optional[int] = Field(8, ge=5, description="Minimum pages for custom_range mode")
-    max_pages: Optional[int] = Field(15, ge=5, description="Maximum pages for custom_range mode")
-    fixed_pages: Optional[int] = Field(10, ge=5, description="Fixed page count")
+    min_pages: Optional[int] = Field(8, description="Minimum pages for custom_range mode")
+    max_pages: Optional[int] = Field(15, description="Maximum pages for custom_range mode")
+    fixed_pages: Optional[int] = Field(10, description="Fixed page count")
     ppt_style: str = Field("general", description="PPT style: 'general', 'conference', 'custom'")
     custom_style_prompt: Optional[str] = Field(None, description="Custom style prompt")
     file_processing_mode: str = Field("markitdown", description="File processing mode")
@@ -236,6 +242,7 @@ class GlobalMasterTemplateUpdate(BaseModel):
 class GlobalMasterTemplateResponse(BaseModel):
     """Response model for global master template"""
     id: int
+    user_id: Optional[int] = None
     template_name: str
     description: str
     preview_image: Optional[str] = None
@@ -262,14 +269,23 @@ class ReferenceImageData(BaseModel):
     type: str = Field(..., description="MIME type")
 
 
+class ReferencePptxData(BaseModel):
+    """Reference PPTX data for template extraction"""
+    filename: str = Field(..., description="PPTX filename")
+    data: str = Field(..., description="Base64 encoded PPTX data (raw base64 or data URL)")
+    size: int = Field(..., description="File size in bytes")
+    type: str = Field("application/vnd.openxmlformats-officedocument.presentationml.presentation", description="MIME type")
+
+
 class GlobalMasterTemplateGenerateRequest(BaseModel):
     """Request model for AI-generated global master template"""
     prompt: str = Field(..., description="AI generation prompt")
     template_name: str = Field(..., description="Template name (must be unique)")
     description: Optional[str] = Field("", description="Template description")
     tags: Optional[List[str]] = Field([], description="Template tags")
-    generation_mode: str = Field("text_only", description="Generation mode: text_only, reference_style, exact_replica")
+    generation_mode: str = Field("text_only", description="Generation mode: text_only, reference_style, exact_replica, pptx_extract")
     reference_image: Optional[ReferenceImageData] = Field(None, description="Reference image for multimodal generation")
+    reference_pptx: Optional[ReferencePptxData] = Field(None, description="Reference PPTX for template extraction")
 
 
 class TemplateSelectionRequest(BaseModel):

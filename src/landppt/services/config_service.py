@@ -16,15 +16,8 @@ class ConfigService:
     """Configuration management service"""
     
     def __init__(self, env_file: str = ".env"):
+        self.env_file = env_file
         self.env_path = Path(env_file)
-        if not self.env_path.is_absolute():
-            # Make env path stable regardless of the process CWD.
-            for parent in Path(__file__).resolve().parents:
-                if (parent / "pyproject.toml").exists():
-                    self.env_path = parent / env_file
-                    break
-
-        self.env_file = str(self.env_path)
         
         # Ensure .env file exists
         if not self.env_path.exists():
@@ -37,12 +30,6 @@ class ConfigService:
             logger.warning(f"Could not load .env file {self.env_file}: {e}")
         except Exception as e:
             logger.warning(f"Error loading .env file {self.env_file}: {e}")
-
-        # Migrate legacy defaults (only when API keys are not configured)
-        try:
-            self._migrate_legacy_ai_defaults()
-        except Exception as e:
-            logger.warning(f"Failed to migrate legacy AI defaults: {e}")
         
         # Configuration schema
         self.config_schema = {
@@ -53,19 +40,6 @@ class ConfigService:
             "openai_use_responses_api": {"type": "boolean", "category": "ai_providers", "default": "false"},
             "openai_enable_reasoning": {"type": "boolean", "category": "ai_providers", "default": "false"},
             "openai_reasoning_effort": {"type": "select", "category": "ai_providers", "default": "medium"},
-
-            # OpenAI-Compatible Providers
-            "deepseek_api_key": {"type": "password", "category": "ai_providers"},
-            "deepseek_base_url": {"type": "url", "category": "ai_providers", "default": "https://api.deepseek.com/v1"},
-            "deepseek_model": {"type": "text", "category": "ai_providers", "default": "deepseek-chat"},
-
-            "kimi_api_key": {"type": "password", "category": "ai_providers"},
-            "kimi_base_url": {"type": "url", "category": "ai_providers", "default": "https://api.moonshot.cn/v1"},
-            "kimi_model": {"type": "text", "category": "ai_providers", "default": "kimi-k2.5"},
-
-            "minimax_api_key": {"type": "password", "category": "ai_providers"},
-            "minimax_base_url": {"type": "url", "category": "ai_providers", "default": "https://api.minimax.io/v1"},
-            "minimax_model": {"type": "text", "category": "ai_providers", "default": "MiniMax-M2.7"},
             
             "anthropic_api_key": {"type": "password", "category": "ai_providers"},
             "anthropic_base_url": {"type": "url", "category": "ai_providers", "default": "https://api.anthropic.com"},
@@ -76,12 +50,7 @@ class ConfigService:
             "google_model": {"type": "text", "category": "ai_providers", "default": "gemini-2.5-flash"},
             
             "ollama_base_url": {"type": "url", "category": "ai_providers", "default": "http://localhost:11434"},
-            "ollama_model": {"type": "text", "category": "ai_providers", "default": "auto"},
-            
-            # 302.AI Configuration
-            "302ai_api_key": {"type": "password", "category": "ai_providers"},
-            "302ai_base_url": {"type": "url", "category": "ai_providers", "default": "https://api.302.ai/v1"},
-            "302ai_model": {"type": "text", "category": "ai_providers", "default": "gpt-4o"},
+            "ollama_model": {"type": "text", "category": "ai_providers", "default": "llama2"},
             
             "default_ai_provider": {"type": "select", "category": "ai_providers", "default": "openai"},
             
@@ -104,15 +73,24 @@ class ConfigService:
             "speech_script_model_name": {"type": "text", "category": "model_roles", "default": ""},
             "vision_analysis_model_provider": {"type": "select", "category": "model_roles", "default": ""},
             "vision_analysis_model_name": {"type": "text", "category": "model_roles", "default": ""},
+            "polish_model_provider": {"type": "select", "category": "model_roles", "default": ""},
+            "polish_model_name": {"type": "text", "category": "model_roles", "default": ""},
             
             # Generation Parameters
             "max_tokens": {"type": "number", "category": "generation_params", "default": "16384"},
             "temperature": {"type": "number", "category": "generation_params", "default": "0.7"},
             "top_p": {"type": "number", "category": "generation_params", "default": "1.0"},
+            "llm_timeout_seconds": {"type": "number", "category": "generation_params", "default": "600"},
+            "comfyui_base_url": {"type": "url", "category": "generation_params", "default": "http://127.0.0.1:8188"},
+            "comfyui_tts_workflow_path": {"type": "text", "category": "generation_params", "default": "tests/Qwen3-TD-TTS.json"},
+            "comfyui_tts_timeout_seconds": {"type": "number", "category": "generation_params", "default": "600"},
+            "comfyui_tts_chunk_chars": {"type": "number", "category": "generation_params", "default": "120"},
+            "comfyui_tts_force_precision": {"type": "text", "category": "generation_params", "default": ""},
             
             # Parallel Generation Configuration
-            "enable_parallel_generation": {"type": "boolean", "category": "generation_params", "default": "false"},
+            "enable_parallel_generation": {"type": "boolean", "category": "generation_params", "default": "true"},
             "parallel_slides_count": {"type": "number", "category": "generation_params", "default": "3"},
+            "enable_per_slide_creative_guidance": {"type": "boolean", "category": "generation_params", "default": "true"},
             
             "tavily_api_key": {"type": "password", "category": "generation_params"},
             "tavily_max_results": {"type": "number", "category": "generation_params", "default": "10"},
@@ -130,11 +108,13 @@ class ConfigService:
             "research_max_content_length": {"type": "number", "category": "generation_params", "default": "5000"},
             "research_extraction_timeout": {"type": "number", "category": "generation_params", "default": "30"},
 
-            # MinerU API Configuration (for high-quality PDF parsing)
-            "mineru_api_key": {"type": "password", "category": "generation_params"},
-            "mineru_base_url": {"type": "url", "category": "generation_params", "default": "https://mineru.net/api/v4"},
-
-            "apryse_license_key": {"type": "password", "category": "generation_params"},
+            "enable_apryse_pptx_export": {
+                "type": "boolean",
+                "category": "generation_params",
+                "default": "false",
+                "admin_only": True,
+            },
+            "apryse_license_key": {"type": "password", "category": "generation_params", "admin_only": True},
             
             # Feature Flags
             "enable_network_mode": {"type": "boolean", "category": "feature_flags", "default": "true"},
@@ -151,7 +131,7 @@ class ConfigService:
             "base_url": {"type": "url", "category": "app_config", "default": "http://localhost:8000"},
             "reload": {"type": "boolean", "category": "app_config", "default": "true"},
             "secret_key": {"type": "password", "category": "app_config", "default": "your-very-secure-secret-key"},
-            "access_token_expire_minutes": {"type": "number", "category": "app_config", "default": "30"},
+            "access_token_expire_minutes": {"type": "number", "category": "app_config", "default": "20160"},  # 2 weeks
             "max_file_size": {"type": "number", "category": "app_config", "default": "10485760"},
             "upload_dir": {"type": "text", "category": "app_config", "default": "uploads"},
             "cache_ttl": {"type": "number", "category": "app_config", "default": "3600"},
@@ -181,7 +161,7 @@ class ConfigService:
                 "type": "text",
                 "category": "image_service",
                 # provider => list of allowed WxH strings, single-line JSON to keep .env tidy
-                "default": "{\"dalle\":[\"1792x1024\",\"1024x1792\",\"1024x1024\"],\"openai_image\":[\"1536x1024\",\"1024x1536\",\"1024x1024\"],\"siliconflow\":[\"1024x1024\",\"1344x768\",\"768x1344\"],\"gemini\":[\"1024x1024\",\"1344x768\",\"768x1344\"],\"pollinations\":[\"1024x1024\",\"1280x720\",\"720x1280\"]}"
+                "default": "{\"dalle\":[\"1792x1024\",\"1024x1792\",\"1024x1024\"],\"openai_image\":[\"1536x1024\",\"1024x1536\",\"1024x1024\"],\"siliconflow\":[\"1024x1024\",\"1024x2048\",\"1536x1024\",\"2048x1152\",\"1152x2048\"],\"gemini\":[\"1024x1024\",\"1344x768\",\"768x1344\"],\"pollinations\":[\"1024x1024\",\"1344x768\",\"768x1344\",\"1536x1024\",\"1024x1536\"]}"
             },
 
             # Global Image Configuration
@@ -194,15 +174,15 @@ class ConfigService:
             "siliconflow_api_key": {"type": "password", "category": "image_service"},
             "default_ai_image_provider": {"type": "select", "category": "image_service", "default": "dalle"},
 
-            # Pollinations Configuration
-            "pollinations_api_token": {"type": "password", "category": "image_service"},
-            "pollinations_referrer": {"type": "text", "category": "image_service"},
-            "pollinations_model": {"type": "select", "category": "image_service", "default": "flux"},
+            # Pollinations Image Generation Configuration
+            "pollinations_api_key": {"type": "password", "category": "image_service"},
+            "pollinations_api_base": {"type": "url", "category": "image_service", "default": "https://gen.pollinations.ai"},
+            "pollinations_model": {"type": "text", "category": "image_service", "default": "flux"},
+            "pollinations_negative_prompt": {"type": "text", "category": "image_service", "default": "worst quality, blurry"},
             "pollinations_enhance": {"type": "boolean", "category": "image_service", "default": "false"},
             "pollinations_safe": {"type": "boolean", "category": "image_service", "default": "false"},
-            "pollinations_nologo": {"type": "boolean", "category": "image_service", "default": "false"},
-            "pollinations_private": {"type": "boolean", "category": "image_service", "default": "false"},
-            "pollinations_transparent": {"type": "boolean", "category": "image_service", "default": "false"},
+
+
 
             # Gemini Image Generation Configuration
             "gemini_image_api_key": {"type": "password", "category": "image_service"},
@@ -226,60 +206,11 @@ class ConfigService:
             "siliconflow_steps": {"type": "number", "category": "image_service", "default": 20},
             "siliconflow_guidance_scale": {"type": "number", "category": "image_service", "default": 7.5},
         }
-        self._ensure_runtime_schema_extensions()
-
-    def _ensure_runtime_schema_extensions(self) -> None:
-        """Backfill recently added config keys for long-lived service instances."""
-        self.config_schema.setdefault(
-            "openai_use_responses_api",
-            {"type": "boolean", "category": "ai_providers", "default": "false"},
-        )
-        self.config_schema.setdefault(
-            "openai_enable_reasoning",
-            {"type": "boolean", "category": "ai_providers", "default": "false"},
-        )
-        self.config_schema.setdefault(
-            "openai_reasoning_effort",
-            {"type": "select", "category": "ai_providers", "default": "medium"},
-        )
         
-
-    def _migrate_legacy_ai_defaults(self) -> None:
-        def _is_empty_env(key: str) -> bool:
-            return not (os.getenv(key) or "").strip()
-
-        updated = False
-
-        # Kimi: moonshot-v1-8k -> kimi-k2.5 (only when API key not configured)
-        if _is_empty_env("KIMI_API_KEY"):
-            if (os.getenv("KIMI_MODEL") or "").strip() == "moonshot-v1-8k":
-                set_key(self.env_file, "KIMI_MODEL", "kimi-k2.5", quote_mode="never")
-                os.environ["KIMI_MODEL"] = "kimi-k2.5"
-                updated = True
-
-        # MiniMax: legacy base URL / model -> new defaults (only when API key not configured)
-        if _is_empty_env("MINIMAX_API_KEY"):
-            minimax_url = (os.getenv("MINIMAX_BASE_URL") or "").strip()
-            if minimax_url in ("https://api.minimax.chat/v1", "https://api.minimaxi.com/v1"):
-                set_key(self.env_file, "MINIMAX_BASE_URL", "https://api.minimax.io/v1", quote_mode="never")
-                os.environ["MINIMAX_BASE_URL"] = "https://api.minimax.io/v1"
-                updated = True
-            minimax_model = (os.getenv("MINIMAX_MODEL") or "").strip()
-            if minimax_model in ("MiniMax-Text-01", "MiniMax-M2.1"):
-                set_key(self.env_file, "MINIMAX_MODEL", "MiniMax-M2.7", quote_mode="never")
-                os.environ["MINIMAX_MODEL"] = "MiniMax-M2.7"
-                updated = True
-
-        if updated:
-            try:
-                load_dotenv(self.env_file, override=True)
-            except Exception:
-                pass
 
     
     def get_all_config(self) -> Dict[str, Any]:
         """Get all configuration values"""
-        self._ensure_runtime_schema_extensions()
         config = {}
         
         for key, schema in self.config_schema.items():
@@ -296,22 +227,10 @@ class ConfigService:
             
             config[key] = value
         
-        # Ensure UI-visible defaults reflect current recommended values
-        if not (str(config.get("kimi_api_key") or "").strip()):
-            if (str(config.get("kimi_model") or "").strip()) in {"", "moonshot-v1-8k"}:
-                config["kimi_model"] = "kimi-k2.5"
-
-        if not (str(config.get("minimax_api_key") or "").strip()):
-            if (str(config.get("minimax_base_url") or "").strip()) in {"", "https://api.minimax.chat/v1", "https://api.minimaxi.com/v1"}:
-                config["minimax_base_url"] = "https://api.minimax.io/v1"
-            if (str(config.get("minimax_model") or "").strip()) in {"", "MiniMax-Text-01", "MiniMax-M2.1"}:
-                config["minimax_model"] = "MiniMax-M2.7"
-
         return config
-
+    
     def get_config_by_category(self, category: str) -> Dict[str, Any]:
         """Get configuration values by category"""
-        self._ensure_runtime_schema_extensions()
         config = {}
         
         for key, schema in self.config_schema.items():
@@ -328,23 +247,11 @@ class ConfigService:
                         value = value.lower() in ("true", "1", "yes", "on")
                 
                 config[key] = value
-
-        if category == "ai_providers":
-            if not (str(config.get("kimi_api_key") or "").strip()):
-                if (str(config.get("kimi_model") or "").strip()) in {"", "moonshot-v1-8k"}:
-                    config["kimi_model"] = "kimi-k2.5"
-
-            if not (str(config.get("minimax_api_key") or "").strip()):
-                if (str(config.get("minimax_base_url") or "").strip()) in {"", "https://api.minimax.chat/v1", "https://api.minimaxi.com/v1"}:
-                    config["minimax_base_url"] = "https://api.minimax.io/v1"
-                if (str(config.get("minimax_model") or "").strip()) in {"", "MiniMax-Text-01", "MiniMax-M2.1"}:
-                    config["minimax_model"] = "MiniMax-M2.7"
         
         return config
     
     def update_config(self, config: Dict[str, Any]) -> bool:
         """Update configuration values"""
-        self._ensure_runtime_schema_extensions()
         try:
             for key, value in config.items():
                 if key in self.config_schema:
@@ -449,36 +356,6 @@ class ConfigService:
             # 重新加载环境变量配置
             image_config._load_env_config()
 
-            # 同时更新Pollinations特定配置
-            current_config = self.get_all_config()
-            pollinations_updates = {}
-
-            # 映射配置项到Pollinations配置
-            if 'pollinations_api_token' in current_config:
-                pollinations_updates['api_token'] = current_config['pollinations_api_token']
-            if 'pollinations_referrer' in current_config:
-                pollinations_updates['referrer'] = current_config['pollinations_referrer']
-            if 'pollinations_model' in current_config:
-                pollinations_updates['model'] = current_config['pollinations_model']
-            if 'pollinations_enhance' in current_config:
-                value = current_config['pollinations_enhance']
-                pollinations_updates['default_enhance'] = value if isinstance(value, bool) else str(value).lower() == 'true'
-            if 'pollinations_safe' in current_config:
-                value = current_config['pollinations_safe']
-                pollinations_updates['default_safe'] = value if isinstance(value, bool) else str(value).lower() == 'true'
-            if 'pollinations_nologo' in current_config:
-                value = current_config['pollinations_nologo']
-                pollinations_updates['default_nologo'] = value if isinstance(value, bool) else str(value).lower() == 'true'
-            if 'pollinations_private' in current_config:
-                value = current_config['pollinations_private']
-                pollinations_updates['default_private'] = value if isinstance(value, bool) else str(value).lower() == 'true'
-            if 'pollinations_transparent' in current_config:
-                value = current_config['pollinations_transparent']
-                pollinations_updates['default_transparent'] = value if isinstance(value, bool) else str(value).lower() == 'true'
-
-            # 如果有Pollinations配置更新，应用它们
-            if pollinations_updates:
-                image_config.update_config({'pollinations': pollinations_updates})
 
             # 更新Gemini图片生成配置
             gemini_updates = {}
@@ -523,12 +400,10 @@ class ConfigService:
     
     def get_config_schema(self) -> Dict[str, Any]:
         """Get configuration schema"""
-        self._ensure_runtime_schema_extensions()
         return self.config_schema
     
     def validate_config(self, config: Dict[str, Any]) -> Dict[str, List[str]]:
         """Validate configuration values"""
-        self._ensure_runtime_schema_extensions()
         errors = {}
         
         for key, value in config.items():
@@ -615,5 +490,4 @@ config_service = ConfigService()
 
 def get_config_service() -> ConfigService:
     """Get config service instance"""
-    config_service._ensure_runtime_schema_extensions()
     return config_service

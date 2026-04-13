@@ -4,6 +4,9 @@ __pycache__/
 build/
 dist/
 lib/
+artifacts/
+temp/
+temp_inspect/
 research_reports/
 wheels/
 .claude/
@@ -14,6 +17,10 @@ prompts.md
 WARP.md
 CLAUDE.md
 .env
+.env.bak
+.pytest_cache/
+.data
+.uploads
 # Virtual environments
 .venv
 
@@ -22,8 +29,31 @@ temp/
 *.tmp
 *.cache
 *.db
-
+error.txt
 
 # uv cache and lock files
 .uv-cache/
-# Keep uv.lock for reproducible builds
+
+# OpenClaw local state
+.openclaw/
+
+# Local hub/lock state
+.clawdhub/
+
+# Runtime artifacts
+canvas/
+
+# Local test artifacts (do NOT ignore source code)
+*.pdf
+
+# Personal/session notes
+memory/
+
+# Workspace identity/config (keep private)
+AGENTS.md
+BOOTSTRAP.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md

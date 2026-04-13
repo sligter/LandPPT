@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .database import AsyncSessionLocal, async_engine
-from .models import Base
+from .models import Base, UserMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,137 @@ class DatabaseMigration:
             "up": self._migration_006_up,
             "down": self._migration_006_down
         })
+
+        # Migration 007: Add speech script language + narration audio cache
+        self.migrations.append({
+            "version": "007",
+            "name": "add_narration_audio_and_speech_language",
+            "description": "Add language column to speech_scripts and create narration_audios table",
+            "up": self._migration_007_up,
+            "down": self._migration_007_down
+        })
+
+        # Migration 008: Add cues_json to narration_audios for timed subtitles
+        self.migrations.append({
+            "version": "008",
+            "name": "add_narration_audio_cues_json",
+            "description": "Add cues_json column to narration_audios for subtitle timing",
+            "up": self._migration_008_up,
+            "down": self._migration_008_down
+        })
+
+        # Migration 009: Update LandPPT default model from legacy gpt-4o to MODEL1
+        self.migrations.append({
+            "version": "009",
+            "name": "update_landppt_default_model",
+            "description": "Update system default landppt_model from gpt-4o to MODEL1",
+            "up": self._migration_009_up,
+            "down": self._migration_009_down,
+        })
+
+        # Migration 010: Add per-user ownership for global master templates
+        self.migrations.append({
+            "version": "010",
+            "name": "add_user_scope_to_global_master_templates",
+            "description": "Add user_id column/index to global_master_templates for per-user isolation",
+            "up": self._migration_010_up,
+            "down": self._migration_010_down,
+        })
+
+        # Migration 011: Community operations schema
+        self.migrations.append({
+            "version": "011",
+            "name": "add_community_operations_schema",
+            "description": "Add invite codes, daily check-ins, sponsor profiles, and registration source fields",
+            "up": self._migration_011_up,
+            "down": self._migration_011_down,
+        })
+
+        # Migration 012: User metrics summary table
+        self.migrations.append({
+            "version": "012",
+            "name": "add_user_metrics_table",
+            "description": "Add aggregated user_metrics table and backfill existing users",
+            "up": self._migration_012_up,
+            "down": self._migration_012_down,
+        })
+
+    @staticmethod
+    def _dialect_name(session: AsyncSession) -> str:
+        try:
+            bind = session.get_bind()
+        except Exception:
+            bind = getattr(session, "bind", None)
+        try:
+            name = getattr(getattr(bind, "dialect", None), "name", None)
+            return str(name or "").lower()
+        except Exception:
+            return ""
+
+    async def _column_exists(self, session: AsyncSession, table_name: str, column_name: str) -> bool:
+        dialect = self._dialect_name(session)
+        table_name = (table_name or "").strip().lower()
+        column_name = (column_name or "").strip().lower()
+        if not table_name or not column_name:
+            return False
+
+        if dialect == "sqlite":
+            result = await session.execute(text(f"PRAGMA table_info({table_name})"))
+            columns = result.fetchall()
+            existing = {str(col[1]).lower() for col in columns}
+            return column_name in existing
+
+        # PostgreSQL / other SQL databases: use information_schema
+        result = await session.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = :table_name
+                  AND column_name = :column_name
+                LIMIT 1
+                """
+            ),
+            {"table_name": table_name, "column_name": column_name},
+        )
+        return result.first() is not None
+
+    async def _table_exists(self, session: AsyncSession, table_name: str) -> bool:
+        """Dialect-aware table existence check (sqlite/postgres)."""
+        dialect = self._dialect_name(session)
+        table_name = (table_name or "").strip().lower()
+        if not table_name:
+            return False
+
+        if dialect == "sqlite":
+            result = await session.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM sqlite_master
+                    WHERE type = 'table' AND lower(name) = :table_name
+                    LIMIT 1
+                    """
+                ),
+                {"table_name": table_name},
+            )
+            return result.first() is not None
+
+        # PostgreSQL / other SQL databases: use information_schema
+        result = await session.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = :table_name
+                LIMIT 1
+                """
+            ),
+            {"table_name": table_name},
+        )
+        return result.first() is not None
     
     async def _migration_001_up(self, session: AsyncSession):
         """Create initial schema"""
@@ -141,13 +272,7 @@ class DatabaseMigration:
 
         try:
             # Check if project_id column already exists
-            result = await session.execute(text("""
-                PRAGMA table_info(todo_stages)
-            """))
-            columns = result.fetchall()
-            column_names = [col[1] for col in columns]
-
-            if 'project_id' not in column_names:
+            if not await self._column_exists(session, "todo_stages", "project_id"):
                 # Add project_id column to todo_stages table
                 await session.execute(text("""
                     ALTER TABLE todo_stages
@@ -245,25 +370,30 @@ class DatabaseMigration:
         try:
             logger.info("Running migration 004: Adding PPT templates table")
 
-            # Create ppt_templates table
-            create_templates_table_sql = """
-            CREATE TABLE IF NOT EXISTS ppt_templates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id VARCHAR(36) NOT NULL,
-                template_type VARCHAR(50) NOT NULL,
-                template_name VARCHAR(255) NOT NULL,
-                description TEXT,
-                html_template TEXT NOT NULL,
-                applicable_scenarios JSON,
-                style_config JSON,
-                usage_count INTEGER DEFAULT 0,
-                created_at FLOAT NOT NULL,
-                updated_at FLOAT NOT NULL,
-                FOREIGN KEY (project_id) REFERENCES projects (project_id)
-            )
-            """
-
-            await session.execute(text(create_templates_table_sql))
+            dialect = self._dialect_name(session)
+            if dialect == "sqlite":
+                # Create ppt_templates table (SQLite-specific DDL)
+                create_templates_table_sql = """
+                CREATE TABLE IF NOT EXISTS ppt_templates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id VARCHAR(36) NOT NULL,
+                    template_type VARCHAR(50) NOT NULL,
+                    template_name VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    html_template TEXT NOT NULL,
+                    applicable_scenarios JSON,
+                    style_config JSON,
+                    usage_count INTEGER DEFAULT 0,
+                    created_at FLOAT NOT NULL,
+                    updated_at FLOAT NOT NULL,
+                    FOREIGN KEY (project_id) REFERENCES projects (project_id)
+                )
+                """
+                await session.execute(text(create_templates_table_sql))
+            else:
+                # For PostgreSQL/others, rely on SQLAlchemy metadata to create the table correctly.
+                conn = await session.connection()
+                await conn.run_sync(Base.metadata.create_all, checkfirst=True)
 
             # Create indexes for ppt_templates
             await session.execute(text("""
@@ -277,15 +407,16 @@ class DatabaseMigration:
             """))
 
             # Add template_id column to slide_data table
-            try:
-                await session.execute(text("""
-                    ALTER TABLE slide_data
-                    ADD COLUMN template_id INTEGER REFERENCES ppt_templates(id)
-                """))
-            except Exception as e:
-                # Column might already exist, check if it's a duplicate column error
-                if "duplicate column name" not in str(e).lower():
-                    raise
+            if not await self._column_exists(session, "slide_data", "template_id"):
+                await session.execute(
+                    text(
+                        """
+                        ALTER TABLE slide_data
+                        ADD COLUMN template_id INTEGER REFERENCES ppt_templates(id)
+                        """
+                    )
+                )
+            else:
                 logger.info("template_id column already exists in slide_data table")
 
             await session.commit()
@@ -352,13 +483,7 @@ class DatabaseMigration:
             logger.info("Running migration 005: Adding project_metadata column to projects table")
 
             # Check if project_metadata column already exists
-            result = await session.execute(text("""
-                PRAGMA table_info(projects)
-            """))
-            columns = result.fetchall()
-            column_names = [col[1] for col in columns]
-
-            if 'project_metadata' not in column_names:
+            if not await self._column_exists(session, "projects", "project_metadata"):
                 # Add project_metadata column to projects table
                 await session.execute(text("""
                     ALTER TABLE projects
@@ -437,18 +562,13 @@ class DatabaseMigration:
             logger.info("Running migration 006: Adding is_user_edited field to slide_data table")
 
             # Check if is_user_edited column already exists
-            result = await session.execute(text("""
-                PRAGMA table_info(slide_data)
-            """))
-            columns = result.fetchall()
-            column_names = [col[1] for col in columns]
-
-            if 'is_user_edited' not in column_names:
+            if not await self._column_exists(session, "slide_data", "is_user_edited"):
                 # Add is_user_edited column to slide_data table
+                default_value = "FALSE" if self._dialect_name(session).startswith("postgres") else "0"
                 await session.execute(text("""
                     ALTER TABLE slide_data
-                    ADD COLUMN is_user_edited BOOLEAN DEFAULT 0 NOT NULL
-                """))
+                    ADD COLUMN is_user_edited BOOLEAN DEFAULT {default_value} NOT NULL
+                """.format(default_value=default_value)))
                 logger.info("Added is_user_edited column to slide_data table")
             else:
                 logger.info("is_user_edited column already exists in slide_data table")
@@ -506,6 +626,603 @@ class DatabaseMigration:
         except Exception as e:
             await session.rollback()
             logger.error(f"Migration 006 rollback failed: {e}")
+            raise
+
+    async def _migration_007_up(self, session: AsyncSession):
+        """Migration 007: Add language column to speech_scripts and create narration_audios table."""
+        logger.info("Running migration 007: Adding speech script language and narration audio cache")
+        try:
+            dialect = self._dialect_name(session)
+
+            # 1) speech_scripts.language (avoid transaction abort on PG by checking first)
+            if not await self._column_exists(session, "speech_scripts", "language"):
+                if dialect.startswith("postgres"):
+                    await session.execute(
+                        text(
+                            "ALTER TABLE speech_scripts "
+                            "ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'zh'"
+                        )
+                    )
+                else:
+                    await session.execute(
+                        text("ALTER TABLE speech_scripts ADD COLUMN language VARCHAR(10) DEFAULT 'zh'")
+                    )
+                logger.info("Added language column to speech_scripts")
+            else:
+                logger.info("language column already exists in speech_scripts")
+
+            # Normalize existing rows (best-effort)
+            await session.execute(
+                text("UPDATE speech_scripts SET language='zh' WHERE language IS NULL OR language=''")
+            )
+
+            # Index for faster lookup by project/slide/language
+            await session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_speech_scripts_project_slide_lang "
+                    "ON speech_scripts(project_id, slide_index, language)"
+                )
+            )
+
+            # 2) narration_audios table
+            if dialect == "sqlite":
+                await session.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS narration_audios (
+                            id INTEGER PRIMARY KEY,
+                            project_id VARCHAR(36) NOT NULL,
+                            slide_index INTEGER NOT NULL,
+                            language VARCHAR(10) NOT NULL DEFAULT 'zh',
+                            provider VARCHAR(50) NOT NULL DEFAULT 'edge_tts',
+                            voice VARCHAR(100) NOT NULL,
+                            rate VARCHAR(20) NOT NULL DEFAULT '+0%',
+                            audio_format VARCHAR(10) NOT NULL DEFAULT 'mp3',
+                            content_hash VARCHAR(64) NOT NULL,
+                            file_path TEXT NOT NULL,
+                            duration_ms INTEGER,
+                            created_at FLOAT NOT NULL,
+                            updated_at FLOAT NOT NULL,
+                            UNIQUE(project_id, slide_index, language, provider, voice, rate, content_hash)
+                        )
+                        """
+                    )
+                )
+            else:
+                # Let SQLAlchemy create the table with correct PK/identity for the DB.
+                conn = await session.connection()
+                await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+
+            await session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_narration_audios_project_slide_lang "
+                    "ON narration_audios(project_id, slide_index, language)"
+                )
+            )
+            await session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_narration_audios_content_hash "
+                    "ON narration_audios(content_hash)"
+                )
+            )
+
+            await session.commit()
+            logger.info("Migration 007 completed successfully")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 007 failed: {e}")
+            raise
+
+    async def _migration_007_down(self, session: AsyncSession):
+        """Migration 007 rollback (best-effort): Drop narration_audios and remove speech_scripts.language on SQLite."""
+        logger.info("Rolling back migration 007: Removing narration_audios and speech_scripts.language")
+        try:
+            await session.execute(text("DROP INDEX IF EXISTS idx_narration_audios_project_slide_lang"))
+            await session.execute(text("DROP INDEX IF EXISTS idx_narration_audios_content_hash"))
+            await session.execute(text("DROP TABLE IF EXISTS narration_audios"))
+            await session.execute(text("DROP INDEX IF EXISTS idx_speech_scripts_project_slide_lang"))
+
+            # SQLite doesn't support DROP COLUMN; recreate speech_scripts without language.
+            try:
+                result = await session.execute(text("PRAGMA table_info(speech_scripts)"))
+                columns = result.fetchall()
+                column_names = [col[1] for col in columns]
+                if "language" in column_names:
+                    await session.execute(
+                        text(
+                            """
+                            CREATE TABLE speech_scripts_backup AS
+                            SELECT id, project_id, slide_index, slide_title, script_content, estimated_duration, speaker_notes,
+                                   generation_type, tone, target_audience, custom_audience, language_complexity, speaking_pace,
+                                   custom_style_prompt, include_transitions, include_timing_notes, created_at, updated_at
+                            FROM speech_scripts
+                            """
+                        )
+                    )
+                    await session.execute(text("DROP TABLE speech_scripts"))
+                    await session.execute(
+                        text(
+                            """
+                            CREATE TABLE speech_scripts (
+                                id INTEGER PRIMARY KEY,
+                                project_id VARCHAR(36) NOT NULL,
+                                slide_index INTEGER NOT NULL,
+                                slide_title VARCHAR(255) NOT NULL,
+                                script_content TEXT NOT NULL,
+                                estimated_duration VARCHAR(50),
+                                speaker_notes TEXT,
+                                generation_type VARCHAR(20) NOT NULL,
+                                tone VARCHAR(50) NOT NULL,
+                                target_audience VARCHAR(100) NOT NULL,
+                                custom_audience TEXT,
+                                language_complexity VARCHAR(20) NOT NULL,
+                                speaking_pace VARCHAR(20) NOT NULL,
+                                custom_style_prompt TEXT,
+                                include_transitions BOOLEAN NOT NULL DEFAULT 1,
+                                include_timing_notes BOOLEAN NOT NULL DEFAULT 0,
+                                created_at FLOAT NOT NULL,
+                                updated_at FLOAT NOT NULL
+                            )
+                            """
+                        )
+                    )
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO speech_scripts (
+                                id, project_id, slide_index, slide_title, script_content, estimated_duration, speaker_notes,
+                                generation_type, tone, target_audience, custom_audience, language_complexity, speaking_pace,
+                                custom_style_prompt, include_transitions, include_timing_notes, created_at, updated_at
+                            )
+                            SELECT
+                                id, project_id, slide_index, slide_title, script_content, estimated_duration, speaker_notes,
+                                generation_type, tone, target_audience, custom_audience, language_complexity, speaking_pace,
+                                custom_style_prompt, include_transitions, include_timing_notes, created_at, updated_at
+                            FROM speech_scripts_backup
+                            """
+                        )
+                    )
+                    await session.execute(text("DROP TABLE speech_scripts_backup"))
+            except Exception as column_error:
+                logger.warning(f"Rollback of speech_scripts.language skipped/failed: {column_error}")
+
+            await session.commit()
+            logger.info("Migration 007 rollback completed")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 007 rollback failed: {e}")
+            raise
+
+    async def _migration_008_up(self, session: AsyncSession):
+        """Migration 008: Add cues_json column to narration_audios for timed subtitles."""
+        logger.info("Applying migration 008: Adding cues_json to narration_audios")
+        try:
+            if not await self._table_exists(session, "narration_audios"):
+                logger.info("narration_audios table not found; skipping migration 008")
+                return
+
+            if await self._column_exists(session, "narration_audios", "cues_json"):
+                logger.info("cues_json already exists on narration_audios; skipping migration 008")
+                return
+
+            dialect = self._dialect_name(session)
+            if dialect == "sqlite":
+                await session.execute(text("ALTER TABLE narration_audios ADD COLUMN cues_json TEXT"))
+            else:
+                await session.execute(text("ALTER TABLE narration_audios ADD COLUMN IF NOT EXISTS cues_json TEXT"))
+
+            await session.commit()
+            logger.info("Migration 008 completed successfully")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 008 failed: {e}")
+            raise
+
+    async def _migration_008_down(self, session: AsyncSession):
+        """Migration 008 rollback (best-effort): Remove narration_audios.cues_json."""
+        logger.info("Rolling back migration 008: Removing narration_audios.cues_json")
+        try:
+            if not await self._table_exists(session, "narration_audios"):
+                return
+            if not await self._column_exists(session, "narration_audios", "cues_json"):
+                return
+
+            dialect = self._dialect_name(session)
+            if dialect == "sqlite":
+                # SQLite doesn't support DROP COLUMN in older versions; best-effort no-op.
+                logger.warning("SQLite DROP COLUMN not supported; skipping migration 008 down")
+                return
+
+            await session.execute(text("ALTER TABLE narration_audios DROP COLUMN IF EXISTS cues_json"))
+            await session.commit()
+            logger.info("Migration 008 rollback completed")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 008 rollback failed: {e}")
+            raise
+
+    async def _migration_009_up(self, session: AsyncSession):
+        """Migration 009: Update system default landppt_model from legacy gpt-4o to MODEL1."""
+        logger.info("Applying migration 009: Updating system default landppt_model to MODEL1")
+        try:
+            if not await self._table_exists(session, "user_configs"):
+                logger.info("user_configs table not found; skipping migration 009")
+                return
+
+            now = time.time()
+            await session.execute(
+                text(
+                    """
+                    UPDATE user_configs
+                    SET config_value = :new_value,
+                        updated_at = :now
+                    WHERE user_id IS NULL
+                      AND config_key = :key
+                      AND (config_value IS NULL OR TRIM(config_value) = :old_value)
+                    """
+                ),
+                {
+                    "new_value": "MODEL1",
+                    "old_value": "gpt-4o",
+                    "key": "landppt_model",
+                    "now": now,
+                },
+            )
+            await session.commit()
+            logger.info("Migration 009 completed successfully")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 009 failed: {e}")
+            raise
+
+    async def _migration_009_down(self, session: AsyncSession):
+        """Migration 009 rollback (best-effort): revert system default landppt_model to gpt-4o if currently MODEL1."""
+        logger.info("Rolling back migration 009: Reverting system default landppt_model to gpt-4o (best-effort)")
+        try:
+            if not await self._table_exists(session, "user_configs"):
+                return
+
+            now = time.time()
+            await session.execute(
+                text(
+                    """
+                    UPDATE user_configs
+                    SET config_value = :old_value,
+                        updated_at = :now
+                    WHERE user_id IS NULL
+                      AND config_key = :key
+                      AND TRIM(COALESCE(config_value, '')) = :new_value
+                    """
+                ),
+                {
+                    "new_value": "MODEL1",
+                    "old_value": "gpt-4o",
+                    "key": "landppt_model",
+                    "now": now,
+                },
+            )
+            await session.commit()
+            logger.info("Migration 009 rollback completed")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 009 rollback failed: {e}")
+            raise
+
+    async def _migration_010_up(self, session: AsyncSession):
+        """Migration 010: add user_id to global_master_templates for user isolation."""
+        logger.info("Applying migration 010: Adding user_id to global_master_templates")
+        try:
+            if not await self._table_exists(session, "global_master_templates"):
+                logger.info("global_master_templates table not found; skipping migration 010")
+                return
+
+            dialect = self._dialect_name(session)
+            if not await self._column_exists(session, "global_master_templates", "user_id"):
+                if dialect == "sqlite":
+                    await session.execute(
+                        text("ALTER TABLE global_master_templates ADD COLUMN user_id INTEGER")
+                    )
+                else:
+                    await session.execute(
+                        text(
+                            "ALTER TABLE global_master_templates "
+                            "ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"
+                        )
+                    )
+                logger.info("Added user_id column to global_master_templates")
+            else:
+                logger.info("user_id column already exists in global_master_templates")
+
+            # Move from global unique(template_name) to per-user uniqueness where possible.
+            if dialect.startswith("postgres"):
+                await session.execute(
+                    text(
+                        "ALTER TABLE global_master_templates "
+                        "DROP CONSTRAINT IF EXISTS global_master_templates_template_name_key"
+                    )
+                )
+            elif dialect == "sqlite":
+                # SQLite cannot drop table-level UNIQUE constraints without table rebuild.
+                # Legacy SQLite DBs may keep the old UNIQUE(template_name) behavior.
+                logger.warning(
+                    "SQLite legacy UNIQUE(template_name) cannot be dropped automatically; "
+                    "new per-user uniqueness index will still be created"
+                )
+
+            await session.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_global_master_templates_user_name "
+                    "ON global_master_templates(user_id, template_name) "
+                    "WHERE user_id IS NOT NULL"
+                )
+            )
+
+            await session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_global_master_templates_user_id "
+                    "ON global_master_templates(user_id)"
+                )
+            )
+
+            await session.commit()
+            logger.info("Migration 010 completed successfully")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 010 failed: {e}")
+            raise
+
+    async def _migration_010_down(self, session: AsyncSession):
+        """Migration 010 rollback (best-effort)."""
+        logger.info("Rolling back migration 010: Removing user scope from global_master_templates")
+        try:
+            if not await self._table_exists(session, "global_master_templates"):
+                return
+
+            await session.execute(text("DROP INDEX IF EXISTS idx_global_master_templates_user_id"))
+            await session.execute(text("DROP INDEX IF EXISTS uq_global_master_templates_user_name"))
+            if not await self._column_exists(session, "global_master_templates", "user_id"):
+                await session.commit()
+                return
+
+            dialect = self._dialect_name(session)
+            if dialect == "sqlite":
+                logger.warning("SQLite DROP COLUMN not supported; skipping migration 010 down column removal")
+                await session.commit()
+                return
+
+            await session.execute(
+                text("ALTER TABLE global_master_templates DROP COLUMN IF EXISTS user_id")
+            )
+            await session.commit()
+            logger.info("Migration 010 rollback completed")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 010 rollback failed: {e}")
+            raise
+
+    async def _migration_011_up(self, session: AsyncSession):
+        """Migration 011: add community operations schema."""
+        logger.info("Applying migration 011: Adding community operations schema")
+        try:
+            if not await self._column_exists(session, "users", "registration_channel"):
+                await session.execute(
+                    text("ALTER TABLE users ADD COLUMN registration_channel VARCHAR(20)")
+                )
+                logger.info("Added registration_channel column to users")
+
+            if not await self._column_exists(session, "users", "invite_code_id"):
+                await session.execute(
+                    text("ALTER TABLE users ADD COLUMN invite_code_id INTEGER")
+                )
+                logger.info("Added invite_code_id column to users")
+
+            conn = await session.connection()
+            await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+
+            await session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_users_registration_channel "
+                    "ON users(registration_channel)"
+                )
+            )
+            await session.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_users_invite_code_id "
+                    "ON users(invite_code_id)"
+                )
+            )
+            await session.execute(
+                text(
+                    "UPDATE users SET registration_channel = lower(oauth_provider) "
+                    "WHERE registration_channel IS NULL "
+                    "AND oauth_provider IN ('github', 'linuxdo')"
+                )
+            )
+            await session.commit()
+            logger.info("Migration 011 completed successfully")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 011 failed: {e}")
+            raise
+
+    async def _migration_011_down(self, session: AsyncSession):
+        """Migration 011 rollback (best-effort)."""
+        logger.info("Rolling back migration 011: Removing community operations schema")
+        try:
+            await session.execute(text("DROP TABLE IF EXISTS invite_code_usages"))
+            await session.execute(text("DROP TABLE IF EXISTS daily_checkins"))
+            await session.execute(text("DROP TABLE IF EXISTS sponsor_profiles"))
+            await session.execute(text("DROP TABLE IF EXISTS invite_codes"))
+            await session.execute(text("DROP INDEX IF EXISTS idx_users_registration_channel"))
+            await session.execute(text("DROP INDEX IF EXISTS idx_users_invite_code_id"))
+
+            dialect = self._dialect_name(session)
+            if dialect.startswith("postgres"):
+                await session.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS registration_channel"))
+                await session.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS invite_code_id"))
+            else:
+                logger.warning("SQLite DROP COLUMN not supported; keeping users.registration_channel/invite_code_id")
+
+            await session.commit()
+            logger.info("Migration 011 rollback completed")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 011 rollback failed: {e}")
+            raise
+
+    async def _migration_012_up(self, session: AsyncSession):
+        """Migration 012: add user_metrics table and backfill aggregates."""
+        logger.info("Applying migration 012: Adding user_metrics table")
+        try:
+            conn = await session.connection()
+            await conn.run_sync(Base.metadata.create_all, tables=[UserMetrics.__table__], checkfirst=True)
+
+            user_rows = await session.execute(
+                text(
+                    """
+                    SELECT id, created_at, last_login
+                    FROM users
+                    ORDER BY id
+                    """
+                )
+            )
+
+            now = time.time()
+            for user_id, created_at, last_login in user_rows.fetchall():
+                project_stats = await session.execute(
+                    text(
+                        """
+                        SELECT
+                            COUNT(*) AS projects_count,
+                            MAX(created_at) AS last_project_created_at,
+                            MAX(updated_at) AS last_project_updated_at
+                        FROM projects
+                        WHERE user_id = :user_id
+                        """
+                    ),
+                    {"user_id": user_id},
+                )
+                projects_count, last_project_created_at, last_project_updated_at = project_stats.one()
+
+                credit_stats = await session.execute(
+                    text(
+                        """
+                        SELECT
+                            COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS credits_consumed_total,
+                            COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS credits_recharged_total,
+                            MAX(CASE WHEN amount < 0 THEN created_at ELSE NULL END) AS last_credit_consumed_at,
+                            MAX(CASE WHEN amount > 0 THEN created_at ELSE NULL END) AS last_credit_recharged_at
+                        FROM credit_transactions
+                        WHERE user_id = :user_id
+                        """
+                    ),
+                    {"user_id": user_id},
+                )
+                (
+                    credits_consumed_total,
+                    credits_recharged_total,
+                    last_credit_consumed_at,
+                    last_credit_recharged_at,
+                ) = credit_stats.one()
+
+                last_active_candidates = [
+                    value
+                    for value in (
+                        last_project_updated_at,
+                        last_credit_consumed_at,
+                        last_credit_recharged_at,
+                        last_login,
+                        created_at,
+                    )
+                    if value is not None
+                ]
+                last_active_at = max(last_active_candidates) if last_active_candidates else now
+
+                existing = await session.execute(
+                    text("SELECT 1 FROM user_metrics WHERE user_id = :user_id LIMIT 1"),
+                    {"user_id": user_id},
+                )
+
+                params = {
+                    "user_id": user_id,
+                    "last_active_at": last_active_at,
+                    "projects_count": int(projects_count or 0),
+                    "credits_consumed_total": int(credits_consumed_total or 0),
+                    "credits_recharged_total": int(credits_recharged_total or 0),
+                    "last_project_created_at": last_project_created_at,
+                    "last_credit_consumed_at": last_credit_consumed_at,
+                    "last_credit_recharged_at": last_credit_recharged_at,
+                    "created_at": float(created_at or now),
+                    "updated_at": now,
+                }
+
+                if existing.first():
+                    await session.execute(
+                        text(
+                            """
+                            UPDATE user_metrics
+                            SET last_active_at = :last_active_at,
+                                projects_count = :projects_count,
+                                credits_consumed_total = :credits_consumed_total,
+                                credits_recharged_total = :credits_recharged_total,
+                                last_project_created_at = :last_project_created_at,
+                                last_credit_consumed_at = :last_credit_consumed_at,
+                                last_credit_recharged_at = :last_credit_recharged_at,
+                                updated_at = :updated_at
+                            WHERE user_id = :user_id
+                            """
+                        ),
+                        params,
+                    )
+                else:
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO user_metrics (
+                                user_id,
+                                last_active_at,
+                                projects_count,
+                                credits_consumed_total,
+                                credits_recharged_total,
+                                last_project_created_at,
+                                last_credit_consumed_at,
+                                last_credit_recharged_at,
+                                created_at,
+                                updated_at
+                            ) VALUES (
+                                :user_id,
+                                :last_active_at,
+                                :projects_count,
+                                :credits_consumed_total,
+                                :credits_recharged_total,
+                                :last_project_created_at,
+                                :last_credit_consumed_at,
+                                :last_credit_recharged_at,
+                                :created_at,
+                                :updated_at
+                            )
+                            """
+                        ),
+                        params,
+                    )
+
+            await session.commit()
+            logger.info("Migration 012 completed successfully")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 012 failed: {e}")
+            raise
+
+    async def _migration_012_down(self, session: AsyncSession):
+        """Migration 012 rollback."""
+        logger.info("Rolling back migration 012: Removing user_metrics table")
+        try:
+            await session.execute(text("DROP TABLE IF EXISTS user_metrics"))
+            await session.commit()
+            logger.info("Migration 012 rollback completed")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Migration 012 rollback failed: {e}")
             raise
 
     async def _create_migration_table(self, session: AsyncSession):

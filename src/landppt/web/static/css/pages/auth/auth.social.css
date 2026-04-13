@@ -1,0 +1,111 @@
+/* Social Login Styles */
+.social-login {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+}
+
+.social-login .divider {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.social-login .divider::before,
+.social-login .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+.social-login .divider span {
+    padding: 0 8px;
+}
+
+.btn-github {
+    width: 100%;
+    background: #24292f;
+    color: #ffffff;
+    border: 1px solid #24292f;
+    padding: 14px 16px;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform var(--transition), background var(--transition), box-shadow var(--transition);
+}
+
+.btn-github:hover {
+    transform: translateY(-2px);
+    background: #1c2127;
+    box-shadow: 0 4px 12px rgba(36, 41, 47, 0.35);
+}
+
+.btn-github:active {
+    transform: translateY(0);
+}
+
+.btn-github i {
+    font-size: 1.15rem;
+}
+
+/* Linux Do Button */
+.btn-linuxdo {
+    width: 100%;
+    background: #0b0b0d;
+    color: #ffffff;
+    border: 1px solid #0b0b0d;
+    box-shadow: 0 4px 12px rgba(11, 11, 13, 0.35);
+    padding: 14px 16px;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: transform var(--transition), background var(--transition), box-shadow var(--transition);
+}
+
+.btn-linuxdo:hover {
+    transform: translateY(-2px);
+    background: #1c2127;
+    box-shadow: 0 4px 12px rgba(11, 11, 13, 0.45);
+}
+
+.btn-linuxdo:active {
+    transform: translateY(0);
+    background: #0b0b0d;
+}
+
+.btn-linuxdo i {
+    font-size: 1.15rem;
+    color: inherit;
+}
+
+.btn-linuxdo .linuxdo-icon {
+    width: 1.15rem;
+    height: 1.15rem;
+    max-width: 1.15rem;
+    max-height: 1.15rem;
+    flex: 0 0 auto;
+    display: block;
+    border-radius: 999px;
+    object-fit: contain;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
+}

@@ -1,11 +1,8 @@
-"""
-生成器模块 - 包含PPT生成器和处理链
-"""
-
 from .chains import ChainManager
 
-# Note: PPTOutlineGenerator is not imported here to avoid langgraph dependency issues
-# Import it directly when needed: from summeryanyfile.generators.ppt_generator import PPTOutlineGenerator
+# 这里不导入 PPTOutlineGenerator，避免引入 langgraph 相关依赖问题。
+# 需要时请直接使用：
+# from summeryanyfile.generators.ppt_generator import PPTOutlineGenerator
 
 __all__ = [
     "ChainManager",

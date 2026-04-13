@@ -386,6 +386,7 @@ async function adjustTemplate() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'text/event-stream'
             },
             body: JSON.stringify(requestData)
         });

@@ -1,0 +1,920 @@
+/* 快速编辑模式样式 */
+.quick-edit-mode .slide-frame {
+    cursor: pointer;
+}
+
+/* 可编辑元素高亮样式 */
+.quick-edit-highlight {
+    outline: 2px solid rgba(67, 233, 123, 0.6) !important;
+    outline-offset: 2px !important;
+    cursor: text !important;
+    transition: outline-color 0.2s ease, outline-offset 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease !important;
+    position: relative !important;
+    box-shadow: 0 0 0 1px rgba(67, 233, 123, 0.16) !important;
+}
+
+.quick-edit-highlight:hover {
+    outline-color: rgba(67, 233, 123, 0.8) !important;
+    box-shadow: 0 0 0 2px rgba(67, 233, 123, 0.18) !important;
+    transform: scale(1.02) !important;
+}
+
+.quick-edit-highlight::before {
+    content: ' ';
+    position: absolute !important;
+    top: -8px !important;
+    right: -8px !important;
+    background: rgba(67, 233, 123, 0.9) !important;
+    color: white !important;
+    border-radius: 50% !important;
+    width: 20px !important;
+    height: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 10px !important;
+    z-index: 1000 !important;
+    box-shadow: 0 2px 4px rgba(67, 233, 123, 0.3) !important;
+}
+
+/* 直接编辑状态样式 */
+.direct-editing {
+    outline: 2px solid #4facfe !important;
+    outline-offset: 2px !important;
+    transition: outline-color 0.2s ease, outline-offset 0.2s ease, box-shadow 0.2s ease !important;
+    position: relative !important;
+    box-shadow: 0 0 0 2px rgba(79, 172, 254, 0.16) !important;
+}
+
+/* 魔术棒按钮样式 */
+.magic-wand-btn {
+    background: var(--accent-strong) !important;
+    color: var(--accent-contrast) !important;
+    border: none !important;
+    border-radius: 50% !important;
+    width: 28px !important;
+    height: 28px !important;
+    cursor: pointer !important;
+    margin-left: 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 14px !important;
+    transition: all 0.3s ease !important;
+    opacity: 0.7 !important;
+    position: relative !important;
+    overflow: hidden !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+}
+
+.magic-wand-btn::before {
+    content: none !important;
+}
+
+.magic-wand-btn:hover {
+    opacity: 1 !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3) !important;
+    background: #1f1f1f !important;
+}
+
+.magic-wand-btn:active {
+    transform: translateY(0) !important;
+}
+
+.magic-wand-btn:disabled {
+    opacity: 0.5 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+}
+
+.magic-wand-btn:disabled:hover {
+    transform: none !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* 删除要点按钮样式 */
+.delete-bullet-btn {
+    background: #dc3545 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 50% !important;
+    width: 28px !important;
+    height: 28px !important;
+    cursor: pointer !important;
+    margin-left: 4px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 12px !important;
+    transition: all 0.3s ease !important;
+    opacity: 0.7 !important;
+    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3) !important;
+}
+
+.delete-bullet-btn:hover {
+    opacity: 1 !important;
+    transform: translateY(-2px) scale(1.1) !important;
+    box-shadow: 0 4px 15px rgba(220, 53, 69, 0.5) !important;
+    background: #c82333 !important;
+}
+
+.delete-bullet-btn:active {
+    transform: translateY(0) scale(1.05) !important;
+}
+
+/* 要点项悬停效果 */
+.bullet-point-item:hover .delete-bullet-btn {
+    opacity: 1 !important;
+}
+
+.bullet-point-item:hover {
+    background: rgba(0, 0, 0, 0.02) !important;
+    border-radius: 6px !important;
+    transform: translateX(2px) !important;
+}
+
+/* 大纲编辑弹窗按钮样式 */
+.outline-modal-btn {
+    background: var(--accent-contrast);
+    color: var(--accent-strong);
+    border: 1px solid var(--accent-strong);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: 0.01em;
+}
+
+.outline-modal-btn:hover {
+    background: var(--accent-strong);
+    color: var(--accent-contrast);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.outline-modal-btn:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+.outline-modal-btn--solid {
+    background: var(--accent-strong);
+    color: var(--accent-contrast);
+}
+
+.outline-modal-btn--solid:hover {
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+}
+
+.outline-modal-btn i {
+    font-size: 14px;
+}
+
+.outline-modal-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.outline-modal-btn:disabled:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* 增强所有要点按钮样式 */
+.enhance-all-btn {
+    background: var(--accent-contrast) !important;
+    color: var(--accent-strong) !important;
+    border: 1px solid var(--accent-strong) !important;
+    gap: 6px !important;
+}
+
+.enhance-all-btn:hover {
+    background: var(--accent-strong) !important;
+    color: var(--accent-contrast) !important;
+}
+
+/* 直接编辑样式 - 简化版，无悬浮提示 */
+
+.direct-editing:focus {
+    outline-color: #2980b9 !important;
+    box-shadow: 0 0 0 2px rgba(79, 172, 254, 0.22) !important;
+}
+
+/* 内联编辑器样式 */
+.inline-editor {
+    position: absolute;
+    background: white;
+    border: 2px solid rgba(79, 172, 254, 0.6);
+    border-radius: var(--border-radius-md);
+    box-shadow: 0 8px 25px rgba(31, 38, 135, 0.3);
+    z-index: 2000;
+    min-width: 200px;
+    max-width: 500px;
+    padding: var(--spacing-sm);
+    backdrop-filter: blur(15px);
+}
+
+.inline-editor-input {
+    width: 100%;
+    border: none;
+    outline: none;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    background: transparent;
+    resize: none;
+    min-height: 30px;
+    padding: var(--spacing-xs);
+}
+
+.inline-editor-toolbar {
+    display: flex;
+    gap: var(--spacing-xs);
+    align-items: center;
+    justify-content: flex-end;
+    margin-top: var(--spacing-xs);
+    padding-top: var(--spacing-xs);
+    border-top: 1px solid rgba(79, 172, 254, 0.2);
+}
+
+.inline-editor-btn {
+    background: rgba(79, 172, 254, 0.1);
+    border: 1px solid rgba(79, 172, 254, 0.3);
+    color: rgba(79, 172, 254, 0.8);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.3s ease;
+}
+
+.inline-editor-btn:hover {
+    background: rgba(79, 172, 254, 0.2);
+    border-color: rgba(79, 172, 254, 0.5);
+    color: rgba(79, 172, 254, 1);
+}
+
+.inline-editor-btn.primary {
+    background: rgba(67, 233, 123, 0.1);
+    border-color: rgba(67, 233, 123, 0.3);
+    color: rgba(67, 233, 123, 0.8);
+}
+
+.inline-editor-btn.primary:hover {
+    background: rgba(67, 233, 123, 0.2);
+    border-color: rgba(67, 233, 123, 0.5);
+    color: rgba(67, 233, 123, 1);
+}
+
+/* ========== 快速编辑工具栏样式 ========== */
+.quick-edit-toolbar {
+    position: fixed;
+    top: 80px;
+    /* 计算居中位置：左侧边栏260px，留出一些边距 */
+    left: calc(260px + (100vw - 260px) / 2);
+    transform: translateX(-50%);
+    background: rgba(30, 30, 30, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 1500;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-wrap: nowrap;
+    max-width: calc(100vw - 300px);
+}
+
+.quick-edit-toolbar.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* ========== 快捷 AI 元素编辑浮窗 ========== */
+.quick-ai-edit-popover {
+    position: fixed;
+    z-index: 1600;
+    width: 360px;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    min-width: 280px;
+    min-height: 56px;
+    background: rgba(20, 20, 20, 0.92);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    color: rgba(255, 255, 255, 0.9);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+    pointer-events: none;
+    overflow: hidden;
+    resize: both;
+}
+
+.quick-ai-edit-popover.visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+/* 等待状态：从上到下扫描浮窗 */
+.quick-ai-edit-popover.loading::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    pointer-events: none;
+}
+
+.quick-ai-edit-popover.loading::after {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 8px;
+    height: 38px;
+    border-radius: 10px;
+    background: linear-gradient(180deg,
+            rgba(79, 172, 254, 0) 0%,
+            rgba(79, 172, 254, 0.35) 45%,
+            rgba(79, 172, 254, 0) 100%);
+    box-shadow: 0 0 22px rgba(79, 172, 254, 0.18);
+    animation: quickAiScan 1.15s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.quick-ai-edit-popover.minimized::before,
+.quick-ai-edit-popover.minimized::after {
+    display: none;
+}
+
+.quick-ai-edit-popover.minimized .quick-ai-edit-popover-body {
+    display: none;
+}
+
+@keyframes quickAiScan {
+    0% {
+        top: 8px;
+        opacity: 0;
+    }
+
+    12% {
+        opacity: 1;
+    }
+
+    88% {
+        opacity: 1;
+    }
+
+    100% {
+        top: calc(100% - 46px);
+        opacity: 0;
+    }
+}
+
+.quick-ai-edit-popover-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 8px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: move;
+    user-select: none;
+}
+
+.quick-ai-edit-popover-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.quick-ai-edit-popover.loading.minimized .quick-ai-edit-popover-title i {
+    animation: quickAiPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes quickAiPulse {
+    0% {
+        transform: scale(1);
+        opacity: 0.75;
+    }
+
+    50% {
+        transform: scale(1.12);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 0.75;
+    }
+}
+
+.quick-ai-edit-popover-close,
+.quick-ai-edit-popover-minimize,
+.quick-ai-edit-popover-vision {
+    width: 26px;
+    height: 26px;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.8);
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.quick-ai-edit-popover-close:hover,
+.quick-ai-edit-popover-minimize:hover,
+.quick-ai-edit-popover-vision:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+}
+
+.quick-ai-edit-popover-vision.active {
+    background: rgba(79, 172, 254, 0.22);
+    color: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(79, 172, 254, 0.35);
+}
+
+.quick-ai-edit-popover-body {
+    padding: 10px 12px 12px 12px;
+}
+
+.quick-ai-edit-input {
+    width: 100%;
+    min-height: 74px;
+    max-height: 160px;
+    resize: vertical;
+    border-radius: 10px;
+    padding: 10px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.92);
+    outline: none;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.quick-ai-edit-input:focus {
+    border-color: rgba(79, 172, 254, 0.65);
+    box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.18);
+}
+
+.quick-ai-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.quick-ai-edit-btn {
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.9);
+    padding: 6px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    transition: all 0.15s ease;
+}
+
+.quick-ai-edit-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.quick-ai-edit-btn.primary {
+    background: rgba(79, 172, 254, 0.18);
+    border-color: rgba(79, 172, 254, 0.35);
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.quick-ai-edit-btn.primary:hover {
+    background: rgba(79, 172, 254, 0.26);
+    border-color: rgba(79, 172, 254, 0.55);
+}
+
+.quick-ai-edit-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.quick-ai-edit-status {
+    margin-top: 8px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    display: none;
+}
+
+.quick-ai-edit-status.visible {
+    display: block;
+}
+
+.quick-ai-edit-status.loading {
+    color: rgba(255, 255, 255, 0.78);
+}
+
+.quick-ai-edit-status.loading::after {
+    content: "";
+    display: inline-block;
+    width: 18px;
+    height: 10px;
+    margin-left: 8px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.75) 2px, transparent 2.5px) 0 50% / 6px 10px no-repeat,
+        radial-gradient(circle, rgba(255, 255, 255, 0.55) 2px, transparent 2.5px) 6px 50% / 6px 10px no-repeat,
+        radial-gradient(circle, rgba(255, 255, 255, 0.35) 2px, transparent 2.5px) 12px 50% / 6px 10px no-repeat;
+    animation: quickAiDots 1.05s ease-in-out infinite;
+    vertical-align: middle;
+}
+
+@keyframes quickAiDots {
+    0% {
+        filter: brightness(0.85);
+        transform: translateY(0);
+        opacity: 0.7;
+    }
+
+    50% {
+        filter: brightness(1.2);
+        transform: translateY(-1px);
+        opacity: 1;
+    }
+
+    100% {
+        filter: brightness(0.85);
+        transform: translateY(0);
+        opacity: 0.7;
+    }
+}
+
+.quick-edit-toolbar .toolbar-divider {
+    width: 1px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.2);
+    margin: 0 3px;
+}
+
+.quick-edit-tool-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.7);
+    transition: all 0.2s ease;
+    font-size: 12px;
+}
+
+.quick-edit-tool-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+}
+
+.quick-edit-tool-btn:active {
+    transform: scale(0.95);
+}
+
+.quick-edit-tool-btn.danger:hover {
+    background: rgba(220, 53, 69, 0.3);
+    color: #ff6b6b;
+}
+
+.quick-edit-tool-btn.reset:hover {
+    background: rgba(255, 193, 7, 0.3);
+    color: #ffc107;
+}
+
+.quick-edit-tool-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* 工具栏状态指示器 */
+.toolbar-status {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    padding: 2px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    white-space: nowrap;
+}
+
+.toolbar-status.visible {
+    opacity: 1;
+}
+
+.toolbar-status.success {
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.15);
+}
+
+.toolbar-status.warning {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.15);
+}
+
+.toolbar-status.info {
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.15);
+}
+
+/* 颜色选择器样式 */
+.quick-edit-color-input {
+    width: 22px;
+    height: 22px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0;
+    background: transparent;
+}
+
+.quick-edit-color-input::-webkit-color-swatch-wrapper {
+    padding: 1px;
+}
+
+.quick-edit-color-input::-webkit-color-swatch {
+    border: none;
+    border-radius: 2px;
+}
+
+.quick-edit-tool-btn.active {
+    background: rgba(79, 172, 254, 0.4);
+    color: #4facfe;
+}
+
+/* 选中元素样式 */
+.quick-edit-element-selected {
+    outline: 2px solid #4facfe !important;
+    outline-offset: 2px !important;
+    position: relative !important;
+    cursor: move !important;
+}
+
+/* 调整大小手柄 */
+.resize-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: #4facfe;
+    border: 2px solid white;
+    border-radius: 2px;
+    z-index: 1001;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.resize-handle.nw {
+    top: -5px;
+    left: -5px;
+    cursor: nw-resize;
+}
+
+.resize-handle.ne {
+    top: -5px;
+    right: -5px;
+    cursor: ne-resize;
+}
+
+.resize-handle.sw {
+    bottom: -5px;
+    left: -5px;
+    cursor: sw-resize;
+}
+
+.resize-handle.se {
+    bottom: -5px;
+    right: -5px;
+    cursor: se-resize;
+}
+
+/* 拖拽中状态 */
+.quick-edit-dragging {
+    opacity: 0.7 !important;
+    cursor: grabbing !important;
+}
+
+/* 快速编辑模式提示 */
+.quick-edit-mode-hint {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface-contrast);
+    color: var(--surface);
+    padding: 10px 20px;
+    border-radius: var(--border-radius-lg);
+    font-size: 13px;
+    z-index: 1500;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 图片选择菜单样式 */
+.image-select-menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeInOverlay 0.3s ease-out;
+}
+
+.image-select-content {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--border-radius-xl);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    width: 400px;
+    max-width: 90vw;
+    overflow: hidden;
+    animation: slideInPreview 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.image-select-header {
+    background: var(--primary-gradient);
+    color: var(--glass-text);
+    padding: var(--spacing-md) var(--spacing-lg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.image-select-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+        radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.05) 0%, transparent 50%);
+    pointer-events: none;
+}
+
+.image-select-header h4 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.image-select-close {
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    color: var(--glass-text);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+}
+
+.image-select-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: scale(1.1);
+}
+
+.image-select-options {
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.image-select-option {
+    background: var(--glass-bg);
+    backdrop-filter: blur(15px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--border-radius-md);
+    padding: var(--spacing-md);
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    position: relative;
+    overflow: hidden;
+}
+
+.image-select-option::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(79, 172, 254, 0.1), transparent);
+    transition: left 0.6s;
+}
+
+.image-select-option:hover {
+    background: rgba(79, 172, 254, 0.1);
+    border-color: rgba(79, 172, 254, 0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(79, 172, 254, 0.2);
+}
+
+.image-select-option:hover::before {
+    left: 100%;
+}
+
+.image-select-option i {
+    font-size: 1.5rem;
+    color: rgba(79, 172, 254, 0.8);
+    margin-bottom: var(--spacing-xs);
+}
+
+.image-select-option span {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    position: relative;
+    z-index: 1;
+}
+
+.image-select-option small {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    position: relative;
+    z-index: 1;
+}
+

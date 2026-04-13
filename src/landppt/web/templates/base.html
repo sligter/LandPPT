@@ -8,6 +8,7 @@
     <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
     <link rel="alternate icon" href="/favicon.ico">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/shared/site_notice.css">
     <style>
         @import url('https://fonts.loli.net/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -191,6 +192,31 @@
             border: 1px solid var(--glass-border);
             border-radius: var(--border-radius-lg);
             box-shadow: var(--shadow-soft);
+        }
+
+        .footer-links {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: 6px;
+        }
+
+        .footer-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: inherit;
+            text-decoration: none;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        .footer-link:hover {
+            transform: translateY(-1px);
+            opacity: 1;
+        }
+
+        .footer-link.is-hidden {
+            display: none;
         }
 
         .form-group {
@@ -442,7 +468,9 @@
 </head>
 
 <body>
+    {% set current_user = user if user else request.state.user %}
     <div class="container">
+        <div id="globalSiteNotice" class="site-notice site-notice--hidden" hidden></div>
         <header class="header">
             <h1>
                 <span style="display: inline-flex; align-items: center; gap: 12px;">
@@ -463,7 +491,19 @@
                     <!-- <a href="/docs"><i class="fas fa-book"></i> API文档</a> -->
                 </div>
 
+                {% if current_user %}
                 <div class="nav-user">
+                    {% if current_user and credits_enabled %}
+                    <a href="/credits" title="我的积分">
+                        <i class="fas fa-coins"></i> 积分
+                    </a>
+                    {% endif %}
+                    {% if current_user and current_user.is_admin %}
+                    <a href="/admin" title="管理后台"
+                        style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3);">
+                        <i class="fas fa-cog"></i> 管理
+                    </a>
+                    {% endif %}
                     <a href="/auth/profile" title="个人资料">
                         <i class="fas fa-user"></i> 个人资料
                     </a>
@@ -471,7 +511,18 @@
                         <i class="fas fa-sign-out-alt"></i> 退出
                     </a>
                 </div>
+                {% else %}
+                <div class="nav-user">
+                    <a href="/auth/login" title="登录">
+                        <i class="fas fa-sign-in-alt"></i> 登录
+                    </a>
+                    <a href="/auth/login?tab=register" title="注册">
+                        <i class="fas fa-user-plus"></i> 注册
+                    </a>
+                </div>
+                {% endif %}
             </nav>
+
         </header>
 
         <main class="main-content">
@@ -479,12 +530,31 @@
         </main>
 
         <footer class="footer">
-            <p>&copy; 2026 LandPPT(v0.1.9) - AI PPT Generator. <a href="https://github.com/sligter/LandPPT"
-                    target="_blank" style="color: inherit; text-decoration: none;"><i
-                        class="fab fa-github footer-github-icon" style="margin-left: 6px;"></i></a></p>
+            <p>&copy; 2026 LandPPT(v0.3.0) - AI PPT Generator.
+                <span class="footer-links">
+                    <a href="https://github.com/sligter/LandPPT" target="_blank" class="footer-link" title="GitHub"
+                        aria-label="GitHub">
+                        <i class="fab fa-github footer-github-icon"></i>
+                    </a>
+                    <a href="/sponsors" id="footerSponsorLink" class="footer-link is-hidden" title="赞助感谢页"
+                        aria-label="赞助感谢页">
+                        <i class="fas fa-heart"></i>
+                    </a>
+                    <a href="mailto:support@landppt.com" title="商务合作" class="footer-link" aria-label="商务合作">
+                        <i class="fas fa-envelope"></i>
+                    </a>
+                </span>
+            </p>
         </footer>
     </div>
 
+    <script src="/static/js/shared/site_notice.js?v=20260322"></script>
+    <script>
+        window.SiteNotice?.loadPublicSettings({
+            noticeContainer: 'globalSiteNotice',
+            sponsorLink: 'footerSponsorLink',
+        });
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 

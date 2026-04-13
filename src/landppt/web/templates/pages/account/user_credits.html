@@ -1,0 +1,652 @@
+{% extends "base.html" %}
+{% set credits_enabled = True %}
+
+{% block title %}我的积分 - LandPPT{% endblock %}
+
+{% block extra_css %}
+<style>
+    .credits-wrap {
+        display: grid;
+        gap: 18px;
+    }
+
+    .credits-hero {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 18px 18px;
+        border-radius: var(--border-radius-xl);
+        border: 1px solid var(--border-color);
+        background: var(--surface);
+        box-shadow: var(--shadow-soft);
+        overflow: hidden;
+        position: relative;
+    }
+
+    .credits-hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(900px 320px at 10% 0%, rgba(17, 24, 39, 0.10), transparent 60%),
+            radial-gradient(900px 320px at 90% 0%, rgba(15, 23, 42, 0.08), transparent 60%);
+        pointer-events: none;
+    }
+
+    .credits-hero h2 {
+        font-size: 1.5rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin-bottom: 6px;
+        position: relative;
+    }
+
+    .credits-hero p {
+        color: var(--text-secondary);
+        font-weight: 600;
+        font-size: 0.95rem;
+        position: relative;
+    }
+
+    .credits-hint {
+        margin-top: 10px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: var(--ink-strong);
+        background: rgba(17, 24, 39, 0.06);
+        border: 1px solid rgba(17, 24, 39, 0.14);
+        border-left: 4px solid rgba(17, 24, 39, 0.85);
+        border-radius: var(--border-radius-md);
+        padding: 10px 12px;
+        line-height: 1.55;
+        position: relative;
+    }
+
+    .credits-hint a {
+        color: inherit;
+        text-decoration: underline;
+        font-weight: 800;
+    }
+
+    .credits-alerts {
+        min-width: 260px;
+        position: relative;
+    }
+
+    .credits-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .credits-card {
+        background: var(--surface);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-lg);
+        box-shadow: var(--shadow-soft);
+        padding: 16px 16px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .credits-card.primary {
+        background: var(--primary-gradient);
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.10);
+    }
+
+    .credits-card .label {
+        color: var(--text-secondary);
+        font-weight: 700;
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+    }
+
+    .credits-card.primary .label {
+        color: rgba(255, 255, 255, 0.75);
+    }
+
+    .credits-card .value {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 2.0rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+    }
+
+    .credits-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: 14px;
+        align-items: start;
+    }
+
+    .credits-section {
+        background: var(--surface);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-xl);
+        box-shadow: var(--shadow-soft);
+        overflow: hidden;
+    }
+
+    .credits-section-header {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .credits-section-header h3 {
+        font-size: 1.05rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .credits-section-body {
+        padding: 16px 16px;
+    }
+
+    .redeem-form {
+        display: flex;
+        gap: 10px;
+        align-items: stretch;
+    }
+
+    .redeem-form input {
+        flex: 1;
+        padding: 12px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+        font-size: 1rem;
+        text-transform: uppercase;
+        font-weight: 700;
+    }
+
+    .redeem-form input:focus {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.08);
+        border-color: rgba(17, 24, 39, 0.35);
+    }
+
+    .pricing-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+    }
+
+    .pricing-item {
+        background: var(--surface-subtle);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+        padding: 12px;
+        display: grid;
+        gap: 6px;
+    }
+
+    .pricing-cost {
+        font-weight: 900;
+        font-size: 1.1rem;
+        color: var(--ink-strong);
+    }
+
+    .pricing-desc {
+        color: var(--text-secondary);
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .checkin-panel {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .checkin-copy {
+        display: grid;
+        gap: 6px;
+    }
+
+    .checkin-copy strong {
+        font-size: 1.05rem;
+        font-weight: 800;
+    }
+
+    .checkin-meta {
+        color: var(--text-secondary);
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+
+    .muted {
+        color: var(--text-secondary);
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    th,
+    td {
+        padding: 12px 12px;
+        border-bottom: 1px solid var(--border-color);
+        text-align: left;
+        vertical-align: top;
+    }
+
+    th {
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 800;
+        background: var(--surface-subtle);
+    }
+
+    .amount-positive {
+        color: #16a34a;
+        font-weight: 800;
+    }
+
+    .amount-negative {
+        color: #dc2626;
+        font-weight: 800;
+    }
+
+    .empty {
+        color: var(--text-secondary);
+        font-weight: 600;
+        padding: 18px 12px;
+        text-align: center;
+    }
+
+    .pagination {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        margin-top: 12px;
+    }
+
+    .pagination button {
+        padding: 8px 10px;
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius-md);
+        background: var(--surface);
+        font-weight: 800;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .pagination button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(17, 24, 39, 0.35);
+    }
+
+    .pagination button.active {
+        background: var(--primary-gradient);
+        color: #fff;
+        border-color: transparent;
+    }
+
+    .alert {
+        border-radius: var(--border-radius-md);
+        padding: 10px 12px;
+        font-weight: 700;
+        border: 1px solid;
+    }
+
+    .alert-success {
+        background: rgba(34, 197, 94, 0.10);
+        border-color: rgba(34, 197, 94, 0.30);
+        color: #166534;
+    }
+
+    .alert-error {
+        background: rgba(239, 68, 68, 0.10);
+        border-color: rgba(239, 68, 68, 0.30);
+        color: #991b1b;
+    }
+
+    @media (max-width: 1100px) {
+        .credits-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 900px) {
+        .credits-stats {
+            grid-template-columns: 1fr;
+        }
+
+        .credits-hero {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .credits-alerts {
+            min-width: unset;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="credits-wrap">
+    <div class="credits-hero">
+        <div>
+            <h2><i class="fas fa-coins"></i> 我的积分</h2>
+            <p>查看余额、兑换码充值与交易明细。</p>
+            <div class="credits-hint">
+                <strong>提示：</strong>积分系统仅在 AI 提供商为 LandPPT 时生效；使用 OpenAI/Anthropic/Google/Ollama 不消耗积分。
+                <a href="/ai-config">前往 AI 配置</a>
+            </div>
+        </div>
+        <div class="credits-alerts" id="alertArea"></div>
+    </div>
+
+    <div class="credits-stats">
+        <div class="credits-card primary">
+            <div class="label"><i class="fas fa-wallet"></i> 当前余额</div>
+            <div class="value" id="balance">-</div>
+        </div>
+        <div class="credits-card">
+            <div class="label"><i class="fas fa-arrow-trend-down"></i> 已消耗</div>
+            <div class="value" id="consumed">-</div>
+        </div>
+        <div class="credits-card">
+            <div class="label"><i class="fas fa-arrow-trend-up"></i> 已充值</div>
+            <div class="value" id="recharged">-</div>
+        </div>
+    </div>
+
+    <div class="credits-section">
+        <div class="credits-section-header">
+            <h3><i class="fas fa-calendar-check"></i> 每日签到</h3>
+            <span class="checkin-meta" id="checkinMeta">加载中...</span>
+        </div>
+        <div class="credits-section-body checkin-panel">
+            <div class="checkin-copy">
+                <strong id="checkinTitle">签到后可领取积分奖励</strong>
+                <div class="muted" id="checkinDesc">正在获取签到规则...</div>
+            </div>
+            <button class="btn" type="button" id="checkinBtn">
+                <i class="fas fa-hand-sparkles"></i> 立即签到
+            </button>
+        </div>
+    </div>
+
+    <div class="credits-grid">
+        <div class="credits-section">
+            <div class="credits-section-header">
+                <h3><i class="fas fa-ticket"></i> 兑换码充值</h3>
+            </div>
+            <div class="credits-section-body">
+                <form class="redeem-form" id="redeemForm">
+                    <input id="redeemCode" type="text" placeholder="输入兑换码" autocomplete="off">
+                    <button class="btn" type="submit"><i class="fas fa-bolt"></i> 立即兑换</button>
+                </form>
+                <div class="muted" style="margin-top:10px;">
+                    兑换码不区分大小写；兑换成功后余额将自动更新。
+                </div>
+            </div>
+        </div>
+
+        <div class="credits-section">
+            <div class="credits-section-header">
+                <h3><i class="fas fa-tags"></i> 计费参考</h3>
+            </div>
+            <div class="credits-section-body">
+                <div class="pricing-grid" id="pricingGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="credits-section">
+        <div class="credits-section-header">
+            <h3><i class="fas fa-receipt"></i> 交易明细</h3>
+        </div>
+        <div class="credits-section-body">
+            <div style="overflow:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                            <th>变动</th>
+                            <th>余额</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactionsTable">
+                        <tr>
+                            <td colspan="5" class="empty">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentPage = 1;
+    const pageSize = 20;
+
+    function showAlert(message, type = 'success') {
+        const area = document.getElementById('alertArea');
+        area.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+        setTimeout(() => area.innerHTML = '', 5000);
+    }
+
+    async function loadStats() {
+        try {
+            const res = await fetch('/credits/api/balance');
+            const data = await res.json();
+            document.getElementById('balance').textContent = data.balance;
+            document.getElementById('consumed').textContent = data.total_consumed;
+            document.getElementById('recharged').textContent = data.total_recharged;
+        } catch (e) {
+            showAlert('加载积分统计失败', 'error');
+        }
+    }
+
+    async function loadPricing() {
+        try {
+            const res = await fetch('/credits/api/pricing');
+            const data = await res.json();
+            const grid = document.getElementById('pricingGrid');
+            grid.innerHTML = Object.entries(data.pricing).map(([key, item]) => `
+                <div class="pricing-item">
+                    <div class="pricing-cost">${item.cost} 积分</div>
+                    <div class="pricing-desc">${item.description}</div>
+                </div>
+            `).join('');
+        } catch (e) {
+            showAlert('加载计费参考失败', 'error');
+        }
+    }
+
+    async function loadTransactions(page = 1) {
+        currentPage = page;
+        try {
+            const res = await fetch(`/credits/api/transactions?page=${page}&page_size=${pageSize}`);
+            const data = await res.json();
+            renderTransactions(data.transactions);
+            renderPagination(data.total_pages);
+        } catch (e) {
+            document.getElementById('transactionsTable').innerHTML = '<tr><td colspan="5" class="empty">加载失败</td></tr>';
+        }
+    }
+
+    function renderTransactions(transactions) {
+        const tbody = document.getElementById('transactionsTable');
+        if (!transactions.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无交易记录</td></tr>';
+            return;
+        }
+        const typeLabels = {
+            'consume': '消耗',
+            'recharge': '充值',
+            'redemption': '兑换',
+            'admin_adjust': '管理员调整',
+            'refund': '退款',
+            'daily_checkin': '每日签到',
+            'invite_reward': '邀请码赠送'
+        };
+        tbody.innerHTML = transactions.map(t => `
+            <tr>
+                <td>${new Date(t.created_at * 1000).toLocaleString()}</td>
+                <td>${typeLabels[t.transaction_type] || t.transaction_type}</td>
+                <td>${t.description}</td>
+                <td class="${t.amount >= 0 ? 'amount-positive' : 'amount-negative'}">
+                    ${t.amount >= 0 ? '+' : ''}${t.amount}
+                </td>
+                <td>${t.balance_after}</td>
+            </tr>
+        `).join('');
+    }
+
+    function renderPagination(totalPages) {
+        const div = document.getElementById('pagination');
+        if (totalPages <= 1) { div.innerHTML = ''; return; }
+        const parts = [];
+
+        const addButton = (label, page, { active = false, disabled = false } = {}) => {
+            const safeLabel = String(label);
+            if (disabled) {
+                parts.push(`<button disabled>${safeLabel}</button>`);
+                return;
+            }
+            parts.push(`<button class="${active ? 'active' : ''}" onclick="loadTransactions(${page})">${safeLabel}</button>`);
+        };
+
+        const addEllipsis = () => {
+            parts.push('<button disabled style="opacity:.6; cursor:default;">...</button>');
+        };
+
+        // Prev
+        addButton('上一页', currentPage - 1, { disabled: currentPage <= 1 });
+
+        // Page numbers (windowed with ellipsis)
+        const windowSize = 2; // pages around current
+        const pages = new Set();
+        pages.add(1);
+        pages.add(totalPages);
+        for (let p = currentPage - windowSize; p <= currentPage + windowSize; p++) {
+            if (p >= 1 && p <= totalPages) pages.add(p);
+        }
+
+        const sorted = Array.from(pages).sort((a, b) => a - b);
+        let last = 0;
+        for (const p of sorted) {
+            if (last && p - last > 1) addEllipsis();
+            addButton(p, p, { active: p === currentPage });
+            last = p;
+        }
+
+        // Next
+        addButton('下一页', currentPage + 1, { disabled: currentPage >= totalPages });
+
+        div.innerHTML = parts.join('');
+    }
+
+    async function loadCheckinStatus() {
+        const meta = document.getElementById('checkinMeta');
+        const title = document.getElementById('checkinTitle');
+        const desc = document.getElementById('checkinDesc');
+        const btn = document.getElementById('checkinBtn');
+
+        try {
+            const res = await fetch('/credits/api/checkin-status');
+            const data = await res.json();
+            if (!data.enabled) {
+                meta.textContent = '未开启';
+                title.textContent = '签到功能暂未开放';
+                desc.textContent = '管理员可在后台开启每日签到和奖励配置。';
+                btn.disabled = true;
+                return;
+            }
+
+            meta.textContent = data.already_checked_in ? '今日已签到' : '今日可签到';
+            title.textContent = data.already_checked_in
+                ? `今天已领取 ${data.today_reward || 0} 积分`
+                : `今日奖励：${data.reward_preview || '-'}`;
+            desc.textContent = data.already_checked_in
+                ? `签到日期：${data.today}`
+                : '每天仅可签到一次，奖励实时入账。';
+            btn.disabled = !!data.already_checked_in;
+            btn.innerHTML = data.already_checked_in
+                ? '<i class="fas fa-check"></i> 今日已签到'
+                : '<i class="fas fa-hand-sparkles"></i> 立即签到';
+        } catch (e) {
+            meta.textContent = '加载失败';
+            title.textContent = '签到状态获取失败';
+            desc.textContent = '请稍后刷新页面重试。';
+            btn.disabled = true;
+        }
+    }
+
+    document.getElementById('redeemForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const code = document.getElementById('redeemCode').value.trim();
+        if (!code) return;
+
+        try {
+            const res = await fetch('/credits/api/redeem', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || '兑换失败');
+
+            showAlert(data.message, 'success');
+            document.getElementById('redeemCode').value = '';
+            loadStats();
+            loadTransactions(1);
+        } catch (e) {
+            showAlert(e.message, 'error');
+        }
+    };
+
+    document.getElementById('checkinBtn').addEventListener('click', async () => {
+        try {
+            const res = await fetch('/credits/api/checkin', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || '签到失败');
+
+            showAlert(data.message, 'success');
+            loadStats();
+            loadTransactions(1);
+            loadCheckinStatus();
+        } catch (e) {
+            showAlert(e.message, 'error');
+            loadCheckinStatus();
+        }
+    });
+
+    loadStats();
+    loadCheckinStatus();
+    loadPricing();
+    loadTransactions();
+</script>
+{% endblock %}

@@ -3,11 +3,36 @@ PPT大纲生成相关提示词
 包含所有用于生成PPT大纲的提示词模板
 """
 
+from datetime import datetime
 from typing import Dict, Any, List
 
 
 class OutlinePrompts:
     """PPT大纲生成相关的提示词集合"""
+
+    @staticmethod
+    def _build_current_time_context_zh() -> str:
+        """构建中文当前时间上下文。"""
+        now = datetime.now().astimezone()
+        quarter = (now.month - 1) // 3 + 1
+        timezone_name = now.tzname() or "Local"
+        return "\n".join([
+            f"- 当前本地时间：{now:%Y-%m-%d %H:%M:%S} ({timezone_name})",
+        ])
+
+    @staticmethod
+    def _build_current_time_context_en() -> str:
+        """Build English current-time context."""
+        now = datetime.now().astimezone()
+        quarter = (now.month - 1) // 3 + 1
+        timezone_name = now.tzname() or "Local"
+        return "\n".join([
+            f"- Current local time: {now:%Y-%m-%d %H:%M:%S} ({timezone_name})",
+            f"- Current year: {now:%Y}",
+            f"- Current month: {now.month}",
+            f"- Current quarter: Q{quarter}",
+            "- If the outline needs phrases such as \"current\", \"this year\", \"this month\", \"this quarter\", or \"recent\", use the time above. If the project brief, research content, or source material already gives an explicit date or period, prefer the source value instead of overriding it."
+        ])
     
     @staticmethod
     def get_outline_prompt_zh(topic: str, scenario_desc: str, target_audience: str, 
@@ -15,6 +40,7 @@ class OutlinePrompts:
                              research_section: str, page_count_instruction: str,
                              expected_page_count: int, language: str) -> str:
         """获取中文大纲生成提示词"""
+        current_time_context = OutlinePrompts._build_current_time_context_zh()
         return f"""你是一位专业的PPT大纲策划专家，请基于以下项目信息，生成一个**结构清晰、内容创意、专业严谨、格式规范的JSON格式PPT大纲**。
 
 ### 📌【项目信息】：
@@ -29,6 +55,9 @@ class OutlinePrompts:
 ### 📄【页数要求】：
 {page_count_instruction}
 
+### 🕒【当前时间参考】：
+{current_time_context}
+
 ---
 
 ### 📋【大纲生成规则】：
@@ -38,11 +67,18 @@ class OutlinePrompts:
    - 信息表达要专业可信，同时具有吸引力与传播力。
 
 2. **页面结构规范**：
-   - 必须包含以下结构：封面页、目录页、内容页（若干）、结论页。
-   - 内容页应合理分层，逻辑清晰；封面和结论页需具备视觉冲击力或独特设计说明。
+   - 必须包含以下固定结构（按顺序）：
+     · **第1页 — 封面页**（slide_type="title"）：展示主题标题、副标题或作者信息，是整套 PPT 的视觉开篇，应设计得令人印象深刻。
+     · **第2页 — 目录页**（slide_type="agenda"）：展示整套 PPT 的章节结构和导航索引，帮助观众一眼看懂全局脉络。目录页的 content_points 应列出后续各章节的标题。
+     · **第3页起 — 内容页**（slide_type="content"，若干）：合理分层，逻辑清晰，每页围绕一个主题展开。
+     · **最后一页 — 结论/感谢页**（slide_type="conclusion" 或 "thankyou"）：总结核心观点或致谢收尾，与首页在气质上形成呼应。
+   - 封面页、目录页和结论页属于特殊页面，后续会进行独立的创意设计，不会套用普通内容页的模板。
 
 3. **内容点控制**：
-   - 每页控制在3～6个内容要点之间。
+   - 封面页：content_points 只放核心标题信息（主标题、副标题、作者/日期等），保持克制。
+   - 目录页：content_points 列出后续各章节/部分的标题，作为导航索引。
+   - 结论/感谢页：content_points 提炼核心结论或致谢信息，保持简洁有力。
+   - 普通内容页可适当展开，但仍要避免信息堆积与重复。
    - 每个要点内容简洁清晰，可做适当解释，但**不超过50字符**。
    - 内容分布需均衡，避免信息堆积或重复。
 
@@ -52,6 +88,7 @@ class OutlinePrompts:
 
 5. **语言风格与语境一致性**：
    - 使用统一语言（{language}），保持语境一致，适合目标受众理解与接受。
+   - 如果需要提及“当前、今年、本月、本季度、最近”等时间语义，必须以上述当前时间为准；若需求或材料已给出明确时间，以原始时间为准。
 
 ---
 
@@ -69,8 +106,8 @@ class OutlinePrompts:
       "page_number": 1,
       "title": "页面标题",
       "content_points": ["要点1", "要点2", "要点3"],
-      "slide_type": "title/content/conclusion",
-      "type": "content",
+      "slide_type": "title|agenda|content|conclusion|thankyou",
+      "type": "title|agenda|content|conclusion|thankyou",
       "description": "此页的简要说明与目的",
       "chart_config": {{
         "type": "bar",
@@ -112,6 +149,7 @@ class OutlinePrompts:
                              research_section: str, page_count_instruction: str,
                              expected_page_count: int, language: str) -> str:
         """获取英文大纲生成提示词"""
+        current_time_context = OutlinePrompts._build_current_time_context_en()
         return f"""You are a **professional presentation outline designer**. Based on the following project details, please generate a **well-structured, creative, and professional JSON-format PowerPoint outline**.
 
 ### 📌【Project Details】:
@@ -126,6 +164,9 @@ class OutlinePrompts:
 **Page Count Requirements:**
 {page_count_instruction}
 
+### 🕒【Current Time Reference】:
+{current_time_context}
+
 ---
 
 ### 📋【Outline Generation Rules】:
@@ -135,12 +176,18 @@ class OutlinePrompts:
    - Ensure the theme is clear, the tone is consistent, and the message is well-targeted.
 
 2. **Slide Structure**:
-   - The deck must include: **Title Slide**, **Agenda Slide**, **Content Slides**, and **Conclusion Slide**.
-   - Title and Conclusion slides should be visually distinct or offer special design instructions.
-   - Content slides must follow a logical and clear structure.
+   - The deck must include the following fixed structure (in order):
+     · **Page 1 — Cover Slide** (slide_type="title"): Display the main title, subtitle, or author info. This is the visual opening of the entire PPT.
+     · **Page 2 — Agenda/TOC Slide** (slide_type="agenda"): Show the chapter structure and navigation index. The content_points should list the titles of subsequent sections.
+     · **Page 3+ — Content Slides** (slide_type="content"): Logically structured, each page focused on one topic.
+     · **Last Page — Conclusion/Thank You Slide** (slide_type="conclusion" or "thankyou"): Summarize key points or express gratitude.
+   - Cover, Agenda, and Conclusion slides are special pages that will receive unique creative designs, not standard content page templates.
 
 3. **Content Density Control**:
-   - Each slide must contain **3–6 concise bullet points**.
+   - Cover slide: content_points should only contain core title info (main title, subtitle, author/date), keep it restrained.
+   - Agenda slide: content_points should list the titles of subsequent chapters/sections as navigation.
+   - Conclusion slide: content_points should distill core conclusions or thanks, keep it concise.
+   - Regular content slides may be more detailed, but should still avoid overload and repetition.
    - Each point should be **no more than 50 characters**.
    - Distribute content evenly across slides to avoid overload or redundancy.
 
@@ -150,6 +197,7 @@ class OutlinePrompts:
 
 5. **Language & Tone**:
    - The entire outline should be in **{language}** and aligned with the communication preferences of the target audience.
+   - If the outline needs time-sensitive phrasing such as "current", "this year", "this month", "this quarter", or "recent", use the current time above. If the brief or source material already includes an explicit date or period, use the source value.
 
 ---
 
@@ -167,8 +215,8 @@ Please follow the exact JSON format below, and **wrap the result in a code block
       "page_number": 1,
       "title": "Slide Title",
       "content_points": ["Point 1", "Point 2", "Point 3"],
-      "slide_type": "title/content/conclusion",
-      "type": "content",
+      "slide_type": "title|agenda|content|conclusion|thankyou",
+      "type": "title|agenda|content|conclusion|thankyou",
       "description": "Brief description of this slide",
       "chart_config": {{
         "type": "bar",
@@ -208,6 +256,7 @@ Please follow the exact JSON format below, and **wrap the result in a code block
     def get_streaming_outline_prompt(topic: str, target_audience: str, ppt_style: str,
                                    page_count_instruction: str, research_section: str) -> str:
         """获取流式大纲生成提示词"""
+        current_time_context = OutlinePrompts._build_current_time_context_zh()
         return f"""作为专业的PPT大纲生成助手，请为以下项目生成详细的PPT大纲。
 
 项目信息：
@@ -215,6 +264,9 @@ Please follow the exact JSON format below, and **wrap the result in a code block
 - 目标受众：{target_audience}
 - PPT风格：{ppt_style}
 {page_count_instruction}{research_section}
+
+当前时间参考：
+{current_time_context}
 
 请严格按照以下JSON格式生成PPT大纲：
 
@@ -236,20 +288,22 @@ Please follow the exact JSON format below, and **wrap the result in a code block
     ]
 }}
 
-slide_type可选值：
-- "title": 标题页/封面页
-- "content": 内容页
-- "agenda": 目录页
-- "thankyou": 结束页/感谢页
+ slide_type可选值：
+ - "title": 标题页/封面页
+ - "content": 内容页
+ - "agenda": 目录页
+ - "conclusion": 总结/结论页
+ - "thankyou": 结束页/感谢页
 
 要求：
 1. 必须返回有效的JSON格式
 2. 严格遵守页数要求
-3. 第一页通常是标题页，最后一页是感谢页
-4. 每页至少包含2-5个内容要点，可做适当解释
+ 3. 第一页通常是标题页，最后一页通常是总结(conclusion)或感谢(thankyou)
+4. 第一页和最后一页要保持克制与聚焦，不要像普通内容页一样堆满要点
 5. 页面标题要简洁明确
 6. 内容要点要具体实用
 7. 根据重点内容和技术亮点安排页面内容
+8. 如果需要使用“当前 / 今年 / 本月 / 本季度 / 最近”等时间语义，请以上述当前时间为准；若输入信息已给出明确时间，以输入信息为准
 
 请只返回JSON，使用```json```代码块包裹，不要包含其他文字说明。
 
@@ -275,6 +329,7 @@ slide_type可选值：
         """获取大纲生成上下文提示词"""
         focus_content_str = ', '.join(focus_content) if focus_content else '无'
         tech_highlights_str = ', '.join(tech_highlights) if tech_highlights else '无'
+        current_time_context = OutlinePrompts._build_current_time_context_zh()
         
         return f"""请为以下项目生成详细的PPT大纲：
 
@@ -287,12 +342,16 @@ slide_type可选值：
 - 其他说明：{description or '无'}
 {page_count_instruction}
 
+当前时间参考：
+{current_time_context}
+
 请生成结构化的PPT大纲，包含每页的标题、内容要点和页面类型。确保内容逻辑清晰，符合目标受众需求。"""
 
     @staticmethod
     def get_streaming_outline_prompt(topic: str, target_audience: str, ppt_style: str,
                                    page_count_instruction: str, research_section: str) -> str:
         """获取流式大纲生成提示词"""
+        current_time_context = OutlinePrompts._build_current_time_context_zh()
         prompt = f"""
 作为专业的PPT大纲生成助手，请为以下项目生成详细的PPT大纲。
 
@@ -301,6 +360,9 @@ slide_type可选值：
 - 目标受众：{target_audience}
 - PPT风格：{ppt_style}
 {page_count_instruction}{research_section}
+
+当前时间参考：
+{current_time_context}
 
 请严格按照以下JSON格式生成PPT大纲：
 
@@ -322,20 +384,22 @@ slide_type可选值：
     ]
 }}
 
-slide_type可选值：
-- "title": 标题页/封面页
-- "content": 内容页
-- "agenda": 目录页
-- "thankyou": 结束页/感谢页
+ slide_type可选值：
+ - "title": 标题页/封面页
+ - "content": 内容页
+ - "agenda": 目录页
+ - "conclusion": 总结/结论页
+ - "thankyou": 结束页/感谢页
 
 要求：
 1. 必须返回有效的JSON格式
 2. 严格遵守页数要求
-3. 第一页通常是标题页，最后一页是感谢页
-4. 每页至少包含2-5个内容要点，可做适当解释
+ 3. 第一页通常是标题页，最后一页通常是总结(conclusion)或感谢(thankyou)
+4. 第一页和最后一页要保持克制与聚焦，不要像普通内容页一样堆满要点
 5. 页面标题要简洁明确
 6. 内容要点要具体实用
 7. 根据重点内容和技术亮点安排页面内容
+8. 如果需要使用“当前 / 今年 / 本月 / 本季度 / 最近”等时间语义，请以上述当前时间为准；若输入信息已给出明确时间，以输入信息为准
 
 请只返回JSON，使用```json```代码块包裹，不要包含其他文字说明。
 
@@ -361,6 +425,7 @@ slide_type可选值：
                                      ppt_style: str, custom_style: str, description: str,
                                      page_count_mode: str) -> str:
         """获取大纲生成上下文提示词"""
+        current_time_context = OutlinePrompts._build_current_time_context_zh()
         context = f"""
 项目信息：
 - 主题：{topic}
@@ -370,6 +435,9 @@ slide_type可选值：
 - 自定义风格说明：{custom_style}
 - 其他说明：{description}
 
+当前时间参考：
+{current_time_context}
+
 任务：生成完整的PPT大纲
 
 请生成一个详细的PPT大纲，包括：
@@ -378,6 +446,7 @@ slide_type可选值：
 3. 逻辑结构和流程
 4. 每页的内容重点
 5. 根据页数要求合理安排内容分布
+6. 首尾页保持精简和聚焦，避免像正文页一样堆叠过多要点
 
 请以JSON格式返回大纲，使用```json```代码块包裹，格式如下：
 
@@ -391,7 +460,7 @@ slide_type可选值：
             "page_number": 1,
             "title": "页面标题",
             "content_points": ["要点1", "要点2", "要点3"],
-            "slide_type": "title|content|conclusion",
+            "slide_type": "title|agenda|content|conclusion|thankyou",
             "description": "页面内容描述"
         }}
     ]

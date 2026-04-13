@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}赞助感谢 - LandPPT{% endblock %}
+
+{% block extra_css %}
+<style>
+    .thanks-wrap {
+        display: grid;
+        gap: 18px;
+    }
+
+    .thanks-hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: var(--border-radius-xl);
+        border: 1px solid var(--border-color);
+        background:
+            radial-gradient(720px 260px at 0% 0%, rgba(15, 23, 42, 0.14), transparent 60%),
+            radial-gradient(720px 260px at 100% 100%, rgba(17, 24, 39, 0.10), transparent 60%),
+            linear-gradient(135deg, #faf7f0 0%, #f2efe6 100%);
+        padding: clamp(24px, 4vw, 44px);
+        box-shadow: var(--shadow-soft);
+    }
+
+    .thanks-hero h2 {
+        font-size: clamp(2rem, 4.6vw, 3.9rem);
+        line-height: 1.04;
+        letter-spacing: -0.04em;
+        max-width: none;
+        margin-bottom: 14px;
+        white-space: nowrap;
+    }
+
+    .thanks-hero p {
+        max-width: 720px;
+        color: var(--text-secondary);
+        font-size: 1.02rem;
+        font-weight: 600;
+    }
+
+    .thanks-ribbon {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        margin-bottom: 18px;
+        border-radius: 999px;
+        background: rgba(17, 24, 39, 0.08);
+        border: 1px solid rgba(17, 24, 39, 0.12);
+        font-weight: 800;
+        letter-spacing: 0.02em;
+    }
+
+    .thanks-ribbon.preview {
+        background: rgba(245, 158, 11, 0.12);
+        border-color: rgba(245, 158, 11, 0.3);
+        color: #92400e;
+    }
+
+    .thanks-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+    }
+
+    .thanks-card {
+        position: relative;
+        display: grid;
+        gap: 14px;
+        border-radius: 24px;
+        background: linear-gradient(180deg, #ffffff 0%, #f8f6f0 100%);
+        border: 1px solid rgba(17, 24, 39, 0.10);
+        padding: 18px;
+        box-shadow: 0 18px 40px rgba(17, 24, 39, 0.08);
+    }
+
+    .thanks-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(140deg, rgba(17, 24, 39, 0.05), transparent 45%);
+        pointer-events: none;
+    }
+
+    .thanks-top {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .thanks-avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 20px;
+        object-fit: cover;
+        border: 1px solid rgba(17, 24, 39, 0.10);
+        background: #f0eee8;
+    }
+
+    .thanks-name {
+        display: grid;
+        gap: 4px;
+    }
+
+    .thanks-name h3 {
+        font-size: 1.08rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+    }
+
+    .thanks-amount {
+        font-size: 0.9rem;
+        font-weight: 800;
+        color: var(--ink-strong);
+    }
+
+    .thanks-bio {
+        color: var(--text-secondary);
+        font-weight: 600;
+        line-height: 1.65;
+        min-height: 48px;
+    }
+
+    .thanks-note {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 14px;
+        background: rgba(17, 24, 39, 0.05);
+        font-size: 0.86rem;
+        font-weight: 700;
+        color: var(--ink-strong);
+    }
+
+    .thanks-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 800;
+        color: var(--ink-strong);
+        text-decoration: none;
+    }
+
+    .thanks-empty {
+        padding: 28px;
+        border-radius: 24px;
+        border: 1px dashed rgba(17, 24, 39, 0.18);
+        text-align: center;
+        color: var(--text-secondary);
+        font-weight: 700;
+        background: rgba(255, 255, 255, 0.75);
+    }
+
+    @media (max-width: 900px) {
+        .thanks-hero h2 {
+            white-space: normal;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="thanks-wrap">
+    <section class="thanks-hero">
+        <div class="thanks-ribbon"><i class="fas fa-heart"></i> LandPPT Sponsor Wall</div>
+        {% if preview_mode %}
+        <div class="thanks-ribbon preview"><i class="fas fa-eye"></i> 预览模式：当前前台未公开展示，仅管理员可见</div>
+        {% endif %}
+        <h2>感谢每位把项目推着向前走的人。</h2>
+        <p>这不是一份名单，而是 LandPPT 能持续迭代、持续维护、持续开放的真实来源。你们的支持，让这个项目更稳定，也更值得继续投入。</p>
+    </section>
+
+    {% if sponsors %}
+    <section class="thanks-grid">
+        {% for sponsor in sponsors %}
+        <article class="thanks-card">
+            <div class="thanks-top">
+                <img class="thanks-avatar" src="{{ sponsor.avatar_url or '/static/images/placeholder.svg' }}"
+                    alt="{{ sponsor.nickname }}">
+                <div class="thanks-name">
+                    <h3>{{ sponsor.nickname }}</h3>
+                    {% if sponsor.amount %}
+                    <div class="thanks-amount">{{ sponsor.amount }}</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="thanks-bio">{{ sponsor.bio or '感谢你的支持。' }}</div>
+
+            {% if sponsor.note %}
+            <div class="thanks-note"><i class="fas fa-sparkles"></i> {{ sponsor.note }}</div>
+            {% endif %}
+
+            {% if sponsor.link_url %}
+            <a class="thanks-link" href="{{ sponsor.link_url }}" target="_blank" rel="noopener noreferrer">
+                <i class="fas fa-arrow-up-right-from-square"></i> 访问主页
+            </a>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </section>
+    {% else %}
+    <section class="thanks-empty">
+        赞助感谢页已开启，但还没有录入赞助人信息。
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

@@ -13,7 +13,6 @@ from typing import Dict, List, Optional, Any, Set
 from urllib.parse import urljoin, urlparse
 import aiohttp
 from bs4 import BeautifulSoup, Comment
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from ...core.config import ai_config
 
@@ -49,8 +48,11 @@ class WebContentExtractor:
     
     def __init__(self):
         self.timeout = ai_config.research_extraction_timeout
-        self.max_content_length = ai_config.research_max_content_length
+        # Do not cap extracted content length.
+        self.max_content_length = None
         self.user_agent = "LandPPT Research Bot 1.0"
+        # If aggressive cleanup leaves too little text, fallback to relaxed extraction.
+        self.min_usable_words = 80
         
         # Content selectors for different types of content
         self.content_selectors = [
@@ -72,13 +74,27 @@ class WebContentExtractor:
             'advertisement', 'ads', 'sidebar', 'menu', 'popup'
         }
         
-        # Text splitter for long content
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.max_content_length,
-            chunk_overlap=200,
-            length_function=len,
-            separators=["\n\n", "\n", ". ", " ", ""]
-        )
+    @staticmethod
+    def _word_count(text: str) -> int:
+        """Approximate word count used by extraction quality checks."""
+        return len(text.split()) if text else 0
+
+    def _remove_noise_nodes(self, soup: BeautifulSoup, remove_structure: bool = True) -> None:
+        """Remove non-content nodes from parsed HTML."""
+        # Always remove non-readable resources.
+        for tag in ("script", "style"):
+            for node in soup.find_all(tag):
+                node.decompose()
+
+        # Optionally remove structural sections (can be over-aggressive on some doc sites).
+        if remove_structure:
+            for tag_name in self.remove_tags:
+                for node in soup.find_all(tag_name):
+                    node.decompose()
+
+        # Remove comments.
+        for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+            comment.extract()
     
     def _clean_text(self, text: str) -> str:
         """Clean and normalize extracted text"""
@@ -128,34 +144,49 @@ class WebContentExtractor:
     
     def _extract_main_content(self, soup: BeautifulSoup) -> str:
         """Extract main content from HTML using various strategies"""
-        
-        # Remove unwanted tags
-        for tag_name in self.remove_tags:
-            for tag in soup.find_all(tag_name):
-                tag.decompose()
-        
-        # Remove comments
-        for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
-            comment.extract()
-        
-        # Try content selectors in order of preference
+
+        # Work on cloned soups so fallback strategies do not affect each other.
+        selector_soup = BeautifulSoup(str(soup), 'html.parser')
+        aggressive_soup = BeautifulSoup(str(soup), 'html.parser')
+        relaxed_soup = BeautifulSoup(str(soup), 'html.parser')
+
+        self._remove_noise_nodes(selector_soup, remove_structure=False)
+        self._remove_noise_nodes(aggressive_soup, remove_structure=True)
+        self._remove_noise_nodes(relaxed_soup, remove_structure=False)
+
+        selector_candidate = ""
+        # Prefer semantic containers when they contain enough text.
         for selector in self.content_selectors:
-            content_element = soup.select_one(selector)
-            if content_element:
-                text = content_element.get_text(separator=' ', strip=True)
-                if len(text) > 100:  # Minimum content length
-                    return self._clean_text(text)
-        
-        # Fallback: extract from body
-        body = soup.find('body')
-        if body:
-            # Remove navigation, sidebar, and footer elements
-            for element in body.find_all(['nav', 'aside', 'footer', 'header']):
-                element.decompose()
-            
-            text = body.get_text(separator=' ', strip=True)
-            return self._clean_text(text)
-        
+            content_element = selector_soup.select_one(selector)
+            if not content_element:
+                continue
+            text = self._clean_text(content_element.get_text(separator=' ', strip=True))
+            if self._word_count(text) >= self.min_usable_words:
+                return text
+            # Keep the best short selector candidate as a fallback.
+            if self._word_count(text) > self._word_count(selector_candidate):
+                selector_candidate = text
+
+        aggressive_text = ""
+        aggressive_body = aggressive_soup.find('body')
+        if aggressive_body:
+            aggressive_text = self._clean_text(aggressive_body.get_text(separator=' ', strip=True))
+
+        # Normal case: aggressive cleanup has enough content.
+        if self._word_count(aggressive_text) >= self.min_usable_words:
+            return aggressive_text
+
+        # Fallback for JS-heavy/docs pages where aggressive cleanup removes too much.
+        relaxed_text = ""
+        relaxed_body = relaxed_soup.find('body')
+        if relaxed_body:
+            relaxed_text = self._clean_text(relaxed_body.get_text(separator=' ', strip=True))
+
+        candidates = [selector_candidate, aggressive_text, relaxed_text]
+        best_text = max(candidates, key=self._word_count)
+        if best_text:
+            return best_text
+
         # Last resort: get all text
         return self._clean_text(soup.get_text(separator=' ', strip=True))
     
@@ -203,11 +234,6 @@ class WebContentExtractor:
             
             # Extract main content
             content = self._extract_main_content(soup)
-            
-            # Limit content length
-            if len(content) > self.max_content_length:
-                chunks = self.text_splitter.split_text(content)
-                content = chunks[0] if chunks else content[:self.max_content_length]
             
             # Get title
             title = metadata.get('title', '')
