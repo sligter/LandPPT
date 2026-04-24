@@ -521,7 +521,7 @@
                         </a>
                     {% endif %}
 
-                    <button onclick="event.stopPropagation(); confirmDeleteProject('{{ project.project_id }}', '{{ project.title }}')" class="action-btn action-btn--danger" title="删除项目">
+                    <button type="button" class="action-btn action-btn--danger js-delete-project-btn" data-project-id="{{ project.project_id }}" title="删除项目">
                         删除
                     </button>
                 </div>
@@ -816,6 +816,15 @@ function showNotification(message, type = 'info') {
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.js-delete-project-btn').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const row = button.closest('.project-list-item');
+            const projectTitle = row?.querySelector('.project-title')?.textContent?.trim() || '该项目';
+            confirmDeleteProject(button.dataset.projectId, projectTitle);
+        });
+    });
+
     // Close modal when clicking outside
     const deleteModal = document.getElementById('deleteModal');
     if (deleteModal) {

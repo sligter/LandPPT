@@ -73,11 +73,13 @@ class OAuthProviderSettings(BaseModel):
     client_secret: str = ""
     callback_url: Optional[str] = ""
     callback_use_request_host: Optional[bool] = False
+    issuer_url: Optional[str] = ""
 
 
 class OAuthSettingsRequest(BaseModel):
     github: OAuthProviderSettings
     linuxdo: OAuthProviderSettings
+    authentik: OAuthProviderSettings
 
 
 class CommunitySettingsRequest(BaseModel):
@@ -483,6 +485,13 @@ async def get_oauth_config(
                 "client_secret": str(system_config.get("linuxdo_client_secret") or app_config.linuxdo_client_secret or ""),
                 "callback_url": str(system_config.get("linuxdo_callback_url") or app_config.linuxdo_callback_url or ""),
             },
+            "authentik": {
+                "enabled": bool(system_config.get("authentik_oauth_enabled", app_config.authentik_oauth_enabled)),
+                "client_id": str(system_config.get("authentik_client_id") or app_config.authentik_client_id or ""),
+                "client_secret": str(system_config.get("authentik_client_secret") or app_config.authentik_client_secret or ""),
+                "callback_url": str(system_config.get("authentik_callback_url") or app_config.authentik_callback_url or ""),
+                "issuer_url": str(system_config.get("authentik_issuer_url") or app_config.authentik_issuer_url or ""),
+            },
         },
     }
 
@@ -506,11 +515,20 @@ async def save_oauth_config(
     linuxdo_client_secret = (data.linuxdo.client_secret or "").strip()
     linuxdo_callback_url = (data.linuxdo.callback_url or "").strip()
 
+    authentik_enabled = bool(data.authentik.enabled)
+    authentik_client_id = (data.authentik.client_id or "").strip()
+    authentik_client_secret = (data.authentik.client_secret or "").strip()
+    authentik_callback_url = (data.authentik.callback_url or "").strip()
+    authentik_issuer_url = (data.authentik.issuer_url or "").strip().rstrip("/")
+
     if github_enabled and (not github_client_id or not github_client_secret):
         return {"success": False, "message": "启用 GitHub OAuth 前需要填写 Client ID 和 Client Secret"}
 
     if linuxdo_enabled and (not linuxdo_client_id or not linuxdo_client_secret):
         return {"success": False, "message": "启用 LinuxDo OAuth 前需要填写 Client ID 和 Client Secret"}
+
+    if authentik_enabled and (not authentik_client_id or not authentik_client_secret or not authentik_issuer_url):
+        return {"success": False, "message": "启用 Authentik OAuth 前需要填写 Issuer URL、Client ID 和 Client Secret"}
 
     config_service = get_db_config_service()
     success = await config_service.update_config(
@@ -524,6 +542,11 @@ async def save_oauth_config(
             "linuxdo_client_id": linuxdo_client_id,
             "linuxdo_client_secret": linuxdo_client_secret,
             "linuxdo_callback_url": linuxdo_callback_url,
+            "authentik_oauth_enabled": authentik_enabled,
+            "authentik_client_id": authentik_client_id,
+            "authentik_client_secret": authentik_client_secret,
+            "authentik_callback_url": authentik_callback_url,
+            "authentik_issuer_url": authentik_issuer_url,
         },
         user_id=None,
     )
@@ -541,6 +564,11 @@ async def save_oauth_config(
     app_config.linuxdo_client_id = linuxdo_client_id or None
     app_config.linuxdo_client_secret = linuxdo_client_secret or None
     app_config.linuxdo_callback_url = linuxdo_callback_url or None
+    app_config.authentik_oauth_enabled = authentik_enabled
+    app_config.authentik_client_id = authentik_client_id or None
+    app_config.authentik_client_secret = authentik_client_secret or None
+    app_config.authentik_callback_url = authentik_callback_url or None
+    app_config.authentik_issuer_url = authentik_issuer_url or None
 
     logger.info("Admin %s updated OAuth configuration", user.username)
     return {"success": True, "message": "OAuth 设置已保存"}

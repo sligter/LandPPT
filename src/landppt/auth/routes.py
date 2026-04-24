@@ -86,6 +86,24 @@ async def _load_system_oauth_flags() -> dict:
             fallback_client_id=app_config.linuxdo_client_id,
             fallback_client_secret=app_config.linuxdo_client_secret,
         ),
+        "authentik_oauth_enabled": (
+            _is_oauth_provider_visible(
+                system_config,
+                enabled_key="authentik_oauth_enabled",
+                client_id_key="authentik_client_id",
+                client_secret_key="authentik_client_secret",
+                fallback_enabled=app_config.authentik_oauth_enabled,
+                fallback_client_id=app_config.authentik_client_id,
+                fallback_client_secret=app_config.authentik_client_secret,
+            )
+            and bool(
+                str(
+                    system_config.get("authentik_issuer_url")
+                    or app_config.authentik_issuer_url
+                    or ""
+                ).strip()
+            )
+        ),
     }
 
 

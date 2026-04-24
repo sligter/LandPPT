@@ -362,7 +362,7 @@
                             <button class="btn btn-primary" type="submit" id="loginBtn"><span>登录</span><i class="fas fa-arrow-right"></i></button>
                         </form>
 
-                        {% if github_oauth_enabled or linuxdo_oauth_enabled %}
+                        {% if github_oauth_enabled or linuxdo_oauth_enabled or authentik_oauth_enabled %}
                         <div class="social-login">
                             <div class="divider"><span>或</span></div>
                             {% if github_oauth_enabled %}
@@ -370,6 +370,9 @@
                             {% endif %}
                             {% if linuxdo_oauth_enabled %}
                             <a href="/auth/linuxdo/login" class="btn btn-linuxdo"><img class="linuxdo-icon" src="/static/images/linuxdo.svg" alt="" aria-hidden="true"><span>使用 Linux Do 登录</span></a>
+                            {% endif %}
+                            {% if authentik_oauth_enabled %}
+                            <a href="/auth/authentik/login" class="btn btn-authentik"><i class="fas fa-shield-halved"></i><span>使用 Authentik 登录</span></a>
                             {% endif %}
                         </div>
                         {% endif %}
@@ -407,11 +410,12 @@
                                     <input type="text" id="reg_invite_code" name="invite_code" required placeholder="输入邀请码后再注册" value="{{ register_invite_code or '' }}" autocomplete="off">
                                 </div>
                             </div>
-                            {% if github_oauth_enabled or linuxdo_oauth_enabled %}
+                            {% if github_oauth_enabled or linuxdo_oauth_enabled or authentik_oauth_enabled %}
                             <div class="social-login" style="margin-top: 4px;">
                                 <div class="divider"><span>使用邀请码快捷注册</span></div>
                                 {% if github_oauth_enabled %}<a href="/auth/github/login" class="btn btn-github js-register-oauth" data-invite-input="reg_invite_code"><i class="fab fa-github"></i><span>GitHub 注册</span></a>{% endif %}
                                 {% if linuxdo_oauth_enabled %}<a href="/auth/linuxdo/login" class="btn btn-linuxdo js-register-oauth" data-invite-input="reg_invite_code"><img class="linuxdo-icon" src="/static/images/linuxdo.svg" alt="" aria-hidden="true"><span>LinuxDo 注册</span></a>{% endif %}
+                                {% if authentik_oauth_enabled %}<a href="/auth/authentik/login" class="btn btn-authentik js-register-oauth" data-invite-input="reg_invite_code"><i class="fas fa-shield-halved"></i><span>Authentik 注册</span></a>{% endif %}
                             </div>
                             {% endif %}
                             <div class="field">

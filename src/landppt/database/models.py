@@ -51,7 +51,8 @@ class User(Base):
     # OAuth fields
     github_id: Mapped[Optional[str]] = mapped_column(String(50), unique=True, index=True, nullable=True)
     linuxdo_id: Mapped[Optional[str]] = mapped_column(String(50), unique=True, index=True, nullable=True)
-    oauth_provider: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # 'github', 'linuxdo' or null for local
+    authentik_sub: Mapped[Optional[str]] = mapped_column(String(120), unique=True, index=True, nullable=True)
+    oauth_provider: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # 'github', 'linuxdo', 'authentik' or null for local
 
     # Relationships
     projects: Mapped[List["Project"]] = relationship("Project", back_populates="owner")
@@ -87,6 +88,7 @@ class User(Base):
             "invite_code_id": self.invite_code_id,
             "github_id": self.github_id,
             "linuxdo_id": self.linuxdo_id,
+            "authentik_sub": self.authentik_sub,
             "oauth_provider": self.oauth_provider
         }
         metrics = self.__dict__.get("metrics")

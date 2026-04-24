@@ -119,7 +119,7 @@
                             </div>
                         </div>
 
-                        {% if github_oauth_enabled or linuxdo_oauth_enabled %}
+                        {% if github_oauth_enabled or linuxdo_oauth_enabled or authentik_oauth_enabled %}
                         <div class="social-login" style="margin-top: 4px;">
                             <div class="divider">
                                 <span>使用邀请码快捷注册</span>
@@ -136,6 +136,13 @@
                                 data-invite-input="invite_code">
                                 <img class="linuxdo-icon" src="/static/images/linuxdo.svg" alt="" aria-hidden="true">
                                 <span>LinuxDo 注册</span>
+                            </a>
+                            {% endif %}
+                            {% if authentik_oauth_enabled %}
+                            <a href="/auth/authentik/login" class="btn btn-authentik js-register-oauth"
+                                data-invite-input="invite_code">
+                                <i class="fas fa-shield-halved"></i>
+                                <span>Authentik 注册</span>
                             </a>
                             {% endif %}
                         </div>

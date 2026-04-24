@@ -86,6 +86,7 @@ coverage.xml
 *.db
 *.sqlite
 *.sqlite3
+*.bak.*
 
 # Logs
 *.log
@@ -95,6 +96,7 @@ logs/
 temp/
 tmp/
 *.tmp
+*.orig
 
 # Cache directories
 .cache/

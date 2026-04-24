@@ -1035,7 +1035,7 @@ class DatabaseMigration:
                 text(
                     "UPDATE users SET registration_channel = lower(oauth_provider) "
                     "WHERE registration_channel IS NULL "
-                    "AND oauth_provider IN ('github', 'linuxdo')"
+                    "AND oauth_provider IN ('github', 'linuxdo', 'authentik')"
                 )
             )
             await session.commit()

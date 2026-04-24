@@ -38,6 +38,7 @@ class AuthService:
         "invite_code_id",
         "github_id",
         "linuxdo_id",
+        "authentik_sub",
         "oauth_provider",
     )
     NEVER_EXPIRE_TIMESTAMP = time.mktime(time.strptime("2099-01-01 00:00:00", "%Y-%m-%d %H:%M:%S"))
@@ -100,6 +101,7 @@ class AuthService:
             invite_code_id=self._coerce_int(payload.get("invite_code_id")),
             github_id=payload.get("github_id"),
             linuxdo_id=payload.get("linuxdo_id"),
+            authentik_sub=payload.get("authentik_sub"),
             oauth_provider=payload.get("oauth_provider"),
         )
         user.id = user_id

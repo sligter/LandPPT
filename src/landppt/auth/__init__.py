@@ -79,12 +79,19 @@ def __getattr__(name: str) -> Any:  # pragma: no cover
         except Exception:
             _linuxdo_oauth_router = None
 
+        try:
+            from .authentik_oauth_routes import router as _authentik_oauth_router
+        except Exception:
+            _authentik_oauth_router = None
+
         auth_router = APIRouter()
         auth_router.include_router(_base_auth_router)
         if _github_oauth_router is not None:
             auth_router.include_router(_github_oauth_router)
         if _linuxdo_oauth_router is not None:
             auth_router.include_router(_linuxdo_oauth_router)
+        if _authentik_oauth_router is not None:
+            auth_router.include_router(_authentik_oauth_router)
 
         globals()["auth_router"] = auth_router
         return auth_router

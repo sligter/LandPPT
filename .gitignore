@@ -11,6 +11,11 @@ research_reports/
 wheels/
 .claude/
 docs/
+!docs/
+docs/*
+!docs/project-management/
+docs/project-management/*
+!docs/project-management/stage-reentry-workflow.md
 *.egg-info
 requires.md
 prompts.md
@@ -28,7 +33,9 @@ CLAUDE.md
 temp/
 *.tmp
 *.cache
+*.orig
 *.db
+*.bak.*
 error.txt
 
 # uv cache and lock files

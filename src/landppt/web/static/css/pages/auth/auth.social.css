@@ -109,3 +109,40 @@
     object-fit: contain;
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
 }
+
+/* Authentik Button */
+.btn-authentik {
+    width: 100%;
+    background: #7c3aed;
+    color: #ffffff;
+    border: 1px solid #7c3aed;
+    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);
+    padding: 14px 16px;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: transform var(--transition), background var(--transition), box-shadow var(--transition);
+}
+
+.btn-authentik:hover {
+    transform: translateY(-2px);
+    background: #6d28d9;
+    box-shadow: 0 4px 12px rgba(109, 40, 217, 0.45);
+}
+
+.btn-authentik:active {
+    transform: translateY(0);
+    background: #5b21b6;
+}
+
+.btn-authentik i {
+    font-size: 1.05rem;
+    color: inherit;
+}

@@ -88,3 +88,17 @@ async def test_public_page_skips_optional_auth_for_static_assets(monkeypatch):
     assert response.status_code == 200
     assert request.state.user is None
     assert middleware.auth_service.session_calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/auth/authentik/login", "/auth/authentik/callback"])
+async def test_authentik_oauth_routes_are_public(monkeypatch, path):
+    middleware = AuthMiddleware()
+    middleware.auth_service = _FakeAuthService(user=None)
+    monkeypatch.setattr(middleware, "_get_user_from_session_cache", _fake_cached_session_none)
+    monkeypatch.setattr(auth_middleware_module, "get_db", _fake_get_db)
+
+    request = _build_request(path)
+    response = await middleware(request, _fake_call_next)
+
+    assert response.status_code == 200

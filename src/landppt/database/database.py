@@ -372,6 +372,8 @@ async def init_db():
                 columns_to_add.append("ADD COLUMN github_id VARCHAR(50) UNIQUE")
             if 'linuxdo_id' not in existing_columns:
                 columns_to_add.append("ADD COLUMN linuxdo_id VARCHAR(50) UNIQUE")
+            if 'authentik_sub' not in existing_columns:
+                columns_to_add.append("ADD COLUMN authentik_sub VARCHAR(120) UNIQUE")
             if 'oauth_provider' not in existing_columns:
                 columns_to_add.append("ADD COLUMN oauth_provider VARCHAR(20)")
             if 'register_ip' not in existing_columns:

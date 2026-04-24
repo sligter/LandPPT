@@ -41,10 +41,11 @@ class CommunityService:
     CHECKIN_TIMEZONE = timezone(timedelta(hours=8))
     CHECKIN_TIMEZONE_NAME = "Asia/Shanghai"
     INVITE_CHANNEL_UNIVERSAL = "universal"
-    INVITE_CHANNELS = {"github", "linuxdo", "mail", INVITE_CHANNEL_UNIVERSAL}
+    INVITE_CHANNELS = {"github", "linuxdo", "authentik", "mail", INVITE_CHANNEL_UNIVERSAL}
     INVITE_CHANNEL_LABELS = {
         "github": "GitHub",
         "linuxdo": "LinuxDo",
+        "authentik": "Authentik",
         "mail": "Mail",
         INVITE_CHANNEL_UNIVERSAL: "通用渠道",
     }
@@ -487,6 +488,7 @@ class CommunityService:
         prefix = {
             "github": "GH",
             "linuxdo": "LD",
+            "authentik": "AK",
             "mail": "ML",
             self.INVITE_CHANNEL_UNIVERSAL: "UN",
         }.get(channel, "IV")

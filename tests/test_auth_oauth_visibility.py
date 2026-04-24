@@ -115,6 +115,10 @@ async def test_auth_pages_hide_oauth_buttons_when_provider_disabled(
             "linuxdo_oauth_enabled": False,
             "linuxdo_client_id": "linuxdo-client-id",
             "linuxdo_client_secret": "linuxdo-client-secret",
+            "authentik_oauth_enabled": False,
+            "authentik_client_id": "authentik-client-id",
+            "authentik_client_secret": "authentik-client-secret",
+            "authentik_issuer_url": "https://auth.example.com/application/o/landppt",
         },
     )
 
@@ -125,6 +129,7 @@ async def test_auth_pages_hide_oauth_buttons_when_provider_disabled(
     context = response["context"]
     assert context["github_oauth_enabled"] is False
     assert context["linuxdo_oauth_enabled"] is False
+    assert context["authentik_oauth_enabled"] is False
 
 
 @pytest.mark.asyncio
@@ -140,6 +145,10 @@ async def test_oauth_template_ctx_requires_complete_credentials_before_showing_b
             "linuxdo_oauth_enabled": True,
             "linuxdo_client_id": "linuxdo-client-id",
             "linuxdo_client_secret": "",
+            "authentik_oauth_enabled": True,
+            "authentik_client_id": "authentik-client-id",
+            "authentik_client_secret": "authentik-client-secret",
+            "authentik_issuer_url": "",
         },
     )
 
@@ -148,4 +157,5 @@ async def test_oauth_template_ctx_requires_complete_credentials_before_showing_b
     assert flags == {
         "github_oauth_enabled": False,
         "linuxdo_oauth_enabled": False,
+        "authentik_oauth_enabled": False,
     }

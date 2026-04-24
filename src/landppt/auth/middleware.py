@@ -72,6 +72,8 @@ class AuthMiddleware:
             "/auth/github/callback",
             "/auth/linuxdo/login",
             "/auth/linuxdo/callback",
+            "/auth/authentik/login",
+            "/auth/authentik/callback",
             "/auth/register",
             "/auth/forgot-password",
             "/auth/reset-password",

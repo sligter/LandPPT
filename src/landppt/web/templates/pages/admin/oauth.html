@@ -55,6 +55,11 @@
             --oauth-provider-accent-soft: rgba(37, 99, 235, 0.08);
         }
 
+        .oauth-provider-card[data-provider="authentik"] {
+            --oauth-provider-accent: #7c3aed;
+            --oauth-provider-accent-soft: rgba(124, 58, 237, 0.08);
+        }
+
         .oauth-provider-card[data-state="enabled"] {
             border-color: color-mix(in srgb, var(--oauth-provider-accent) 18%, var(--border));
         }
@@ -430,6 +435,58 @@
                     </div>
                 </div>
             </section>
+
+            <section class="section oauth-provider-card" data-provider="authentik" data-state="disabled">
+                <div class="section-header oauth-provider-header">
+                    <div class="oauth-provider-head">
+                        <span class="oauth-provider-eyebrow"><i class="fas fa-shield-halved"></i> Authentik OAuth</span>
+                    </div>
+                    <div class="oauth-status-stack">
+                        <span class="status-pill" id="authentikStatus"><i class="fas fa-circle"></i> 未启用</span>
+                        <span id="authentikSwitchState" hidden>关闭</span>
+                    </div>
+                </div>
+                <div class="section-body panel-stack">
+                    <label class="oauth-switch" for="authentik_enabled">
+                        <input type="checkbox" id="authentik_enabled" role="switch">
+                        <span class="oauth-switch-copy">
+                            <span class="oauth-switch-icon" aria-hidden="true"><i class="fas fa-shield-halved"></i></span>
+                            <span class="oauth-switch-title">启用 Authentik 登录</span>
+                        </span>
+                        <span class="oauth-switch-meta">
+                            <span class="oauth-switch-state-text">状态</span>
+                            <span class="oauth-switch-track" aria-hidden="true">
+                                <span class="oauth-switch-thumb"></span>
+                            </span>
+                        </span>
+                    </label>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="authentik_client_id">Client ID</label>
+                            <input type="text" id="authentik_client_id" placeholder="Authentik OAuth Client ID">
+                        </div>
+                        <div class="form-group">
+                            <label for="authentik_client_secret">Client Secret</label>
+                            <div class="password-toggle">
+                                <input type="password" id="authentik_client_secret" placeholder="Authentik Client Secret">
+                                <button type="button" onclick="toggleSecret('authentik_client_secret', this)"><i class="fas fa-eye"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="authentik_issuer_url">Issuer URL</label>
+                            <input type="url" id="authentik_issuer_url" placeholder="https://auth.example.com/application/o/landppt">
+                        </div>
+                        <div class="form-group">
+                            <label for="authentik_callback_url">回调地址</label>
+                            <input type="url" id="authentik_callback_url" placeholder="https://your-domain.com/auth/authentik/callback">
+                        </div>
+                    </div>
+                </div>
+            </section>
         </div>
     </div>
 
@@ -470,6 +527,11 @@
             const linuxdoClientId = getField('linuxdo_client_id');
             const linuxdoClientSecret = getField('linuxdo_client_secret');
             const linuxdoCallbackUrl = getField('linuxdo_callback_url');
+            const authentikEnabled = getField('authentik_enabled');
+            const authentikClientId = getField('authentik_client_id');
+            const authentikClientSecret = getField('authentik_client_secret');
+            const authentikCallbackUrl = getField('authentik_callback_url');
+            const authentikIssuerUrl = getField('authentik_issuer_url');
 
             return {
                 github: {
@@ -484,6 +546,13 @@
                     client_id: linuxdoClientId?.value.trim() || '',
                     client_secret: linuxdoClientSecret?.value.trim() || '',
                     callback_url: linuxdoCallbackUrl?.value.trim() || '',
+                },
+                authentik: {
+                    enabled: !!authentikEnabled?.checked,
+                    client_id: authentikClientId?.value.trim() || '',
+                    client_secret: authentikClientSecret?.value.trim() || '',
+                    callback_url: authentikCallbackUrl?.value.trim() || '',
+                    issuer_url: authentikIssuerUrl?.value.trim() || '',
                 }
             };
         }
@@ -521,14 +590,17 @@
             const payload = getPayload();
             const githubReady = !!(payload.github.client_id && payload.github.client_secret);
             const linuxdoReady = !!(payload.linuxdo.client_id && payload.linuxdo.client_secret);
+            const authentikReady = !!(payload.authentik.client_id && payload.authentik.client_secret && payload.authentik.issuer_url);
 
             applyStatus('github', payload.github.enabled, githubReady);
             applyStatus('linuxdo', payload.linuxdo.enabled, linuxdoReady);
+            applyStatus('authentik', payload.authentik.enabled, authentikReady);
         }
 
         function fillForm(config) {
             const github = config.github || {};
             const linuxdo = config.linuxdo || {};
+            const authentik = config.authentik || {};
             const githubEnabled = getField('github_enabled');
             const githubClientId = getField('github_client_id');
             const githubClientSecret = getField('github_client_secret');
@@ -538,6 +610,11 @@
             const linuxdoClientId = getField('linuxdo_client_id');
             const linuxdoClientSecret = getField('linuxdo_client_secret');
             const linuxdoCallbackUrl = getField('linuxdo_callback_url');
+            const authentikEnabled = getField('authentik_enabled');
+            const authentikClientId = getField('authentik_client_id');
+            const authentikClientSecret = getField('authentik_client_secret');
+            const authentikCallbackUrl = getField('authentik_callback_url');
+            const authentikIssuerUrl = getField('authentik_issuer_url');
 
             if (githubEnabled) githubEnabled.checked = !!github.enabled;
             if (githubClientId) githubClientId.value = github.client_id || '';
@@ -549,6 +626,12 @@
             if (linuxdoClientId) linuxdoClientId.value = linuxdo.client_id || '';
             if (linuxdoClientSecret) linuxdoClientSecret.value = linuxdo.client_secret || '';
             if (linuxdoCallbackUrl) linuxdoCallbackUrl.value = linuxdo.callback_url || '';
+
+            if (authentikEnabled) authentikEnabled.checked = !!authentik.enabled;
+            if (authentikClientId) authentikClientId.value = authentik.client_id || '';
+            if (authentikClientSecret) authentikClientSecret.value = authentik.client_secret || '';
+            if (authentikCallbackUrl) authentikCallbackUrl.value = authentik.callback_url || '';
+            if (authentikIssuerUrl) authentikIssuerUrl.value = authentik.issuer_url || '';
 
             updateSummary();
         }

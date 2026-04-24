@@ -548,6 +548,9 @@ curl -X GET "http://localhost:8000/api/projects" \
 ### 报告问题
 如果你发现了bug或有功能建议，请在 [Issues](https://github.com/sligter/LandPPT/issues) 页面创建新的issue。
 
+## 项目管理流程
+项目已补充“阶段可重开（阶段完成后可回到该阶段重新确认并重执行）”流程，适用于 `/app/LandPPT` 的阶段管理与回归控制。详见：[`docs/project-management/stage-reentry-workflow.md`](docs/project-management/stage-reentry-workflow.md)。
+
 ##  常见问题
 
 ### Q: 支持哪些AI模型？
