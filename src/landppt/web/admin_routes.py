@@ -4,7 +4,6 @@ Admin routes for user management and system administration
 
 import logging
 from typing import Optional, List
-from pathlib import Path
 from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -139,10 +138,6 @@ class SponsorUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
-class EnvFileUpdateRequest(BaseModel):
-    content: str
-
-
 class SystemLandPptModelsRequest(BaseModel):
     api_key: str = ""
     base_url: str = ""
@@ -251,37 +246,6 @@ async def admin_community_page(
     )
 
 
-def _get_env_file_path() -> Path:
-    """返回当前服务使用的 .env 文件路径。"""
-    candidate = Path(".env")
-    if candidate.exists():
-        return candidate
-    return Path("/app/.env")
-
-
-async def _reload_runtime_from_env() -> None:
-    """保存 .env 后，尽量让常见运行时配置立即生效。"""
-    from dotenv import load_dotenv
-
-    from ..core.config import app_config, reload_ai_config
-    from ..ai.providers import reload_ai_providers
-    from ..services.service_instances import reload_services
-
-    env_path = _get_env_file_path()
-    load_dotenv(str(env_path), override=True)
-
-    reload_ai_config()
-    reload_ai_providers()
-    reload_services()
-    app_config.__init__()
-
-    try:
-        from ..services.cache_service import close_cache_service
-        await close_cache_service()
-    except Exception:
-        logger.debug("关闭旧缓存实例失败，忽略并继续")
-
-
 def _normalize_openai_compatible_base_url(
     base_url: Optional[str],
     default: str = "https://api.openai.com/v1",
@@ -348,50 +312,6 @@ async def _fetch_landppt_models_with_credentials(api_key: str, base_url: str, ti
 
             payload = await response.json(content_type=None)
             return _extract_model_ids(payload)
-
-
-@router.get("/api/system-env-file")
-async def get_system_env_file(
-    user: User = Depends(get_admin_user_required)
-):
-    """读取当前 .env 内容，供后台高级配置编辑器使用。"""
-    env_path = _get_env_file_path()
-
-    try:
-        content = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
-        return {
-            "success": True,
-            "path": str(env_path),
-            "content": content,
-        }
-    except Exception as exc:
-        logger.error("读取 .env 失败: %s", exc)
-        raise HTTPException(status_code=500, detail="读取 .env 失败")
-
-
-@router.post("/api/system-env-file")
-async def save_system_env_file(
-    data: EnvFileUpdateRequest,
-    user: User = Depends(get_admin_user_required)
-):
-    """保存后台编辑的 .env 内容。"""
-    env_path = _get_env_file_path()
-
-    try:
-        env_path.parent.mkdir(parents=True, exist_ok=True)
-        normalized = (data.content or "").replace("\r\n", "\n")
-        env_path.write_text(normalized, encoding="utf-8")
-
-        await _reload_runtime_from_env()
-
-        return {
-            "success": True,
-            "message": ".env 配置已保存",
-            "path": str(env_path),
-        }
-    except Exception as exc:
-        logger.error("保存 .env 失败: %s", exc)
-        raise HTTPException(status_code=500, detail="保存 .env 失败")
 
 
 @router.post("/api/system-landppt-models")
