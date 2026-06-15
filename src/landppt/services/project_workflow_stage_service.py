@@ -720,14 +720,28 @@ class ProjectWorkflowStageService:
                     logger.error(f"Cannot start from stage {stage_id}: requirements not confirmed")
                     return False
 
-                # Start the workflow from the specified stage
-                # This will be handled by the existing workflow execution logic
-                # For now, just mark the stage as ready to start
+                # The browser owns long-running streaming generation. This method
+                # only prepares the stage so the caller can start the right stream.
                 await self.project_manager.update_stage_status(
-                    project_id, stage_id, "pending", 0.0
+                    project_id,
+                    stage_id,
+                    "pending",
+                    0.0,
+                    {
+                        "prepared_at": time.time(),
+                        "action": (
+                            "start_outline_stream"
+                            if stage_id == "outline_generation"
+                            else "start_stage"
+                        ),
+                    },
+                    user_id=user_id,
                 )
 
-                logger.info(f"Workflow ready to start from stage {stage_id} for project {project_id}")
+                logger.info(
+                    f"Workflow stage {stage_id} prepared for project {project_id}; "
+                    "caller must start the execution stream"
+                )
                 return True
 
             except Exception as e:

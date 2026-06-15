@@ -297,6 +297,14 @@ class ProjectOutlineStreamingService:
             project = await self.project_manager.get_project(project_id)
             if not project:
                 raise ValueError('Project not found')
+            await self.project_manager.update_project_status(project_id, 'in_progress')
+            await self.project_manager.update_stage_status(
+                project_id,
+                'outline_generation',
+                'running',
+                0.0,
+                {'started_at': time.time(), 'message': 'Outline generation started'},
+            )
             from ..file_outline_utils import extract_saved_file_outline, should_force_file_outline_regeneration
             force_file_outline_regeneration = should_force_file_outline_regeneration(project.confirmed_requirements or {})
             ignore_saved_outline = bool(force_regenerate or force_file_outline_regeneration)
@@ -359,7 +367,6 @@ class ProjectOutlineStreamingService:
                 await self._update_outline_generation_stage(project_id, existing_outline)
                 yield f"data: {json.dumps({'done': True, 'llm_call_count': 0})}\n\n"
                 return
-            await self.project_manager.update_project_status(project_id, 'in_progress')
             if project.todo_board:
                 for stage in project.todo_board.stages:
                     if stage.id == 'outline_generation':
@@ -434,6 +441,13 @@ class ProjectOutlineStreamingService:
                 content = content.strip()
                 if not content or len(content.strip()) < 10:
                     error_message = 'AI生成的内容为空或过短，请重新生成大纲。'
+                    await self.project_manager.update_stage_status(
+                        project_id,
+                        'outline_generation',
+                        'failed',
+                        0.0,
+                        {'failed_at': time.time(), 'message': error_message},
+                    )
                     yield f"data: {json.dumps({'error': error_message})}\n\n"
                     return
             except Exception as ai_error:
@@ -444,6 +458,13 @@ class ProjectOutlineStreamingService:
                     error_message = 'AI服务暂时不可用，请稍后重新生成大纲。'
                 else:
                     error_message = f'AI生成大纲失败：{str(ai_error)}。请重新生成大纲。'
+                await self.project_manager.update_stage_status(
+                    project_id,
+                    'outline_generation',
+                    'failed',
+                    0.0,
+                    {'failed_at': time.time(), 'message': error_message},
+                )
                 yield f"data: {json.dumps({'error': error_message})}\n\n"
                 return
             structured_outline = None
@@ -493,6 +514,13 @@ class ProjectOutlineStreamingService:
                 logger.error(f'Failed to parse AI response as JSON: {parse_error}')
                 logger.error(f'AI response content: {content[:500]}...')
                 error_message = f'AI生成的大纲格式无效，无法解析。请重新生成大纲。'
+                await self.project_manager.update_stage_status(
+                    project_id,
+                    'outline_generation',
+                    'failed',
+                    0.0,
+                    {'failed_at': time.time(), 'message': error_message},
+                )
                 yield f"data: {json.dumps({'error': error_message})}\n\n"
                 return
         except Exception as e:
@@ -501,4 +529,18 @@ class ProjectOutlineStreamingService:
                 error_message = f'AI服务暂时不可用：{str(e)}。请稍后重试或检查网络连接。'
             else:
                 error_message = f'生成大纲时出现错误：{str(e)}'
+            try:
+                await self.project_manager.update_stage_status(
+                    project_id,
+                    'outline_generation',
+                    'failed',
+                    0.0,
+                    {'failed_at': time.time(), 'message': error_message},
+                )
+            except Exception as stage_error:
+                logger.warning(
+                    'Failed to mark outline generation failed for project %s: %s',
+                    project_id,
+                    stage_error,
+                )
             yield f"data: {json.dumps({'error': error_message})}\n\n"

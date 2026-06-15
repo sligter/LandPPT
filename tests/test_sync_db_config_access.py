@@ -71,11 +71,11 @@ def test_image_service_config_load_config_from_db_sync(monkeypatch):
     assert config.get_provider_config("searxng")["host"] == "https://searx.example.com"
 
 
-def test_pdf_to_pptx_converter_license_key_uses_sync_db_config(monkeypatch):
+def test_pdf_to_pptx_converter_license_key_uses_system_sync_db_config(monkeypatch):
     class FakeDBConfigService:
         def get_config_value_sync(self, key, user_id=None):
             assert key == "apryse_license_key"
-            assert user_id == 12
+            assert user_id is None
             return "sync-license-key"
 
     import landppt.services.db_config_service as db_mod
@@ -86,6 +86,24 @@ def test_pdf_to_pptx_converter_license_key_uses_sync_db_config(monkeypatch):
 
     assert converter.license_key == "sync-license-key"
     assert converter.license_key == "sync-license-key"
+
+
+def test_pdf_to_pptx_converter_uses_server_sdk_system_license_path():
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    converter_text = (root / "src/landppt/services/pdf_to_pptx_converter.py").read_text(encoding="utf-8")
+    export_route_text = (root / "src/landppt/web/route_modules/export_routes.py").read_text(encoding="utf-8")
+    template_text = (
+        root / "src/landppt/web/templates/pages/project/project_slides_editor.html"
+    ).read_text(encoding="utf-8")
+
+    assert "PDFNet.Initialize(self.license_key)" in converter_text
+    assert "get_all_config(user_id=None)" in converter_text
+    assert 'get_config_value_sync("apryse_license_key", user_id=None)' in converter_text
+    assert "get_all_config(user_id=self.user_id)" not in converter_text
+    assert 'get_config_value_sync("apryse_license_key", user_id=self.user_id)' not in converter_text
+    assert "Pre-load the system Apryse Server SDK license key" in export_route_text
+    assert "Pre-load user's license key" not in export_route_text
+    assert "apryse_license_key" not in template_text
 
 
 def test_database_config_service_get_config_value_sync(monkeypatch):

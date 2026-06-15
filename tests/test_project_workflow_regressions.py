@@ -90,6 +90,54 @@ async def test_rename_project_rejects_blank_title():
 
 
 @pytest.mark.asyncio
+async def test_continue_from_outline_stage_returns_stream_action(monkeypatch):
+    from landppt.api import landppt_api
+
+    calls = []
+
+    class FakeRequest:
+        async def json(self):
+            return {"stage_id": "outline_generation"}
+
+    class FakeProjectManager:
+        async def get_project(self, project_id, user_id=None):
+            calls.append(("get_project", project_id, user_id))
+            return SimpleNamespace(project_id=project_id, confirmed_requirements={"topic": "demo"})
+
+    class FakePPTService:
+        project_manager = FakeProjectManager()
+
+        async def reset_stages_from(self, project_id, stage_id, user_id=None):
+            calls.append(("reset", project_id, stage_id, user_id))
+            return True
+
+        async def start_workflow_from_stage(self, project_id, stage_id, user_id=None):
+            calls.append(("prepare", project_id, stage_id, user_id))
+            return True
+
+    monkeypatch.setattr(
+        landppt_api,
+        "get_ppt_service_for_user",
+        lambda user_id: FakePPTService(),
+    )
+
+    response = await landppt_api.continue_from_stage(
+        "project-1",
+        FakeRequest(),
+        user=SimpleNamespace(id=11),
+    )
+
+    assert response["status"] == "ready"
+    assert response["action"] == "start_outline_stream"
+    assert response["stream_url"] == "/projects/project-1/outline-stream?force_regenerate=1"
+    assert calls == [
+        ("get_project", "project-1", 11),
+        ("reset", "project-1", "outline_generation", 11),
+        ("prepare", "project-1", "outline_generation", 11),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_enhanced_ppt_service_keeps_project_workflow_proxy():
     execute_project_workflow = _load_class_method(
         "src/landppt/services/enhanced_ppt_service.py",
@@ -275,3 +323,42 @@ def test_editor_sidebar_thumbnail_refresh_recalculates_scale_without_overriding_
     assert "aspect-ratio: 16 / 9;" in css
     assert "height: 95px" not in css
     assert "scale(0.1875)" in css
+
+
+def test_continue_outline_stage_starts_real_outline_stream():
+    api = _read("src/landppt/api/landppt_api.py")
+    script = _read("src/landppt/web/templates/components/project/todo_board/extra_js_1.html")
+
+    assert '"action": "start_outline_stream"' in api
+    assert 'stream_url": f"/projects/{project_id}/outline-stream?force_regenerate=1"' in api
+    assert "result.action === 'start_outline_stream'" in script
+    assert "startOutlineGenerationNew({ forceRegenerate: true })" in script
+
+
+def test_outline_generation_failures_are_not_left_running_or_pending():
+    route = _read("src/landppt/web/route_modules/outline_generation_routes.py")
+    streaming_service = _read("src/landppt/services/outline/project_outline_streaming_service.py")
+    script = _read("src/landppt/web/templates/components/project/todo_board/extra_js_1.html")
+
+    assert '"outline_generation",\n                        "running"' in route
+    assert '"outline_generation",\n                                    "failed"' in route
+    assert "'outline_generation',\n                        'failed'" in streaming_service
+    assert "outlineGenerationStarted = false;" in script
+
+
+def test_requirements_return_auto_start_no_longer_skips_outline_stream():
+    script = _read("src/landppt/web/templates/components/project/todo_board/extra_js_1.html")
+
+    assert "function isOutlineStageReadyToStart(statusText)" in script
+    assert "['⏳', '✗', '✕'].includes" in script
+
+    auto_start_block = script[
+        script.index(
+            "if ((fromRequirements || requirementsCompleted) && isOutlineStageReadyToStart(outlineStatus))"
+        )
+        : script.index("} else if (!requirementsCompleted)")
+    ]
+
+    assert "startOutlineGenerationNew();" in auto_start_block
+    assert "if (!fromRequirements)" not in auto_start_block
+    assert "if (!outlineGenerationStarted)" in auto_start_block

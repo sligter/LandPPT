@@ -402,6 +402,17 @@ def test_project_slides_editor_template_uses_extracted_assets():
     assert inline_script_marker not in template_text
 
 
+def test_project_slides_editor_standard_pptx_export_gate_is_route_backed():
+    route_text = _read("src/landppt/web/route_modules/project_workspace_routes.py")
+    template_text = _read("src/landppt/web/templates/pages/project/project_slides_editor.html")
+
+    assert "from .export_support import _is_standard_pptx_export_enabled" in route_text
+    assert "standard_pptx_export_enabled = await _is_standard_pptx_export_enabled()" in route_text
+    assert '"standard_pptx_export_enabled": standard_pptx_export_enabled' in route_text
+    assert "{% if standard_pptx_export_enabled %}" in template_text
+    assert "apryse_license_key" not in template_text
+
+
 def test_extracted_editor_assets_do_not_embed_template_syntax():
     for relative_path in [
         "src/landppt/web/static/css/pages/project/slides_editor/projectSlidesEditor.css",

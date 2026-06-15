@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from ...auth.middleware import get_current_user_required
 from ...core.config import ai_config, app_config
 from ...database.models import User
+from .export_support import _is_standard_pptx_export_enabled
 from .support import _apply_no_store_headers, logger, ppt_service, templates
 
 router = APIRouter()
@@ -171,12 +172,14 @@ async def edit_project_ppt(
             project.slides_data = []
 
         has_speech_scripts, narration_languages = await _resolve_project_narration_state(project_id, user.id)
+        standard_pptx_export_enabled = await _is_standard_pptx_export_enabled()
         response = templates.TemplateResponse(
             "pages/project/project_slides_editor.html",
             {
                 "request": request,
                 "project": project,
                 "enable_auto_layout_repair": ai_config.enable_auto_layout_repair,
+                "standard_pptx_export_enabled": standard_pptx_export_enabled,
                 "narration_video_tools_enabled": bool(getattr(user, "is_admin", False)) and getattr(app_config, "narration_video_tools_enabled", True),
                 "has_speech_scripts": has_speech_scripts,
                 "narration_languages": narration_languages,

@@ -791,6 +791,10 @@
         }
     }
 
+    function isOutlineStageReadyToStart(statusText) {
+        return ['⏳', '✗', '✕'].includes((statusText || '').trim());
+    }
+
     // Show outline section
     function showOutlineSection() {
         // Create and show outline section if it doesn't exist
@@ -1583,6 +1587,7 @@
                             showOutlineGenerationError(data.error || '未知错误', 'regenerateOutlineNew');
                             if (cursorDiv) cursorDiv.style.display = 'none';
                             destroyOutlineStreamPreviewRenderers();
+                            outlineGenerationStarted = false;
                             return;
                         }
 
@@ -1711,6 +1716,7 @@
             showOutlineGenerationError(error.message || '连接失败', 'regenerateOutlineNew');
             if (cursorDiv) cursorDiv.style.display = 'none';
             destroyOutlineStreamPreviewRenderers();
+            outlineGenerationStarted = false;
         }
     }
 
@@ -2961,8 +2967,20 @@
             if (response.ok) {
                 const result = await response.json();
 
+                if (stageId === 'outline_generation' || result.action === 'start_outline_stream') {
+                    alert(`已从"${getStageDisplayName(stageId)}"步骤重新开始，正在生成大纲...`);
+
+                    outlineGenerationStarted = false;
+                    await updateStageStatusSilent('outline_generation', 'running', 0);
+                    showOutlineSection();
+                    setTimeout(() => {
+                        startOutlineGenerationNew({ forceRegenerate: true });
+                    }, 300);
+                    return;
+                }
+
                 // Show success message
-                alert(`已从"${getStageDisplayName(stageId)}"步骤重新开始，正在重新执行工作流程...`);
+                alert(`已从"${getStageDisplayName(stageId)}"步骤重新开始。`);
 
                 // Reload page to show updated status
                 setTimeout(() => {
@@ -3090,7 +3108,7 @@
                             if (stage.id === 'requirements_confirmation') {
                                 const outlineStage = document.querySelector('[data-stage-id="outline_generation"]');
                                 const outlineStatus = outlineStage?.querySelector('.stage-status-icon')?.textContent;
-                                if (outlineStatus === '⏳') {
+                                if (isOutlineStageReadyToStart(outlineStatus)) {
                                     console.log('Requirements just completed, starting outline generation');
                                     setTimeout(() => {
                                         startStageExecution('outline_generation');
@@ -3177,11 +3195,10 @@
         }
 
         // Auto-start outline generation if requirements just confirmed or if requirements completed and outline pending
-        if ((fromRequirements || requirementsCompleted) && outlineStatus === '⏳') {
+        if ((fromRequirements || requirementsCompleted) && isOutlineStageReadyToStart(outlineStatus)) {
             // Requirements confirmed, automatically start outline generation (second step)
             console.log('Requirements confirmed, starting outline generation automatically');
-            // 只有在不是来自需求确认页面时才调用，避免重复调用
-            if (!fromRequirements) {
+            if (!outlineGenerationStarted) {
                 setTimeout(() => {
                     startOutlineGenerationNew();
                 }, 1000);

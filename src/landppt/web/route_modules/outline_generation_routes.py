@@ -87,7 +87,26 @@ async def stream_outline_generation(
         if not has_credits:
             async def generate():
                 import json
-                yield f"data: {json.dumps({'error': f'积分不足，大纲生成需要 {required} 积分，当前余额 {balance} 积分'})}\n\n"
+                error_message = f"积分不足，大纲生成需要 {required} 积分，当前余额 {balance} 积分"
+                try:
+                    await user_ppt_service.project_manager.update_stage_status(
+                        project_id,
+                        "outline_generation",
+                        "failed",
+                        0.0,
+                        {
+                            "failed_at": time.time(),
+                            "message": error_message,
+                        },
+                        user_id=user.id,
+                    )
+                except Exception as stage_error:
+                    logger.warning(
+                        "Failed to mark outline generation failed for project %s: %s",
+                        project_id,
+                        stage_error,
+                    )
+                yield f"data: {json.dumps({'error': error_message}, ensure_ascii=False)}\n\n"
             return StreamingResponse(
                 generate(),
                 media_type="text/event-stream",
@@ -100,8 +119,11 @@ async def stream_outline_generation(
 
         async def generate():
             billed = False
+            done_seen = False
             content_source = confirmed_requirements.get("content_source")
             force_fresh_generation = bool(force_regenerate or force_file_outline_regeneration)
+            stage_started = False
+            failed_recorded = False
             if force_fresh_generation:
                 logger.info(
                     "Project %s outline stream requested fresh regeneration; skipping reusable outline branches",
@@ -113,6 +135,29 @@ async def stream_outline_generation(
             )
 
             try:
+                try:
+                    await user_ppt_service.project_manager.update_project_status(
+                        project_id, "in_progress", user_id=user.id
+                    )
+                    await user_ppt_service.project_manager.update_stage_status(
+                        project_id,
+                        "outline_generation",
+                        "running",
+                        0.0,
+                        {
+                            "started_at": time.time(),
+                            "message": "Outline generation started",
+                        },
+                        user_id=user.id,
+                    )
+                    stage_started = True
+                except Exception as stage_error:
+                    logger.warning(
+                        "Failed to mark outline generation running for project %s: %s",
+                        project_id,
+                        stage_error,
+                    )
+
                 chunk_source = user_ppt_service.generate_outline_streaming(
                     project_id,
                     force_regenerate=force_fresh_generation,
@@ -134,18 +179,43 @@ async def stream_outline_generation(
                     )
 
                 async for chunk in chunk_source:
-                    yield chunk
-                    if billed or not _is_billable_provider(outline_provider_name):
-                        continue
+                    payloads = []
                     for line in str(chunk).splitlines():
                         if not line.startswith("data: "):
                             continue
                         try:
-                            import json
-                            payload = json.loads(line[6:])
+                            payloads.append(json.loads(line[6:]))
                         except Exception:
                             continue
+
+                    for payload in payloads:
+                        if payload.get("error") and stage_started and not failed_recorded:
+                            failed_recorded = True
+                            try:
+                                await user_ppt_service.project_manager.update_stage_status(
+                                    project_id,
+                                    "outline_generation",
+                                    "failed",
+                                    0.0,
+                                    {
+                                        "failed_at": time.time(),
+                                        "message": str(payload.get("error")),
+                                    },
+                                    user_id=user.id,
+                                )
+                            except Exception as stage_error:
+                                logger.warning(
+                                    "Failed to mark outline generation failed for project %s: %s",
+                                    project_id,
+                                    stage_error,
+                                )
+
+                    yield chunk
+                    if billed or not _is_billable_provider(outline_provider_name):
+                        continue
+                    for payload in payloads:
                         if payload.get("done") is True:
+                            done_seen = True
                             billed = True
                             llm_call_count = payload.get("llm_call_count", 1)
                             try:
@@ -163,7 +233,25 @@ async def stream_outline_generation(
                                     provider_name=outline_provider_name,
                                 )
             except Exception as e:
-                import json
+                if stage_started and not done_seen:
+                    try:
+                        await user_ppt_service.project_manager.update_stage_status(
+                            project_id,
+                            "outline_generation",
+                            "failed",
+                            0.0,
+                            {
+                                "failed_at": time.time(),
+                                "message": str(e),
+                            },
+                            user_id=user.id,
+                        )
+                    except Exception as stage_error:
+                        logger.warning(
+                            "Failed to mark outline generation failed for project %s: %s",
+                            project_id,
+                            stage_error,
+                        )
                 error_response = {'error': str(e)}
                 yield f"data: {json.dumps(error_response)}\n\n"
 
