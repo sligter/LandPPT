@@ -579,12 +579,25 @@ async def continue_from_stage(
         if not success:
             raise HTTPException(status_code=400, detail="Failed to reset stages")
 
-        # Start workflow from the specified stage
-        await user_ppt_service.start_workflow_from_stage(project_id, stage_id, user_id=user.id)
+        workflow_ready = await user_ppt_service.start_workflow_from_stage(
+            project_id, stage_id, user_id=user.id
+        )
+        if not workflow_ready:
+            raise HTTPException(status_code=400, detail="Failed to prepare workflow stage")
+
+        if stage_id == "outline_generation":
+            return {
+                "status": "ready",
+                "action": "start_outline_stream",
+                "message": "Outline generation stage reset. Start the outline stream to continue.",
+                "project_id": project_id,
+                "stage_id": stage_id,
+                "stream_url": f"/projects/{project_id}/outline-stream?force_regenerate=1",
+            }
 
         return {
             "status": "success",
-            "message": f"Workflow restarted from stage: {stage_id}",
+            "message": f"Workflow stage prepared: {stage_id}",
             "project_id": project_id,
             "stage_id": stage_id
         }

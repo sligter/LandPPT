@@ -295,7 +295,7 @@ async def export_project_pptx(
         if not project.slides_data or len(project.slides_data) == 0:
             raise HTTPException(status_code=400, detail="PPT not generated yet")
 
-        # Pre-load user's license key (async, fast operation)
+        # Pre-load the system Apryse Server SDK license key (async, fast operation)
         converter = get_pdf_to_pptx_converter()
         await converter.set_user_id_async(user.id)
         

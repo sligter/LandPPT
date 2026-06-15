@@ -190,18 +190,18 @@ class PDFToPPTXConverter:
         self.sdk_manager = SDKDownloadManager(lib_dir)
 
     def set_user_id(self, user_id: int):
-        """Set user ID for loading user-specific configuration (sync version - use set_user_id_async in async context)"""
+        """Set user ID for task ownership context; Apryse licensing remains system-scoped."""
         self.user_id = user_id
-        self._cached_license_key = None  # Clear cache when user changes
-        self._sdk_initialized = False  # Force reinitialize with new license
+        self._cached_license_key = None  # Refresh the system license cache for the next conversion.
+        self._sdk_initialized = False  # Force reinitialize with the current system license.
     async def set_user_id_async(self, user_id: int):
-        """Set user ID and pre-load license key from database (async version - use this in async routes)"""
+        """Set user ID and pre-load the system Apryse Server SDK license key."""
         logger.info(f"set_user_id_async called with user_id={user_id}")
         self.user_id = user_id
         self._cached_license_key = None
         self._sdk_initialized = False
         
-        # Pre-load the license key from user config
+        # Pre-load the system license key for the worker subprocess.
         try:
             license_key = await self._get_license_key_async()
             self._cached_license_key = license_key
@@ -210,56 +210,50 @@ class PDFToPPTXConverter:
                 masked_key = f"{license_key[:4]}...{license_key[-4:]}"
             else:
                 masked_key = "***"
-            logger.info(f"Pre-loaded Apryse license key for user {user_id}: {masked_key}")
+            logger.info(f"Pre-loaded system Apryse Server SDK license key: {masked_key}")
         except Exception as e:
             logger.warning(f"Failed to pre-load Apryse license key: {e}")
     
     async def _get_license_key_async(self) -> str:
-        """Get license key from user database config (async version)"""
+        """Get the system Apryse Server SDK license key (async version)."""
         from ..core.config import ai_config
-        
-        logger.debug(f"_get_license_key_async: user_id={self.user_id}")
-        
-        if self.user_id is not None:
-            try:
-                from .db_config_service import get_db_config_service
-                config_service = get_db_config_service()
-                user_config = await config_service.get_all_config(user_id=self.user_id)
-                
-                license_key = user_config.get("apryse_license_key")
-                logger.info(f"Loaded apryse_license_key from user config: {'found' if license_key else 'not found'}")
-                if license_key:
-                    return license_key
-            except Exception as e:
-                logger.warning(f"Failed to load Apryse license from user config: {e}")
+
+        try:
+            from .db_config_service import get_db_config_service
+            config_service = get_db_config_service()
+            system_config = await config_service.get_all_config(user_id=None)
+
+            license_key = system_config.get("apryse_license_key")
+            logger.info(f"Loaded system apryse_license_key: {'found' if license_key else 'not found'}")
+            if license_key:
+                return license_key
+        except Exception as e:
+            logger.warning(f"Failed to load system Apryse license from DB config: {e}")
         
         # Fallback to global config
         fallback_key = ai_config.apryse_license_key or 'your_apryse_license_key_here'
-        logger.info(f"Using fallback Apryse license key from global config")
+        logger.info("Using fallback Apryse license key from global config")
         return fallback_key
 
     @property
     def license_key(self):
-        """Dynamically get license key to ensure latest config"""
+        """Dynamically get the system Apryse Server SDK license key."""
         # Try to use cached license key first
         if self._cached_license_key:
             return self._cached_license_key
             
         from ..core.config import ai_config
         
-        # For sync context, try to read from user config if user_id is set
-        if self.user_id is not None:
-            try:
-                from .db_config_service import get_db_config_service
+        try:
+            from .db_config_service import get_db_config_service
 
-                config_service = get_db_config_service()
-                license_key = config_service.get_config_value_sync("apryse_license_key", user_id=self.user_id)
-                if license_key:
-                    self._cached_license_key = license_key
-                    return license_key
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to load Apryse license from user config: {e}")
+            config_service = get_db_config_service()
+            license_key = config_service.get_config_value_sync("apryse_license_key", user_id=None)
+            if license_key:
+                self._cached_license_key = license_key
+                return license_key
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to load system Apryse license from DB config: {e}")
         
         return ai_config.apryse_license_key or 'your_apryse_license_key_here'
     
@@ -339,7 +333,7 @@ class PDFToPPTXConverter:
     def reload_config(self):
         """Reload configuration and reinitialize SDK if needed"""
         logger.info("Reloading PDF to PPTX converter configuration...")
-        # Force reinitialization with new license key
+        # Force reinitialization with the current system license key.
         self._sdk_initialized = False
         return self._initialize_sdk()
     

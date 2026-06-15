@@ -1,3 +1,59 @@
+const AI_STREAM_SUMMARY_MAX_CHARS = 180;
+
+function sanitizeAIStreamSummary(text) {
+    if (!text) return '';
+
+    return String(text)
+        .replace(/```(?:html)?[\s\S]*?```/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<!doctype[\s\S]*?>/gi, ' ')
+        .replace(/<html[\s\S]*?<\/html>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&lt;[\s\S]*?&gt;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function buildAIStreamSummary(text) {
+    const summary = sanitizeAIStreamSummary(text);
+    if (!summary) return '';
+    if (summary.length <= AI_STREAM_SUMMARY_MAX_CHARS) return summary;
+    return `${summary.slice(0, AI_STREAM_SUMMARY_MAX_CHARS)}...`;
+}
+
+function buildAIStreamStatusMessage(fullResponse, phase = 'streaming', hasHtmlContent = false) {
+    let statusText = '正在分析需求并生成修改方案...';
+
+    if (phase === 'start') {
+        statusText = '正在连接 AI 编辑服务...';
+    } else if (phase === 'complete') {
+        statusText = hasHtmlContent
+            ? '已生成修改内容。完整 HTML 已准备好，可应用更改或预览。'
+            : 'AI 回复已完成，正在尝试提取可应用的 HTML。';
+    } else if (/<html|```html|<style|<div/i.test(fullResponse || '')) {
+        statusText = '正在生成修改内容，已检测到 HTML 片段...';
+    }
+
+    const summary = buildAIStreamSummary(fullResponse);
+    return summary ? `${statusText}\n\n摘要：${summary}` : statusText;
+}
+
+function renderAIStreamStatus(aiMessageDiv, fullResponse, phase = 'streaming', hasHtmlContent = false) {
+    if (!aiMessageDiv) return '';
+
+    const statusText = buildAIStreamStatusMessage(fullResponse, phase, hasHtmlContent);
+    window.projectSlidesEditorPretext.setAssistantMessageText(aiMessageDiv, statusText);
+
+    const messagesContainer = document.getElementById('aiChatMessages');
+    if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    return statusText;
+}
+
 async function handleStreamingResponse(response, waitingDiv) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -30,12 +86,13 @@ async function handleStreamingResponse(response, waitingDiv) {
                                 streamingMessageId = 'ai-streaming-message-' + Date.now();
                                 aiMessageDiv = addAIMessage('', 'assistant', streamingMessageId);
                                 if (aiMessageDiv) aiMessageDiv.dataset.complete = 'false';
+                                renderAIStreamStatus(aiMessageDiv, fullResponse, 'start');
                             } else if (data.type === 'content' && data.content) {
                                 // 追加内容到AI消息
                                 fullResponse += data.content;
                                 if (aiMessageDiv) {
                                     // 转义HTML标签，防止实时渲染
-                                    window.projectSlidesEditorPretext.setAssistantMessageText(aiMessageDiv, fullResponse);
+                                    renderAIStreamStatus(aiMessageDiv, fullResponse, 'streaming');
                                     // 滚动到底部
                                     const messagesContainer = document.getElementById('aiChatMessages');
                                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -45,7 +102,10 @@ async function handleStreamingResponse(response, waitingDiv) {
                                 newHtmlContent = data.newHtmlContent;
                                 fullResponse = data.fullResponse || fullResponse;
                                 if (streamingMessageId) {
-                                    updateAIChatHistoryMessage(streamingMessageId, fullResponse);
+                                    updateAIChatHistoryMessage(
+                                        streamingMessageId,
+                                        buildAIStreamStatusMessage(fullResponse, 'complete', !!newHtmlContent)
+                                    );
                                 }
                                 if (aiMessageDiv) aiMessageDiv.dataset.complete = 'true';
 
@@ -55,15 +115,13 @@ async function handleStreamingResponse(response, waitingDiv) {
 
                                 if (newHtmlContent) {
                                     console.log('✅ 检测到HTML内容，准备添加按钮');
-                                    console.log('📄 HTML内容预览:', newHtmlContent.substring(0, 200));
                                 } else {
                                     console.warn('⚠️  未检测到HTML内容');
-                                    console.log('📝 完整AI响应预览:', fullResponse ? fullResponse.substring(0, 500) : '无响应内容');
                                 }
 
                                 // 确保最终内容正确显示，转义HTML标签
                                 if (aiMessageDiv) {
-                                    window.projectSlidesEditorPretext.setAssistantMessageText(aiMessageDiv, fullResponse);
+                                    renderAIStreamStatus(aiMessageDiv, fullResponse, 'complete', !!newHtmlContent);
                                 }
 
                                 // 如果有HTML内容，添加应用按钮
