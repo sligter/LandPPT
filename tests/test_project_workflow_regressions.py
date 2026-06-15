@@ -285,6 +285,27 @@ def test_outline_operations_send_structure_operation_payload():
     assert "await saveSingleSlideToServer(" in script
 
 
+def test_ai_slide_edit_stream_displays_status_without_rendering_full_html():
+    script = _read(
+        "src/landppt/web/static/js/pages/project/slides_editor/projectSlidesEditor.aiApply.js"
+    )
+
+    assert "function sanitizeAIStreamSummary(text)" in script
+    assert r".replace(/```(?:html)?[\s\S]*?```/gi, ' ')" in script
+    assert r".replace(/<html[\s\S]*?<\/html>/gi, ' ')" in script
+    assert "renderAIStreamStatus(aiMessageDiv, fullResponse, 'streaming')" in script
+    assert "buildAIStreamStatusMessage(fullResponse, 'complete', !!newHtmlContent)" in script
+
+    assert "setAssistantMessageText(aiMessageDiv, fullResponse)" not in script
+    assert "updateAIChatHistoryMessage(streamingMessageId, fullResponse)" not in script
+    assert "newHtmlContent.substring(0, 200)" not in script
+    assert "fullResponse.substring(0, 500)" not in script
+
+    assert "addApplyChangesButton(aiMessageDiv, newHtmlContent)" in script
+    assert "await applyAIChanges(newHtmlContent)" in script
+    assert "showHTMLPreview(newHtmlContent)" in script
+
+
 def test_project_detail_outline_supports_drag_delete_and_duplicate():
     content = _read("src/landppt/web/templates/components/project/detail/content_1.html")
     script = _read("src/landppt/web/templates/components/project/detail/extra_js_1.html")
