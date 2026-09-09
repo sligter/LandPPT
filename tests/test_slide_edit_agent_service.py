@@ -5,6 +5,7 @@ import pytest
 
 from landppt.ai.base import AIResponse, ImageContent, MessageRole, TextContent
 from landppt.services.slide.edit_agent import prompt as agent_prompt
+from landppt.services.slide.edit_agent.html_safety import has_new_executable_content
 from landppt.services.slide.slide_edit_agent_service import (
     DraftRefError,
     SlideDraft,
@@ -106,6 +107,142 @@ def test_validate_slide_html_accepts_clean_slide_html():
     assert result.valid is True
     assert result.errors == []
     assert "Hello" in result.sanitized_html
+
+
+SCRIPTED_HTML = (
+    '<html><head><script src="/static/chart.js"></script></head><body>'
+    '<h1 style="height:100px">Title</h1><canvas id="chart"></canvas>'
+    '<script>const chart = document.getElementById("chart");</script>'
+    '</body></html>'
+)
+
+
+def test_validation_preserves_unchanged_original_scripts_after_layout_edit():
+    html = SCRIPTED_HTML.replace("height:100px", "height:120px")
+    result = validate_slide_html(html, baseline_html=SCRIPTED_HTML)
+    assert result.valid, result.errors
+    assert 'height:120px' in result.sanitized_html
+    assert '<script src="/static/chart.js"></script>' in result.sanitized_html
+    assert 'const chart = document.getElementById("chart");' in result.sanitized_html
+    assert not validate_slide_html(html).valid
+
+
+@pytest.mark.parametrize("transform", [
+    lambda html: html.replace('/static/chart.js', '/new.js'),
+    lambda html: html.replace('const chart =', 'window.evil ='),
+    lambda html: html.replace('</body>', '<script>alert(1)</script></body>'),
+    lambda html: html.replace('</body>', '<script src="/static/chart.js"></script></body>'),
+    lambda html: html.replace('<head>', '<head><base href="https://example.com/">'),
+    lambda html: html.replace('<canvas', '<canvas onclick="bad()"'),
+    lambda html: html.replace('<canvas', '<canvas data-x="javascript:bad()"'),
+])
+def test_baseline_scripts_do_not_allow_new_active_content(transform):
+    assert not validate_slide_html(transform(SCRIPTED_HTML), baseline_html=SCRIPTED_HTML).valid
+
+
+def test_reordering_original_scripts_is_rejected():
+    baseline = '<div>Title<script>first()</script><script>second()</script></div>'
+    changed = '<div>Title<script>second()</script><script>first()</script></div>'
+    assert not validate_slide_html(changed, baseline_html=baseline).valid
+
+
+def test_script_identifiers_can_be_removed_without_changing_script_content():
+    baseline = '<div>Title<script data-agent-id="a" data-quick-ai-id="b">draw()</script></div>'
+    cleaned = strip_agent_ids(baseline)
+    assert validate_slide_html(cleaned, baseline_html=baseline).valid
+
+
+SRI_BASELINE = (
+    '<div>Title<script src="https://cdn.example.com/chart.js" '
+    'integrity="sha384-abc" crossorigin="anonymous"></script></div>'
+)
+
+
+def test_preview_stripped_sri_metadata_still_counts_as_unchanged_script():
+    # 编辑器预览渲染前会剥掉 integrity/crossorigin，基于预览 DOM 的草稿就长这样。
+    stripped = '<div>Title<script src="https://cdn.example.com/chart.js"></script></div>'
+    result = validate_slide_html(stripped, baseline_html=SRI_BASELINE)
+    assert result.valid, result.errors
+    assert 'src="https://cdn.example.com/chart.js"' in result.sanitized_html
+
+
+@pytest.mark.parametrize("html", [
+    '<div>Title<script src="https://cdn.example.com/evil.js"></script></div>',
+    '<div>Title<script src="https://cdn.example.com/chart.js">run()</script></div>',
+    '<div>Title<script src="https://cdn.example.com/chart.js" async></script></div>',
+])
+def test_sri_tolerance_does_not_extend_to_url_body_or_other_attributes(html):
+    assert not validate_slide_html(html, baseline_html=SRI_BASELINE).valid
+
+
+def test_has_new_executable_content_accepts_live_draft_tree():
+    draft = SlideDraft(SCRIPTED_HTML)
+    assert not has_new_executable_content(draft.soup, SCRIPTED_HTML)
+    draft.soup.find("script", src=True)["src"] = "/evil.js"
+    assert has_new_executable_content(draft.soup, SCRIPTED_HTML)
+
+    draft = SlideDraft(HANDLER_HTML)
+    assert not has_new_executable_content(draft.soup, HANDLER_HTML)
+    draft.soup.find("h1")["onclick"] = "bad()"
+    assert has_new_executable_content(draft.soup, HANDLER_HTML)
+
+
+HANDLER_HTML = (
+    '<div class="slide"><h1 style="height:100px">Title</h1>'
+    '<button class="tab" onclick="showTab(1)">Tab 1</button>'
+    '<button class="tab" onclick="showTab(2)">Tab 2</button>'
+    '<a href="javascript:void(0)" class="more">More</a></div>'
+)
+
+
+def test_unchanged_baseline_event_handlers_survive_a_layout_edit():
+    html = HANDLER_HTML.replace("height:100px", "height:120px")
+    result = validate_slide_html(html, baseline_html=HANDLER_HTML)
+    assert result.valid, result.errors
+    assert "height:120px" in result.sanitized_html
+    assert result.sanitized_html.count('onclick="showTab(') == 2
+    assert 'href="javascript:void(0)"' in result.sanitized_html
+    assert not validate_slide_html(html).valid
+
+
+@pytest.mark.parametrize("transform", [
+    lambda html: html.replace('onclick="showTab(1)"', 'onclick="steal()"'),
+    lambda html: html.replace("<h1 ", '<h1 onmouseover="bad()" '),
+    lambda html: html.replace("</div>", '<button onclick="showTab(1)">Copy</button></div>'),
+    lambda html: html.replace('<a href="javascript:void(0)"', '<a href="javascript:bad()"'),
+    lambda html: html.replace('<button class="tab" onclick="showTab(1)"', '<div onclick="showTab(1)"').replace("Tab 1</button>", "Tab 1</div>"),
+    lambda html: html.replace("<h1 ", '<h1 srcdoc="x" '),
+])
+def test_baseline_handlers_do_not_allow_new_or_modified_executable_attributes(transform):
+    assert not validate_slide_html(transform(HANDLER_HTML), baseline_html=HANDLER_HTML).valid
+
+
+def test_baseline_handlers_may_be_removed_or_reordered_with_their_elements():
+    removed = HANDLER_HTML.replace('<button class="tab" onclick="showTab(2)">Tab 2</button>', "")
+    assert validate_slide_html(removed, baseline_html=HANDLER_HTML).valid
+    moved = HANDLER_HTML.replace(
+        '<button class="tab" onclick="showTab(1)">Tab 1</button>'
+        '<button class="tab" onclick="showTab(2)">Tab 2</button>',
+        '<button class="tab" onclick="showTab(2)">Tab 2</button>'
+        '<button class="tab" onclick="showTab(1)">Tab 1</button>',
+    )
+    assert validate_slide_html(moved, baseline_html=HANDLER_HTML).valid
+
+
+def test_replace_slide_keeps_baseline_handlers_and_rejects_modified_ones():
+    toolbox, draft = _toolbox(slideContent=HANDLER_HTML)
+    assert toolbox.execute("set_style", {"selector": "h1", "styles": {"height": "120px"}}).ok
+    assert toolbox.execute("validate_draft", {}).ok
+    assert toolbox.execute("replace_slide", {"html": HANDLER_HTML.replace("Title", "New title")}).ok
+    assert draft.html.count("onclick=") == 2
+    blocked = toolbox.execute("replace_slide", {"html": draft.html.replace("showTab(1)", "steal()")})
+    assert not blocked.ok
+    assert "showTab(1)" in draft.html and "steal()" not in draft.html
+
+
+def test_text_mentioning_script_tag_is_not_executable_code():
+    result = validate_slide_html('<div><!-- <script example -->Use &lt;script&gt; carefully</div>')
+    assert result.valid
 
 
 def test_coerce_agent_max_iterations_defaults_and_clamps():
@@ -230,6 +367,36 @@ def test_tool_schemas_cover_every_handler_and_stay_in_sync():
 
     assert native == set(SlideEditToolbox.tool_names())
     assert text == native
+
+
+def test_layout_tool_and_validation_work_on_scripted_slide():
+    toolbox, draft = _toolbox(slideContent=SCRIPTED_HTML)
+    edited = toolbox.execute("set_style", {"selector": "h1", "styles": {"height": "120px"}})
+    assert edited.ok
+    assert toolbox.execute("validate_draft", {}).ok
+    assert draft.html.count("<script") == 2
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("set_text", {"selector": "script", "text": "bad()"}),
+    ("set_attributes", {"selector": "script", "attributes": {"src": "/evil.js"}}),
+    ("insert_html", {"selector": "body", "position": "append", "html": "<script>bad()</script>"}),
+    ("replace_slide", {"html": SCRIPTED_HTML.replace('/static/chart.js', '/evil.js')}),
+])
+def test_tools_reject_script_mutations_and_leave_draft_unchanged(tool, args):
+    toolbox, draft = _toolbox(slideContent=SCRIPTED_HTML)
+    result = toolbox.execute(tool, args)
+    assert not result.ok
+    assert draft.html == SCRIPTED_HTML
+    assert not draft.changed
+
+
+def test_replace_slide_can_preserve_existing_scripts():
+    toolbox, draft = _toolbox(slideContent=SCRIPTED_HTML)
+    result = toolbox.execute("replace_slide", {"html": SCRIPTED_HTML.replace('Title', 'New title')})
+    assert result.ok
+    assert toolbox.execute("validate_draft", {}).ok
+    assert draft.html.count("<script") == 2
 
 
 def test_read_slide_returns_structure_with_usable_refs():
@@ -630,6 +797,31 @@ async def test_agent_runs_native_tool_calls_and_returns_a_proposal():
     ]
     assert [event["seq"] for event in events] == list(range(1, len(events) + 1))
     assert all(event["runId"] == result.run_id for event in events)
+
+
+@pytest.mark.asyncio
+async def test_agent_layout_edit_proposal_preserves_original_scripts():
+    service = _ScriptedPPTService([
+        _response("", [_native_call("c1", "set_style", {"selector": "h1", "styles": {"height": "120px"}})]),
+        _response("", [_native_call("c2", "validate_draft", {})]),
+        _response("Adjusted title height."),
+    ])
+    result, events = await _run(service, _request(slideContent=SCRIPTED_HTML))
+    assert result.proposal.validation.valid
+    assert result.proposal.html_content.count("<script") == 2
+    assert "height: 120px" in result.proposal.html_content
+    assert next(e for e in events if e["type"] == "validation")["valid"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_final_draft_does_not_claim_success():
+    service = _ScriptedPPTService([_response("Everything fixed successfully.")])
+    # 原页面里的 onclick 会作为未改动内容保留，所以用校验器一定拒绝的 CSS javascript: URL 造一个无法修复的草稿。
+    unfixable = '<div><style>a{background:url(javascript:x)}</style>Title</div>'
+    result, events = await _run(service, _request(slideContent=unfixable))
+    assert not result.proposal.validation.valid
+    assert "尚不能保存" in result.summary
+    assert "Everything fixed successfully" not in events[-1]["summary"]
 
 
 @pytest.mark.asyncio

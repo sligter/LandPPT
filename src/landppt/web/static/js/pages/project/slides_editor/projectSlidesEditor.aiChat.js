@@ -1111,9 +1111,11 @@ async function sendAIMessage(options = {}) {
 
         const v = ensureView();
         v.hideStop();
+        const invalidDraft = result.proposal && result.proposal.validation
+            && result.proposal.validation.valid === false;
         v.setStatus(
-            AGENT_STATUS_TEXT[result.status] || '完成',
-            result.status === 'failed' ? 'failed' : 'done'
+            invalidDraft ? '草稿校验未通过' : (AGENT_STATUS_TEXT[result.status] || '完成'),
+            invalidDraft || result.status === 'failed' ? 'failed' : 'done'
         );
         setSummary(result.summary || AGENT_STATUS_TEXT[result.status] || '已完成');
         renderAgentRunResult(v, result, previewSession);

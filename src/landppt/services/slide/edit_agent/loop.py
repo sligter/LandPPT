@@ -298,7 +298,9 @@ class SlideEditAgentRun:
 
     def _build_proposal(self, summary: str) -> SlideEditProposal:
         cleaned_html = self.draft.clean_html()
-        validation = validate_slide_html(cleaned_html)
+        validation = validate_slide_html(cleaned_html, baseline_html=self.draft.base_html)
+        if not validation.valid:
+            summary = "草稿未通过安全校验，尚不能保存：" + "；".join(validation.errors)
         diff = self.draft.diff()
         slide_data = {
             **self.context.slide_data,

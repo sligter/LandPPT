@@ -14,6 +14,7 @@ from bs4.element import Tag
 from .draft import DraftRefError, SlideDraft
 from .html_safety import (
     css_declaration_error,
+    has_new_executable_content,
     is_safe_attribute,
     parse_style_declarations,
     serialize_style_declarations,
@@ -312,6 +313,11 @@ class SlideEditToolbox:
         self.draft.begin_mutation()
         try:
             apply()
+            if has_new_executable_content(self.draft.soup, self.draft.base_html):
+                raise ValueError(
+                    "existing scripts and event handlers are read-only; "
+                    "new or modified executable content is not allowed"
+                )
         except Exception:
             self.draft.rollback_mutation()
             raise
@@ -396,7 +402,7 @@ class SlideEditToolbox:
         )
 
     def _validate_draft(self, args: Dict[str, Any]) -> ToolResult:
-        validation = validate_slide_html(self.draft.html)
+        validation = validate_slide_html(self.draft.html, baseline_html=self.draft.base_html)
         return ToolResult(
             ok=validation.valid,
             summary="Draft HTML is valid." if validation.valid else "Draft HTML failed validation.",
@@ -607,7 +613,7 @@ class SlideEditToolbox:
 
     def _replace_slide(self, args: Dict[str, Any]) -> ToolResult:
         html = str(args.get("html") or "").strip()
-        validation = validate_slide_html(html)
+        validation = validate_slide_html(html, baseline_html=self.draft.base_html)
         if not validation.valid:
             return ToolResult(
                 ok=False,

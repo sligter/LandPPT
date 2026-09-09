@@ -78,6 +78,11 @@ class SlideDraft:
         return self._base_html
 
     @property
+    def soup(self) -> BeautifulSoup:
+        """当前草稿树，供只读检查使用；不要在外部直接改它。"""
+        return self._soup
+
+    @property
     def base_hash(self) -> str:
         return compute_slide_html_hash(self._base_html)
 

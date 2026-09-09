@@ -7,13 +7,17 @@
 
 from __future__ import annotations
 
+import copy
+import functools
 import hashlib
 import re
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 AGENT_ID_ATTRS = ("data-agent-id", "data-quick-ai-id")
 
@@ -76,14 +80,132 @@ def _has_srcdoc_attribute(soup: BeautifulSoup) -> bool:
     )
 
 
-def sanitize_slide_html(html: str) -> str:
+#: 比较"脚本是否原样保留"时忽略的属性。agent 定位属性不是脚本内容；
+#: integrity / crossorigin 只是 SRI/CORS 元数据：编辑器预览渲染前会剥掉它们
+#: （生成的 integrity 哈希经常不可靠），基于预览 DOM 的草稿因此可能缺少这两个
+#: 属性。src 与脚本正文仍必须逐字一致，所以这不会放行任何新的可执行代码。
+_SCRIPT_METADATA_ATTRS = AGENT_ID_ATTRS + ("integrity", "crossorigin")
+
+
+def _node_signature(node: Tag) -> str:
+    node = copy.copy(node)
+    for attr in _SCRIPT_METADATA_ATTRS:
+        node.attrs.pop(attr, None)
+    return str(node)
+
+
+def _is_executable_attribute(attr: str, value: Any) -> bool:
+    lowered = (attr or "").lower()
+    return (
+        lowered.startswith("on")
+        or lowered == "srcdoc"
+        or "javascript:" in _attribute_value_scheme_text(value)
+    )
+
+
+def _executable_attribute_key(node: Tag, attr: str, value: Any) -> Tuple[str, str, str]:
+    return (node.name or "", (attr or "").lower(), _attribute_value_text(value))
+
+
+@functools.lru_cache(maxsize=32)
+def _baseline_executable_content(
+    baseline_html: str,
+) -> Tuple[Tuple[str, ...], Tuple[str, ...], Counter]:
+    """基线里已有的可执行内容：<base> 签名、<script> 签名、带脚本的属性计数。
+
+    同一个 run 里每次工具调用都要对照基线，缓存后不用反复解析整页。
+    """
+    baseline = BeautifulSoup(baseline_html, "html.parser")
+    attributes: Counter = Counter(
+        _executable_attribute_key(node, attr, value)
+        for node in baseline.find_all(True)
+        for attr, value in node.attrs.items()
+        if _is_executable_attribute(attr, value)
+    )
+    return (
+        tuple(_node_signature(node) for node in baseline.find_all("base")),
+        tuple(_node_signature(node) for node in baseline.find_all("script")),
+        attributes,
+    )
+
+
+@dataclass
+class _PreservedContent:
+    """草稿里可以原样保留的可执行内容，按节点身份 id() 记录（bs4 Tag 不可哈希）。"""
+
+    scripts: set = field(default_factory=set)
+    attributes: set = field(default_factory=set)
+
+
+def _preserved_content(soup: BeautifulSoup, baseline_html: Optional[str]) -> _PreservedContent:
+    """Match executable content that already exists unchanged in the baseline.
+
+    Scripts must form an ordered subset of the baseline scripts (attributes and
+    body included). Event handlers, ``javascript:`` values and ``srcdoc`` must
+    each match a baseline occurrence on the same tag name, and every baseline
+    occurrence can be claimed only once. Callers at the persistence boundary must
+    supply the server's stored HTML, never a client-provided allowlist. This never
+    admits new or modified executable code.
+    """
+    preserved = _PreservedContent()
+    if baseline_html is None:
+        return preserved
+    base_signatures, originals, attribute_budget = _baseline_executable_content(baseline_html)
+
+    # Changing <base> can redirect an otherwise unchanged relative script URL.
+    if tuple(_node_signature(node) for node in soup.find_all("base")) == base_signatures:
+        position = 0
+        for script in soup.find_all("script"):
+            try:
+                index = originals.index(_node_signature(script), position)
+            except ValueError:
+                continue
+            preserved.scripts.add(id(script))
+            position = index + 1
+
+    budget = Counter(attribute_budget)
+    for node in soup.find_all(True):
+        for attr, value in node.attrs.items():
+            if not _is_executable_attribute(attr, value):
+                continue
+            key = _executable_attribute_key(node, attr, value)
+            if budget[key] > 0:
+                budget[key] -= 1
+                preserved.attributes.add((id(node), attr))
+    return preserved
+
+
+def has_new_executable_content(html: Union[str, BeautifulSoup], baseline_html: str) -> bool:
+    """草稿里是否出现了基线中没有的脚本或带脚本的属性。
+
+    接受 HTML 字符串或已解析的草稿树；后者让每次编辑后的检查不必重新序列化再解析。
+    """
+    soup = html if isinstance(html, BeautifulSoup) else BeautifulSoup(html or "", "html.parser")
+    preserved = _preserved_content(soup, baseline_html)
+    if len(soup.find_all("script")) != len(preserved.scripts):
+        return True
+    return any(
+        (id(node), attr) not in preserved.attributes
+        for node in soup.find_all(True)
+        for attr, value in node.attrs.items()
+        if _is_executable_attribute(attr, value)
+    )
+
+
+def sanitize_slide_html(html: str, *, baseline_html: Optional[str] = None) -> str:
     soup = BeautifulSoup(html or "", "html.parser")
+    preserved = _preserved_content(soup, baseline_html)
 
     for script in soup.find_all("script"):
-        script.decompose()
+        if id(script) not in preserved.scripts:
+            script.decompose()
 
     for node in soup.find_all(True):
+        if id(node) in preserved.scripts:
+            continue
         for attr in list(getattr(node, "attrs", {}).keys()):
+            if (id(node), attr) in preserved.attributes:
+                continue
             attr_lower = (attr or "").lower()
             value = node.attrs.get(attr)
             if attr_lower.startswith("on"):
@@ -160,20 +282,33 @@ def _find_html_structure_errors(html: str) -> List[str]:
     return list(dict.fromkeys(parser.errors))
 
 
-def validate_slide_html(html: str) -> SlideEditValidationResult:
+def validate_slide_html(html: str, *, baseline_html: Optional[str] = None) -> SlideEditValidationResult:
     errors: List[str] = []
     warnings: List[str] = []
     original = html or ""
-    original_lower = original.lower()
 
     if not original.strip():
         errors.append("html content is required")
         return SlideEditValidationResult(False, errors, warnings, "")
 
-    if "<script" in original_lower:
+    original_soup = BeautifulSoup(original, "html.parser")
+    preserved = _preserved_content(original_soup, baseline_html)
+    scripts = original_soup.find_all("script")
+    if any(id(script) not in preserved.scripts for script in scripts):
         errors.append("script tags are not allowed")
 
-    original_soup = BeautifulSoup(original, "html.parser")
+    # Unchanged executable content from the stored slide is opaque to the checks
+    # below: a preserved script may mention javascript: in its source, and a
+    # preserved handler is by definition an on* attribute. Drop them from the
+    # working copy so only new or modified content can raise an error.
+    for script in scripts:
+        if id(script) in preserved.scripts:
+            script.extract()
+    for node in original_soup.find_all(True):
+        for attr in list(node.attrs):
+            if (id(node), attr) in preserved.attributes:
+                del node.attrs[attr]
+    original_lower = str(original_soup).lower()
     if any(attr.lower().startswith("on") for tag in original_soup.find_all(True) for attr in tag.attrs):
         errors.append("inline event handlers are not allowed")
 
@@ -185,7 +320,7 @@ def validate_slide_html(html: str) -> SlideEditValidationResult:
 
     errors.extend(_find_html_structure_errors(original))
 
-    sanitized = sanitize_slide_html(original)
+    sanitized = sanitize_slide_html(original, baseline_html=baseline_html)
     soup = BeautifulSoup(sanitized, "html.parser")
     if not soup.find(True):
         errors.append("html must contain at least one element")

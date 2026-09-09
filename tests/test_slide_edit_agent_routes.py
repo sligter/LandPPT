@@ -122,6 +122,131 @@ async def test_apply_agent_proposal_saves_only_target_slide(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_apply_layout_edit_preserves_server_stored_scripts(monkeypatch):
+    from bs4 import BeautifulSoup
+
+    current_html = (
+        '<html><head><script src="/static/chart.js"></script></head><body>'
+        '<h1 style="height:100px">Title</h1><canvas id="chart"></canvas>'
+        '<script data-quick-ai-id="script-1">drawChart()</script></body></html>'
+    )
+    project = SimpleNamespace(slides_data=[{"title": "One", "html_content": current_html}])
+    saved = {}
+
+    class DB:
+        async def save_single_slide(self, project_id, slide_index, data):
+            saved.update(data)
+            return True
+
+    monkeypatch.setattr(routes, "get_ppt_service_for_user", lambda uid: _FakePPTService(project))
+    monkeypatch.setattr(routes, "DatabaseProjectManager", DB)
+    request = SlideEditAgentApplyRequest(
+        proposalId="p1", projectId="proj", slideIndex=1,
+        expectedBaseHash=compute_slide_html_hash(current_html),
+        htmlContent=current_html.replace("height:100px", "height:120px"),
+    )
+    result = await routes.apply_slide_edit_agent_proposal(request, user=SimpleNamespace(id=10))
+    assert result["success"]
+    html = saved["html_content"]
+    assert "height:120px" in html
+    scripts = BeautifulSoup(html, "html.parser").find_all("script")
+    assert len(scripts) == 2
+    assert scripts[0]["src"] == "/static/chart.js"
+    assert scripts[1].string == "drawChart()"
+    assert "data-quick-ai-id" not in html
+
+
+@pytest.mark.asyncio
+async def test_apply_layout_edit_preserves_server_stored_event_handlers(monkeypatch):
+    current_html = (
+        '<div><h1 style="height:100px">Title</h1>'
+        '<button onclick="showTab(1)">Tab</button></div>'
+    )
+    project = SimpleNamespace(slides_data=[{"title": "One", "html_content": current_html}])
+    saved = {}
+
+    class DB:
+        async def save_single_slide(self, project_id, slide_index, data):
+            saved.update(data)
+            return True
+
+    monkeypatch.setattr(routes, "get_ppt_service_for_user", lambda uid: _FakePPTService(project))
+    monkeypatch.setattr(routes, "DatabaseProjectManager", DB)
+
+    def make_request(html):
+        return SlideEditAgentApplyRequest(
+            proposalId="p1", projectId="proj", slideIndex=1,
+            expectedBaseHash=compute_slide_html_hash(current_html), htmlContent=html,
+        )
+
+    edited = current_html.replace("height:100px", "height:120px")
+    result = await routes.apply_slide_edit_agent_proposal(make_request(edited), user=SimpleNamespace(id=10))
+    assert result["success"]
+    assert "height:120px" in saved["html_content"]
+    assert 'onclick="showTab(1)"' in saved["html_content"]
+
+    with pytest.raises(HTTPException) as exc:
+        await routes.apply_slide_edit_agent_proposal(
+            make_request(edited.replace("showTab(1)", "steal()")), user=SimpleNamespace(id=10)
+        )
+    assert "inline event handlers are not allowed" in exc.value.detail["errors"]
+
+
+@pytest.mark.asyncio
+async def test_apply_accepts_preview_dom_that_lost_sri_metadata(monkeypatch):
+    # 快速编辑弹窗的草稿来自预览 iframe，预览渲染前会剥掉 integrity/crossorigin。
+    current_html = (
+        '<html><head><script src="https://cdn.example.com/chart.js" '
+        'integrity="sha384-abc" crossorigin="anonymous"></script></head>'
+        '<body><h1 style="height:100px">Title</h1></body></html>'
+    )
+    submitted = (
+        '<html><head><script src="https://cdn.example.com/chart.js"></script></head>'
+        '<body><h1 style="height:120px">Title</h1></body></html>'
+    )
+    project = SimpleNamespace(slides_data=[{"title": "One", "html_content": current_html}])
+    saved = {}
+
+    class DB:
+        async def save_single_slide(self, project_id, slide_index, data):
+            saved.update(data)
+            return True
+
+    monkeypatch.setattr(routes, "get_ppt_service_for_user", lambda uid: _FakePPTService(project))
+    monkeypatch.setattr(routes, "DatabaseProjectManager", DB)
+    request = SlideEditAgentApplyRequest(
+        proposalId="p1", projectId="proj", slideIndex=1,
+        expectedBaseHash=compute_slide_html_hash(current_html), htmlContent=submitted,
+    )
+    result = await routes.apply_slide_edit_agent_proposal(request, user=SimpleNamespace(id=10))
+    assert result["success"]
+    assert "height:120px" in saved["html_content"]
+    assert 'src="https://cdn.example.com/chart.js"' in saved["html_content"]
+
+    request.htmlContent = submitted.replace("chart.js", "evil.js")
+    with pytest.raises(HTTPException) as exc:
+        await routes.apply_slide_edit_agent_proposal(request, user=SimpleNamespace(id=10))
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("baseline", ["<div>Title</div>", '<div>Title<script src="/old.js"></script></div>'])
+async def test_apply_cannot_use_client_slide_data_to_authorize_scripts(monkeypatch, baseline):
+    project = SimpleNamespace(slides_data=[{"html_content": baseline}])
+    monkeypatch.setattr(routes, "get_ppt_service_for_user", lambda uid: _FakePPTService(project))
+    changed = '<div>Edited<script src="/new.js"></script></div>'
+    request = SlideEditAgentApplyRequest(
+        proposalId="p1", projectId="proj", slideIndex=1,
+        expectedBaseHash=compute_slide_html_hash(baseline), htmlContent=changed,
+        slideData={"html_content": changed, "baseline_html": changed},
+    )
+    with pytest.raises(HTTPException) as exc:
+        await routes.apply_slide_edit_agent_proposal(request, user=SimpleNamespace(id=10))
+    assert exc.value.status_code == 400
+    assert "script tags are not allowed" in exc.value.detail["errors"]
+
+
+@pytest.mark.asyncio
 async def test_apply_agent_proposal_strips_agent_ids_before_save(monkeypatch):
     current_html = '<div style="width:1280px;height:720px"><h1>Current</h1></div>'
     project = SimpleNamespace(

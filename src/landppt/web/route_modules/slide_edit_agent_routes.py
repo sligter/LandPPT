@@ -233,7 +233,7 @@ async def apply_slide_edit_agent_proposal(
             detail="Slide changed after proposal was created",
         )
 
-    validation = validate_slide_html(request.htmlContent)
+    validation = validate_slide_html(request.htmlContent, baseline_html=current_html)
     if not validation.valid:
         raise HTTPException(
             status_code=400,
@@ -244,7 +244,7 @@ async def apply_slide_edit_agent_proposal(
         )
 
     cleaned_html = strip_agent_ids(validation.sanitized_html)
-    validation = validate_slide_html(cleaned_html)
+    validation = validate_slide_html(cleaned_html, baseline_html=current_html)
     if not validation.valid:
         raise HTTPException(
             status_code=400,
