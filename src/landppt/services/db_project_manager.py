@@ -290,6 +290,8 @@ class DatabaseProjectManager:
             payload["generation_error"] = metadata.get("generation_error")
         if metadata.get("locked"):
             payload["locked"] = True
+        if metadata.get("composition_brief"):
+            payload["composition_brief"] = metadata["composition_brief"]
         return payload
 
     async def get_single_slide(self, project_id: str, slide_index: int) -> Optional[Dict[str, Any]]:

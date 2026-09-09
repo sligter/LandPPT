@@ -1420,7 +1420,7 @@
                     currentlyGeneratingPages.clear();
                     updateProgressIndicators(data.total);
 
-                    updateStatus(data.message, 'complete');
+                    updateStatus(data.message, data.partial ? 'error' : 'complete');
                     progressBar.style.width = '100%';
 
                     // 标记为手动停止，防止重连
@@ -1436,7 +1436,7 @@
                     clearTimeout(connectionTimeout);
 
                     // 更新连接状态
-                    updateConnectionStatus('completed', '生成完成');
+                    updateConnectionStatus(data.partial ? 'error' : 'completed', data.partial ? '部分页面待重新生成' : '生成完成');
 
                     showEditorButton();
 
@@ -1650,6 +1650,7 @@
                     <h6><i class="fas fa-file-alt"></i> ${slideData.title}</h6>
                     <div class="slide-actions">
                         <span class="badge">第${slideData.page_number}页</span>
+                        ${slideData.generation_failed ? '<span class="badge" role="status" title="设计生成未完成，请重新生成此页">待重新生成</span>' : ''}
                         <button class="fullscreen-btn" data-page-number="${slideData.page_number}" title="全屏查看">
                             <i class="fas fa-expand"></i>
                         </button>

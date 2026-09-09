@@ -4,6 +4,7 @@ PPT设计基因和视觉指导相关提示词
 """
 
 from typing import Dict, Any
+import json
 import logging
 
 from .system_prompts import SystemPrompts
@@ -58,12 +59,14 @@ class DesignPrompts:
 - 溢出时优先删减/分组/限高，不挤压锚点区；正文容器禁止用 ellipsis / line-clamp 截断关键信息，装不下就减字或改布局。
 - 版面取舍：优先守住完整容纳和锚点稳定，再决定装饰强度与版式复杂度。
 
-**高度分配（防撑空）**
+**高度分配与内容偏少处理**
 - 主舞台可用 flex:1 占据剩余高度；但舞台内的内容卡片/步骤块/模块默认按内容定高，禁止被 stretch 成等高空壳。
 - 禁止用 margin-top:auto 或 justify-content:space-between 把短文案与底部标签拉开制造中空。
-- 多列卡片仅在每卡内容量接近时等高；内容明显偏少时用 align-items:start，或合并模块。
-- 内容少时的「气场」= 放大焦点字号、加强主视觉、加大模块间距；≠ 把短内容纵向拉满画布。
-- 剩余高度优先给模块间距或单一焦点区，而不是均分进每张卡。
+- 多列卡片仅在每卡内容量接近且阅读关系适合时等高；不要因内容少就把所有模块缩在舞台顶部。
+- 内容偏少时，先判断是否适合焦点式构图，再调整主体字号、尺度与位置，最后考虑将已有关系转成流程或示意图。
+- 先安排主体与辅助信息的空间关系，再分配间距；不要靠扩大卡片、拉大间距或添加装饰填空。
+- 留白应围绕焦点、分组或阅读动线；结论页和引言页可以简洁，不设统一填充率或字数门槛。
+- 只有现有资料提供依据时才补充说明或绘制数据图表；禁止为凑满页面编造事实、数字或例证。
 """.strip()
 
     # -- 内容与设计质量（合并原先 content_quality + slide_generation_principles）--
@@ -126,6 +129,8 @@ class DesignPrompts:
     def _build_generation_self_check_context() -> str:
         return """
 **输出前自检**
+- 若提供 composition_brief，是否表达了其中的信息关系与视觉焦点？推荐版式可按内容调整，但不要退回无差别卡片排列。
+- 主体是否过小或偏在局部？留白是否服务于当前页面意图，是否靠空心容器或装饰假装充实？
 - 主内容区是否围绕当前页任务重新组织，而不是直接沿用模板骨架？
 - 标题区、页码区等锚点是否来自模板原文，调整时能否在模板或内容逻辑中说清依据？
 - 本页是否只有一条主叙事？是否出现两套相同编号体系（如两组 01–05）？
@@ -369,6 +374,40 @@ class DesignPrompts:
 只输出页面类型指导，不附加解释。"""
         return DesignPrompts._finalize_prompt(prompt, confirmed_requirements)
 
+    @staticmethod
+    def get_composition_briefs_prompt(
+        confirmed_requirements: Dict[str, Any], all_slides: list,
+        total_pages: int, template_html: str = "",
+    ) -> str:
+        outline = json.dumps(all_slides, ensure_ascii=False, default=str)
+        template = DesignPrompts._build_template_html_context(template_html)
+        return f"""为整套 {total_pages} 页 PPT 制定逐页构图计划，供后续并行生成使用。
+
+项目简报：{DesignPrompts._build_project_brief(confirmed_requirements)}
+完整大纲（按数组顺序对应从 1 开始的物理页码）：
+{outline}
+模板风格与边界参考：
+{template}
+
+先判断每页的表达意图与信息关系，再推荐构图；不要按要点数量机械套卡片。
+流程、对比、主从、因果或数量关系必须来自大纲，不得推断不存在的关系或编造数据。
+保持配色、字体和模板锚点一致；主内容区的变化服务于表达和整套阅读节奏。
+相邻页面避免无理由地重复，但连续比较页可保持相同结构以方便比较。
+layout_family 是建议，允许后续生成器根据实际内容调整，不是固定模板轮换表。
+内容少可采用焦点构图和有意图的留白，不要求补字数、填充率或强制图表。
+证据不足标记 missing_evidence，并在 intent 中指出缺口；保留已有内容，不补事实、不合并或增删页面。
+
+只输出 JSON，slides 数组覆盖所有页面且页码唯一；每项包含 page 和 composition_brief。
+composition_brief 的六个字段均为非空字符串：
+- intent：页面意图，以及必要的证据缺口
+- relation：内容之间已有的关系
+- layout_family：推荐版式及如何呈现已有信息（流程、对比、焦点加证据、时间线、纯排版等）
+- focal：第一视觉落点，引用当前页已有内容
+- content_sufficiency：只选 sufficient（信息足够）、focus（适合简洁焦点页）、missing_evidence（缺证据）
+- rhythm：与前后页的呼应、差异或保持一致的理由
+格式示例：{{"slides":[{{"page":1,"composition_brief":{{"intent":"开场介绍主题","relation":"主题与副标题","layout_family":"焦点排版","focal":"本页标题","content_sufficiency":"focus","rhythm":"简洁开场，为后续展开建立节奏"}}}}]}}
+"""
+
     # 向后兼容别名
     @staticmethod
     def get_page_plan_prompt(*args, **kwargs) -> str:
@@ -471,6 +510,7 @@ class DesignPrompts:
 {images_context}
 
 **额外要求**
+- 若当前页数据包含 composition_brief，先落实其中的页面意图、信息关系、焦点和跨页节奏；版式建议可按内容调整。
 - 根据标题长度、要点数量、是否含图表/表格/时间线等，判断适合放大焦点、保持均衡还是压缩收敛
 - 从版式工具箱中选择最合适的方法，转化为可执行建议
 - 即使内容项数量对等，也主动建立视觉层次

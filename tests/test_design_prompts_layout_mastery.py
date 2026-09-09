@@ -10,10 +10,10 @@ def test_project_design_guide_prompt_includes_layout_mastery_context():
         template_html="<div class='page'><header></header><main></main><footer></footer></div>",
     )
 
-    assert "高级版式方法库" in prompt
+    assert "版式参考工具箱" in prompt
     assert "古腾堡图表" in prompt
-    assert "黄金比例分割" in prompt
-    assert "仪表盘布局" in prompt
+    assert "黄金比例" in prompt
+    assert "非对称平衡" in prompt
 
 
 def test_slide_design_guide_prompt_includes_layout_mastery_context(monkeypatch):
@@ -28,10 +28,10 @@ def test_slide_design_guide_prompt_includes_layout_mastery_context(monkeypatch):
         template_html="<div class='page'><main class='content-grid'></main></div>",
     )
 
-    assert "高级版式方法库" in prompt
+    assert "版式参考工具箱" in prompt
     assert "模块化栅格" in prompt
-    assert "布局推理工具箱" in prompt
-    assert "里程碑时间线" in prompt
+    assert "帮助推理，不做硬性要求" in prompt
+    assert "时间线" in prompt
 
 
 def test_combined_style_and_guide_prompt_includes_layout_mastery_context(monkeypatch):
@@ -44,7 +44,7 @@ def test_combined_style_and_guide_prompt_includes_layout_mastery_context(monkeyp
         total_pages=10,
     )
 
-    assert "高级版式方法库" in prompt
+    assert "版式参考工具箱" in prompt
     assert "留白张力" in prompt
-    assert "布局推理工具箱" in prompt
-    assert "沉浸式场景" in prompt
+    assert "帮助推理，不做硬性要求" in prompt
+    assert "满版全画幅" in prompt

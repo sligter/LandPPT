@@ -10,6 +10,9 @@ from ...core.config import ai_config, resolve_timeout_seconds
 from ..prompt_asset_service import materialize_base64_image_data_urls_for_prompt
 from ..prompts import prompts_manager
 from ..prompts.prompt_utils import should_include_page_numbers
+from .composition_planning_service import (
+    CompositionPlanningService, guidance_fingerprint, outline_design_data,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,23 @@ class CreativeDesignService:
 
     def __init__(self, service: "EnhancedPPTService"):
         object.__setattr__(self, "_service", service)
+        self._composition_planner = CompositionPlanningService(service)
+
+    async def _apply_composition_brief(
+        self, project_id, slide_data, page_number, total_pages,
+        confirmed_requirements, all_slides, template_html,
+    ):
+        plans = await self._composition_planner.get_or_generate(
+            project_id, confirmed_requirements, all_slides, total_pages, template_html,
+        )
+        brief = next((p["composition_brief"] for p in plans if p["page"] == page_number), None)
+        if brief:
+            slide_data["composition_brief"] = brief
+            slide_data["_composition_project_id"] = project_id
+        else:
+            slide_data.pop("composition_brief", None)
+            slide_data.pop("_composition_project_id", None)
+        return brief
 
     def __getattr__(self, name: str):
         return getattr(self._service, name)
@@ -411,6 +431,9 @@ class CreativeDesignService:
             except Exception as exc:
                 logger.warning("预生成项目级创意指导时获取模板HTML失败: %s", exc)
 
+        template_html = await materialize_base64_image_data_urls_for_prompt(
+            template_html, user_id=self.user_id,
+        )
         generation_config = await self._get_user_generation_config()
         enable_per_slide_guidance = bool(
             generation_config.get("enable_per_slide_creative_guidance", True)
@@ -426,6 +449,9 @@ class CreativeDesignService:
             template_html=template_html,
             total_pages=total_pages,
             first_slide_data=first_slide,
+        )
+        await self._composition_planner.get_or_generate(
+            project_id, confirmed_requirements, all_slides, total_pages, template_html,
         )
         if enable_per_slide_guidance:
             slides_list = all_slides or ([slide_data] if slide_data else [])
@@ -551,6 +577,8 @@ class CreativeDesignService:
         first_slide_data: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Layer 1: Get or generate global visual constitution, with cache."""
+        fingerprint = guidance_fingerprint(confirmed_requirements, template_html, total_pages, outline_design_data([first_slide_data or {}]))
+        cache_key = f"{project_id}:{fingerprint}"
         cache_attr = "_cached_global_constitutions"
         event_attr = "_global_constitution_ready_events"
         default = self._default_global_constitution(confirmed_requirements)
@@ -560,8 +588,8 @@ class CreativeDesignService:
                 confirmed_requirements, template_html, total_pages, first_slide_data)
 
         # Check in-memory cache
-        if hasattr(self, cache_attr) and project_id in getattr(self, cache_attr, {}):
-            return getattr(self, cache_attr)[project_id]
+        if hasattr(self, cache_attr) and cache_key in getattr(self, cache_attr, {}):
+            return getattr(self, cache_attr)[cache_key]
 
         # Check file cache
         if hasattr(self, "cache_dirs") and self.cache_dirs:
@@ -570,11 +598,13 @@ class CreativeDesignService:
                 try:
                     with open(cache_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
+                        if data.get("fingerprint") != fingerprint:
+                            data = {}
                         result = data.get("constitution", "")
                         if result:
                             if not hasattr(self, cache_attr):
                                 setattr(self, cache_attr, {})
-                            getattr(self, cache_attr)[project_id] = result
+                            getattr(self, cache_attr)[cache_key] = result
                             return result
                 except Exception as exc:
                     logger.warning("读取全局宪法缓存失败: %s", exc)
@@ -584,22 +614,22 @@ class CreativeDesignService:
             setattr(self, event_attr, {})
         events = getattr(self, event_attr)
 
-        if project_id not in events:
+        if cache_key not in events:
             event = asyncio.Event()
-            events[project_id] = event
+            events[cache_key] = event
             constitution_failed = False
             try:
                 result = await self._generate_global_constitution(
                     confirmed_requirements, template_html, total_pages, first_slide_data)
                 if not hasattr(self, cache_attr):
                     setattr(self, cache_attr, {})
-                getattr(self, cache_attr)[project_id] = result
+                getattr(self, cache_attr)[cache_key] = result
                 # Save to file
                 if hasattr(self, "cache_dirs") and self.cache_dirs:
                     try:
                         cache_file = self.cache_dirs["style_genes"] / f"{project_id}_global_constitution.json"
                         with open(cache_file, "w", encoding="utf-8") as f:
-                            json.dump({"project_id": project_id, "constitution": result,
+                            json.dump({"project_id": project_id, "fingerprint": fingerprint, "constitution": result,
                                        "created_at": time.time()}, f, ensure_ascii=False, indent=2)
                     except Exception as exc:
                         logger.warning("保存全局宪法缓存失败: %s", exc)
@@ -613,17 +643,17 @@ class CreativeDesignService:
             finally:
                 event.set()
                 if constitution_failed:
-                    events.pop(project_id, None)
+                    events.pop(cache_key, None)
 
         # Wait for another coroutine to finish
         # .get(): the creating branch pops the entry when generation failed.
-        event = events.get(project_id)
+        event = events.get(cache_key)
         if event is not None and not event.is_set():
             try:
                 await asyncio.wait_for(event.wait(), timeout=_llm_wait_timeout())
             except asyncio.TimeoutError:
                 return default
-        return getattr(self, cache_attr, {}).get(project_id, default)
+        return getattr(self, cache_attr, {}).get(cache_key, default)
 
     async def _generate_global_constitution(
         self,
@@ -672,6 +702,8 @@ class CreativeDesignService:
         global_constitution: str = "",
     ) -> List[Dict[str, Any]]:
         """Layer 2：获取或生成按页面类型归纳的页面指导。"""
+        fingerprint = guidance_fingerprint(confirmed_requirements, outline_design_data(all_slides), total_pages, global_constitution)
+        cache_key = f"{project_id}:{fingerprint}"
         cache_attr = "_cached_page_creative_briefs"
         event_attr = "_page_creative_brief_ready_events"
 
@@ -679,8 +711,8 @@ class CreativeDesignService:
             return await self._generate_page_creative_briefs(
                 confirmed_requirements, all_slides, total_pages, global_constitution)
 
-        if hasattr(self, cache_attr) and project_id in getattr(self, cache_attr, {}):
-            return getattr(self, cache_attr)[project_id]
+        if hasattr(self, cache_attr) and cache_key in getattr(self, cache_attr, {}):
+            return getattr(self, cache_attr)[cache_key]
 
         if hasattr(self, "cache_dirs") and self.cache_dirs:
             cache_file = self.cache_dirs["style_genes"] / f"{project_id}_page_type_guidance.json"
@@ -688,11 +720,13 @@ class CreativeDesignService:
                 try:
                     with open(cache_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
+                        if data.get("fingerprint") != fingerprint:
+                            data = {}
                         briefs = data.get("page_type_guidance", []) or data.get("page_creative_briefs", [])
                         if briefs:
                             if not hasattr(self, cache_attr):
                                 setattr(self, cache_attr, {})
-                            getattr(self, cache_attr)[project_id] = briefs
+                            getattr(self, cache_attr)[cache_key] = briefs
                             return briefs
                 except Exception as exc:
                     logger.warning("读取页面类型指导缓存失败: %s", exc)
@@ -701,9 +735,9 @@ class CreativeDesignService:
             setattr(self, event_attr, {})
         events = getattr(self, event_attr)
 
-        if project_id not in events:
+        if cache_key not in events:
             event = asyncio.Event()
-            events[project_id] = event
+            events[cache_key] = event
             generation_succeeded = False
             try:
                 briefs = await self._generate_page_creative_briefs(
@@ -712,13 +746,13 @@ class CreativeDesignService:
                     return []
                 if not hasattr(self, cache_attr):
                     setattr(self, cache_attr, {})
-                getattr(self, cache_attr)[project_id] = briefs
+                getattr(self, cache_attr)[cache_key] = briefs
                 generation_succeeded = True
                 if hasattr(self, "cache_dirs") and self.cache_dirs:
                     try:
                         cache_file = self.cache_dirs["style_genes"] / f"{project_id}_page_type_guidance.json"
                         with open(cache_file, "w", encoding="utf-8") as f:
-                            json.dump({"project_id": project_id, "page_type_guidance": briefs,
+                            json.dump({"project_id": project_id, "fingerprint": fingerprint, "page_type_guidance": briefs,
                                        "created_at": time.time()}, f, ensure_ascii=False, indent=2)
                     except Exception as exc:
                         logger.warning("保存页面类型指导缓存失败: %s", exc)
@@ -732,16 +766,16 @@ class CreativeDesignService:
                 # single transient LLM failure disable page-type briefs for this
                 # project for the rest of the process lifetime.
                 if not generation_succeeded:
-                    events.pop(project_id, None)
+                    events.pop(cache_key, None)
 
         # .get(): the creating branch pops the entry when generation failed.
-        event = events.get(project_id)
+        event = events.get(cache_key)
         if event is not None and not event.is_set():
             try:
                 await asyncio.wait_for(event.wait(), timeout=_llm_wait_timeout())
             except asyncio.TimeoutError:
                 return []
-        return getattr(self, cache_attr, {}).get(project_id, [])
+        return getattr(self, cache_attr, {}).get(cache_key, [])
 
     async def _generate_page_creative_briefs(
         self,
@@ -803,9 +837,14 @@ class CreativeDesignService:
         template_html: str = "",
     ) -> str:
         """Layer 2.5：获取或生成当前页的详细创意指导。"""
+        await self._apply_composition_brief(
+            project_id, slide_data, page_number, total_pages,
+            confirmed_requirements, all_slides, template_html,
+        )
+        fingerprint = guidance_fingerprint(confirmed_requirements, outline_design_data(all_slides), outline_design_data([slide_data]), slide_data.get("composition_brief"), template_html, page_number, total_pages)
+        cache_key = f"{project_id}:{fingerprint}"
         cache_attr = "_cached_slide_creative_guides"
         event_attr = "_slide_creative_guide_ready_events"
-        cache_key = f"{project_id}:{page_number}" if project_id else None
         fallback = self._generate_fallback_unified_guide(slide_data, page_number, total_pages)
 
         if not project_id:
@@ -832,6 +871,8 @@ class CreativeDesignService:
                 try:
                     with open(cache_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
+                        if data.get("fingerprint") != fingerprint:
+                            data = {}
                         guide = data.get("creative_guide", "")
                         if guide:
                             if not hasattr(self, cache_attr):
@@ -869,6 +910,7 @@ class CreativeDesignService:
                             json.dump(
                                 {
                                     "project_id": project_id,
+                                    "fingerprint": fingerprint,
                                     "page_number": page_number,
                                     "creative_guide": guide,
                                     "created_at": time.time(),
@@ -1012,6 +1054,12 @@ class CreativeDesignService:
             current_entry = next((p for p in page_creative_briefs if p.get("page") == page_number), None)
             current_page_brief = str((current_entry or {}).get("creative_brief") or "").strip()
 
+        brief = await self._apply_composition_brief(
+            project_id, slide_data, page_number, total_pages,
+            confirmed_requirements, all_slides, template_html,
+        )
+        if brief:
+            current_page_brief += "\n\n**本页构图计划（composition_brief）**\n" + json.dumps(brief, ensure_ascii=False)
         return style_genes, global_constitution, current_page_brief
 
     async def _extract_style_genes_and_guide(
@@ -1406,6 +1454,7 @@ class CreativeDesignService:
     def clear_cached_style_genes(self, project_id: Optional[str] = None):
         """Clear in-memory and file caches for style genes and design guidance."""
         cache_attrs = (
+            "_cached_composition_briefs",
             "_cached_style_genes",
             "_cached_style_genes_and_guide",
             "_cached_project_creative_guides",
@@ -1414,6 +1463,7 @@ class CreativeDesignService:
             "_cached_slide_creative_guides",
         )
         event_attrs = (
+            "_composition_ready_tasks",
             "_style_genes_ready_events",
             "_project_creative_guidance_ready_events",
             "_global_constitution_ready_events",
@@ -1459,6 +1509,7 @@ class CreativeDesignService:
                     f"{project_id}_page_type_guidance.json",
                     f"{project_id}_page_creative_briefs.json",
                     f"{project_id}_page_plan.json",
+                    f"{project_id}_composition_briefs.json",
                 ):
                     try:
                         cache_file = self.cache_dirs["style_genes"] / filename
@@ -1483,10 +1534,14 @@ class CreativeDesignService:
         for attr in event_attrs:
             events = getattr(self, attr, None)
             if isinstance(events, dict):
+                for task in events.values():
+                    if isinstance(task, asyncio.Task) and not task.done():
+                        task.cancel()
                 events.clear()
 
         if hasattr(self, "cache_dirs") and self.cache_dirs:
             for pattern in (
+                "*_composition_briefs.json",
                 "*_style_genes.json",
                 "*_combined_genes_guide.json",
                 "*_creative_guide.json",

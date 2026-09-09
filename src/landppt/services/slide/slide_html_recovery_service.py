@@ -32,6 +32,7 @@ from ..pyppeteer_pdf_converter import get_pdf_converter
 from ..image.image_service import ImageService
 from ..image.adapters.ppt_prompt_adapter import PPTSlideContext
 from ...utils.thread_pool import run_blocking_io, to_thread
+from .composition_planning_service import guidance_fingerprint
 
 
 logger = logging.getLogger(__name__)
@@ -50,13 +51,31 @@ class SlideHtmlRecoveryService:
 
     async def _generate_html_with_retry(self, context: str, system_prompt: str, slide_data: Dict[str, Any], page_number: int, total_pages: int, max_retries: int=3) -> str:
         """Generate HTML with retry mechanism for incomplete responses"""
+        slide_data.pop("_generation_degraded", None)
         for attempt in range(max_retries):
             try:
                 logger.info(f'Generating HTML for slide {page_number}, attempt {attempt + 1}/{max_retries}')
                 retry_context = context
                 if attempt > 0:
                     retry_context += f'\n\n    **重要提醒（第{attempt + 1}次尝试）：**\n    - 前面的尝试可能生成了不完整的HTML，请确保这次生成完整的HTML文档\n    - 必须包含完整的HTML结构：<!DOCTYPE html>, <html>, <head>, <body>等标签\n    - 确保所有标签都正确闭合\n    - 使用markdown代码块格式：```html\n[完整HTML代码]\n```\n    - 不要截断HTML代码，确保以</html>结束\n    '
+                brief = slide_data.get("composition_brief")
+                composition_in_prompt = bool(brief) and (
+                    json.dumps(brief, ensure_ascii=False) in retry_context
+                    or str(brief) in retry_context
+                )
+                logger.info(
+                    "Composition prompt submission project=%s page=%s total_pages=%s attempt=%s "
+                    "attached=%s brief_fingerprint=%s",
+                    slide_data.get("_composition_project_id"), page_number, total_pages,
+                    attempt + 1, composition_in_prompt,
+                    guidance_fingerprint(brief) if composition_in_prompt else "none",
+                )
                 response = await self._text_completion_for_role('slide_generation', prompt=retry_context, system_prompt=system_prompt, temperature=max(0.1, ai_config.temperature))
+                logger.info(
+                    "Slide completion page=%s attempt=%s model=%s finish_reason=%s usage=%s",
+                    page_number, attempt + 1, getattr(response, "model", None),
+                    getattr(response, "finish_reason", None), getattr(response, "usage", None),
+                )
                 try:
                     html_content = self._clean_html_response(response.content)
                     html_content = self._inject_anti_overflow_css(html_content)

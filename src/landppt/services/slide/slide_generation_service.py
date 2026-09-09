@@ -540,6 +540,9 @@ class SlideGenerationService:
                                     failure_reason = str(error)
                                     logger.error(f"❌ 流式生成第{idx+1}页失败: {error}")
                                     html_content = f"<div style='padding: 50px; text-align: center; color: red;'>生成失败：{failure_reason}</div>"
+                                elif slide.get("_generation_degraded"):
+                                    generation_failed = True
+                                    failure_reason = "设计生成未完成，已使用基础版式，请重新生成此页。"
                                 else:
                                     logger.info(f"✅ 流式生成第{idx+1}页成功")
 
@@ -555,6 +558,8 @@ class SlideGenerationService:
                                     # this page instead of treating it as finished.
                                     slide_data["generation_failed"] = True
                                     slide_data["generation_error"] = failure_reason
+                                if slide.get("composition_brief"):
+                                    slide_data["composition_brief"] = slide["composition_brief"]
 
                                 # 更新项目数据
                                 while len(project.slides_data) <= idx:
@@ -610,6 +615,11 @@ class SlideGenerationService:
                                     }
 
                                     # 更新项目数据
+                                    if slide.get("composition_brief"):
+                                        slide_data["composition_brief"] = slide["composition_brief"]
+                                    if slide.get("_generation_degraded"):
+                                        slide_data["generation_failed"] = True
+                                        slide_data["generation_error"] = "设计生成未完成，已使用基础版式，请重新生成此页。"
                                     while len(project.slides_data) <= idx:
                                         project.slides_data.append(None)
                                     project.slides_data[idx] = slide_data
@@ -619,7 +629,10 @@ class SlideGenerationService:
                                         from ..db_project_manager import DatabaseProjectManager
                                         db_manager = DatabaseProjectManager()
                                         project.updated_at = time.time()
-                                        generated_slide_indices.add(idx)
+                                        if slide_data.get("generation_failed"):
+                                            failed_slide_indices.add(idx)
+                                        else:
+                                            generated_slide_indices.add(idx)
                                         await db_manager.save_single_slide(project_id, idx, slide_data, skip_if_user_edited=True)
                                         logger.info(f"Successfully saved slide {idx+1} to database for project {project_id}")
                                     except Exception as save_error:

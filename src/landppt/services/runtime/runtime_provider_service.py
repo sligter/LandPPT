@@ -131,6 +131,18 @@ class RuntimeProviderService:
                 kwargs.setdefault('temperature', ai_config.temperature)
                 kwargs.setdefault('top_p', ai_config.top_p)
         system_prompt = str(kwargs.pop('system_prompt', '') or '').strip()
+        started = time.monotonic()
+
+        def record_completion(response):
+            logger.info(
+                "AI completion role=%s provider=%s model=%s finish_reason=%s "
+                "usage=%s elapsed_seconds=%.2f",
+                role, settings.get("provider") or type(provider).__name__,
+                getattr(response, "model", None), getattr(response, "finish_reason", None),
+                getattr(response, "usage", None), time.monotonic() - started,
+            )
+            return response
+
         if system_prompt:
             system_prompt = SystemPrompts.with_cache_prefix(system_prompt)
             # 统一把 system_prompt 转成系统消息，避免上层传参后被静默忽略。
@@ -138,7 +150,7 @@ class RuntimeProviderService:
                 AIMessage(role=MessageRole.SYSTEM, content=system_prompt),
                 AIMessage(role=MessageRole.USER, content=prompt),
             ])
-            return await provider.chat_completion(messages=messages, **kwargs)
+            return record_completion(await provider.chat_completion(messages=messages, **kwargs))
         prompt = SystemPrompts.with_text_cache_prefix(prompt)
         if role == 'outline' and settings.get('provider') == 'anthropic':
             full_response = ''
@@ -146,7 +158,7 @@ class RuntimeProviderService:
                 full_response += chunk
             from ...ai.base import AIResponse
             return AIResponse(content=full_response, model=settings.get('model', 'anthropic'), usage={'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0}, finish_reason='stop', metadata={'provider': 'anthropic', 'streamed': True})
-        return await provider.text_completion(prompt=prompt, **kwargs)
+        return record_completion(await provider.text_completion(prompt=prompt, **kwargs))
 
     async def _stream_text_completion_for_role(self, role: str, *, prompt: str, **kwargs):
         """流式调用指定角色的模型进行文本补全，逐 token yield"""

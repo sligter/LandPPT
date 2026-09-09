@@ -95,6 +95,7 @@ class DatabaseService:
             # an error div and has to be regenerated rather than skipped.
             "generation_failed",
             "generation_error",
+            "composition_brief",
         ):
             if key in slide_data and slide_data.get(key) is not None:
                 metadata[key] = copy.deepcopy(slide_data[key])
@@ -195,6 +196,9 @@ class DatabaseService:
                     "updated_at": slide.updated_at,
                     "page_number": slide.slide_index + 1  # 添加page_number字段，从slide_index转换而来
                 }
+                for key in ("generation_failed", "generation_error", "composition_brief"):
+                    if key in slide_dict["metadata"]:
+                        slide_dict[key] = copy.deepcopy(slide_dict["metadata"][key])
                 slides_data.append(slide_dict)
             logger.debug(f"Loaded {len(slides_data)} slides from slide_data table for project {db_project.project_id}")
         elif db_project.slides_data:

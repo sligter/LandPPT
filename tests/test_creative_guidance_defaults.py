@@ -346,7 +346,7 @@ def test_creative_design_service_persists_slide_creative_guide_cache(tmp_path, m
 
     assert guide == "REALTIME-GUIDE"
     assert len(recorded) == 1
-    assert owner._cached_slide_creative_guides["proj-cache:3"] == "REALTIME-GUIDE"
+    assert owner._cached_slide_creative_guides[f"proj-cache:{cache_data['fingerprint']}"] == "REALTIME-GUIDE"
     assert cache_data["creative_guide"] == "REALTIME-GUIDE"
 
 

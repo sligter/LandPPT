@@ -50,6 +50,8 @@ class SlideDocumentService:
 
     def _generate_fallback_slide_html(self, slide_data: Dict[str, Any], page_number: int, total_pages: int) -> str:
         """Generate fallback HTML for a slide with improved content visibility and special designs for title/thankyou slides"""
+        slide_data["_generation_degraded"] = True
+        logger.warning("Slide generation degraded page=%s total_pages=%s", page_number, total_pages)
         title = slide_data.get('title', f'第{page_number}页')
         content_points = slide_data.get('content_points', [])
         slide_type = slide_data.get('slide_type', 'content')

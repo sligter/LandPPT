@@ -52,6 +52,7 @@ class SlideMediaService:
 
     async def _generate_single_slide_html_with_prompts(self, slide_data: Dict[str, Any], confirmed_requirements: Dict[str, Any], system_prompt: str, page_number: int, total_pages: int, all_slides: List[Dict[str, Any]]=None, existing_slides_data: List[Dict[str, Any]]=None, project_id: str=None) -> str:
         """Generate HTML for a single slide using prompts.md and first step information with template selection"""
+        slide_data.pop("_generation_degraded", None)
         try:
             if isinstance(slide_data, dict):
                 slide_data["_include_page_numbers"] = should_include_page_numbers(confirmed_requirements)

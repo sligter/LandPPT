@@ -10,8 +10,8 @@ def test_project_design_guide_prompt_includes_layout_priority_context():
         template_html="<div class='page'><header></header><main></main><footer></footer></div>",
     )
 
-    assert "**版面取舍顺序**" in prompt
-    assert "**模板理解与使用方向**" in prompt
+    assert "版面取舍：优先守住完整容纳和锚点稳定" in prompt
+    assert "**模板理解方向**" in prompt
     assert "**E. 普通内容页与特殊页面的分工**" in prompt
     assert "**H. 给单页生成器的执行原则**" in prompt
 
@@ -28,7 +28,7 @@ def test_slide_design_guide_prompt_includes_page_type_guidance(monkeypatch):
         template_html="<div class='page'><header></header><main></main><footer></footer></div>",
     )
 
-    assert "**模板理解与使用方向**" in prompt
+    assert "**模板理解方向**" in prompt
     assert "**A. 当前页角色判断**" in prompt
     assert "**B. 视觉焦点与布局方向**" in prompt
     assert "**F. 风险与避坑**" in prompt
@@ -47,12 +47,12 @@ def test_single_slide_html_prompt_includes_fixed_canvas_guidance(monkeypatch):
         template_html="<div class='page'><header></header><main></main><footer></footer></div>",
     )
 
-    assert "**版面取舍顺序**" in prompt
-    assert "**固定画布实现提醒**" in prompt
+    assert "版面取舍：优先守住完整容纳和锚点稳定" in prompt
+    assert "**固定画布系统**" in prompt
     assert "1280×720" in prompt
     assert "overflow:hidden" in prompt
     assert "flex/grid item" in prompt
-    assert "页码锚点优先跟随模板原有位置关系" in prompt
+    assert "自行识别标题区、页码区和其他稳定锚点" in prompt
 
 
 def test_combined_style_prompt_includes_canvas_priority(monkeypatch):
@@ -65,8 +65,8 @@ def test_combined_style_prompt_includes_canvas_priority(monkeypatch):
         total_pages=8,
     )
 
-    assert "**版面取舍顺序**" in prompt
+    assert "版面取舍：优先守住完整容纳和锚点稳定" in prompt
     assert "**内容与设计质量**" in prompt
-    assert "**固定画布策略**" in prompt
+    assert "**固定画布系统**" in prompt
     assert "===STYLE_GENES===" in prompt
     assert "===DESIGN_GUIDE===" in prompt

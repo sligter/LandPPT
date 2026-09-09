@@ -10,10 +10,10 @@ def test_project_design_guide_prompt_includes_current_structure():
         template_html="<div class='page'><header></header><main></main><footer></footer></div>",
     )
 
-    assert "**模板理解与使用方向**" in prompt
+    assert "**模板理解方向**" in prompt
     assert "**内容与设计质量**" in prompt
-    assert "**固定画布策略**" in prompt
-    assert "**版面取舍顺序**" in prompt
+    assert "**固定画布系统**" in prompt
+    assert "版面取舍：优先守住完整容纳和锚点稳定" in prompt
     assert "**E. 普通内容页与特殊页面的分工**" in prompt
     assert "**H. 给单页生成器的执行原则**" in prompt
 
@@ -32,11 +32,11 @@ def test_single_slide_html_prompt_includes_template_guidance_and_self_check(monk
     )
 
     assert "**模板 HTML 原文**" in prompt
-    assert "**模板理解与使用方向**" in prompt
+    assert "**模板理解方向**" in prompt
     assert "**稳定区域理解方向**" in prompt
     assert "**内容与设计质量**" in prompt
-    assert "**固定画布实现提醒**" in prompt
-    assert "**输出前问自己**" in prompt
+    assert "**固定画布系统**" in prompt
+    assert "**输出前自检**" in prompt
     assert "**设计基因**" in prompt
 
 
@@ -48,9 +48,9 @@ def test_slide_context_prompt_for_regular_page_uses_directional_guidance():
     )
 
     assert "**普通内容页**" in prompt
-    assert "标题区和页码区更适合作为母板锚定区" in prompt
+    assert "标题区和页码区作为母板锚定区" in prompt
     assert "吸收页面指导的方向建议" in prompt
-    assert "完整信息单元" in prompt
+    assert "在单一主任务前提下展开要点" in prompt
 
 
 def test_design_prompts_omit_footer_page_number_guidance_when_disabled(monkeypatch):
@@ -86,9 +86,9 @@ def test_combined_style_prompt_includes_current_structure(monkeypatch):
         total_pages=8,
     )
 
-    assert "**模板理解与使用方向**" in prompt
+    assert "**模板理解方向**" in prompt
     assert "**内容与设计质量**" in prompt
-    assert "**固定画布策略**" in prompt
-    assert "**版面取舍顺序**" in prompt
+    assert "**固定画布系统**" in prompt
+    assert "版面取舍：优先守住完整容纳和锚点稳定" in prompt
     assert "===STYLE_GENES===" in prompt
     assert "===DESIGN_GUIDE===" in prompt

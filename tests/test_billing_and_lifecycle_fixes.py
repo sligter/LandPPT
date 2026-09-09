@@ -201,12 +201,12 @@ class TestCachedDefaultsAreRetryable:
         source = _read("services/slide/creative_design_service.py")
         body = _slice(source, "生成全局宪法失败", 900)
         assert "constitution_failed = True" in body
-        assert "events.pop(project_id, None)" in body
+        assert "events.pop(cache_key, None)" in body
 
     def test_page_brief_failure_is_retryable(self):
         source = _read("services/slide/creative_design_service.py")
         body = _slice(source, "生成页面类型指导失败", 900)
-        assert "events.pop(project_id, None)" in body
+        assert "events.pop(cache_key, None)" in body
 
     def test_event_lookups_tolerate_a_popped_entry(self):
         """The three caches that now pop on failure must not index blindly.
@@ -216,7 +216,7 @@ class TestCachedDefaultsAreRetryable:
         """
         source = _read("services/slide/creative_design_service.py")
         assert source.count("event = events_dict.get(project_id)") == 1
-        assert source.count("event = events.get(project_id)") == 2
+        assert source.count("event = events.get(cache_key)") == 2
         # The one remaining bare index is preceded by an explicit membership test.
         bare_index = "event = events_dict[project_id]"
         assert source.count(bare_index) == 1
