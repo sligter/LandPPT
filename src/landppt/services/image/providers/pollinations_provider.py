@@ -192,7 +192,10 @@ class PollinationsProvider(ImageGenerationProvider):
         if self.default_safe:
             params.append("safe=true")
 
-        if model in {"gptimage", "gptimage-large"} and request.quality:
+        if model in {
+            "gptimage", "gptimage-large",
+            "openai/gpt-image-1-mini", "openai/gpt-image-1.5",
+        } and request.quality:
             q = request.quality.strip().lower()
             params.append("quality=hd" if q == "hd" else "quality=medium")
 
