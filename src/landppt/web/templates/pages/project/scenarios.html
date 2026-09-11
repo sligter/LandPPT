@@ -803,6 +803,18 @@
                 </div>
 
                 <div class="pill-wrap">
+                    <button type="button" class="pill" data-pop="render-mode" aria-label="页面绘制方式" aria-haspopup="true" aria-expanded="false">
+                        <i class="fas fa-vector-square"></i>
+                        <span class="pill-text" data-label="render-mode">页面绘制 · HTML</span>
+                        <i class="fas fa-chevron-down pill-caret"></i>
+                    </button>
+                    <div class="popover" id="pop-render-mode" hidden>
+                        <div class="popover-title">页面绘制方式</div>
+                        <div class="opt-list" id="render-mode-options"></div>
+                    </div>
+                </div>
+
+                <div class="pill-wrap">
                     <button type="button" class="pill" data-pop="files" aria-haspopup="true" aria-expanded="false">
                         <i class="fas fa-paperclip"></i>
                         <span class="pill-text" data-label="files">附件</span>
@@ -1014,6 +1026,11 @@
         { id: 'en', name: 'English' }
     ];
 
+    const RENDER_MODES = [
+        { id: 'html', name: 'HTML 页面（默认）', desc: '浏览器排版，支持快速修改与 AI 编辑', label: '页面绘制 · HTML' },
+        { id: 'svg', name: 'SVG 页面（实验）', desc: '固定画布构图，支持文字图形编辑、AI 编辑与 SVG PPTX 导出', label: '页面绘制 · SVG' }
+    ];
+
     const STOP_STAGES = [
         { id: 'outline', label: '至大纲' },
         { id: 'template', label: '至模板' },
@@ -1036,6 +1053,7 @@
         pptStyle: 'general',
         customStylePrompt: '',
         language: 'zh',
+        renderMode: 'html',
         networkMode: false,
         includeTransitionPages: false,
         includePageNumbers: true,
@@ -1193,6 +1211,12 @@
             .join('');
     }
 
+    function renderModeOptions() {
+        $('render-mode-options').innerHTML = RENDER_MODES
+            .map((mode) => optionMarkup(mode.id, mode.name, mode.desc, mode.id === state.renderMode))
+            .join('');
+    }
+
     function bindOptionList(containerId, handler) {
         $(containerId).addEventListener('click', (e) => {
             const opt = e.target.closest('.opt');
@@ -1243,6 +1267,12 @@
     bindOptionList('language-options', (value) => {
         state.language = value;
         renderLanguageOptions();
+        closePopover();
+    });
+
+    bindOptionList('render-mode-options', (value) => {
+        state.renderMode = value;
+        renderModeOptions();
         closePopover();
     });
 
@@ -1446,6 +1476,9 @@
         const language = LANGUAGES.find((l) => l.id === state.language);
         setPill('language', language ? language.name : '中文', state.language !== 'zh');
 
+        const renderMode = RENDER_MODES.find((mode) => mode.id === state.renderMode);
+        setPill('render-mode', renderMode.label, state.renderMode !== 'html');
+
         const stopStage = STOP_STAGES.find((s) => s.id === state.stopAtStage);
         const templateLabel = state.unattendedTemplateMode === 'free'
             ? ' · 自由模板'
@@ -1526,6 +1559,7 @@
         fd.append('topic', topic);
         fd.append('requirements', requirementsInput.value.trim());
         fd.append('language', state.language);
+        fd.append('render_mode', state.renderMode);
         fd.append('network_mode', state.networkMode ? 'true' : 'false');
         fd.append('audience_type', state.audienceType);
         fd.append('custom_audience', state.customAudience.trim());
@@ -1621,6 +1655,7 @@
     renderPageOptions();
     renderStyleOptions();
     renderLanguageOptions();
+    renderModeOptions();
     renderTray();
     renderPills();
     topicInput.focus();

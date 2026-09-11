@@ -18,10 +18,11 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
     <!-- CodeMirror Search Dialog CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.css">
-    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.css?v=20260613-thumbnail-fill-v1">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.css?v=20260911-svg-edit-v1">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.aiSidebar.css?v=20260726-agent-loop-v2">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.nativeChat.css?v=20260402-split">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.quickEdit.css?v=20260726-agent-loop-v2">
+<link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.svgEdit.css?v=20260913-svg-editor-v4">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.imageLibrary.css?v=20260402-split">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.speechDialog.css?v=20260402-split">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.speechModal.css?v=20260402-split">
@@ -65,7 +66,7 @@
                         <div class="slide-preview">
                             <iframe srcdoc="{{ slide.html_content | e }}" title="Slide {{ loop.index }}"></iframe>
                         </div>
-                        <div class="slide-title">{{ loop.index }}. {{ slide.title }}</div>
+                        <div class="slide-title">{{ loop.index }}. {{ slide.title }}{% if slide.render_mode == 'svg' %}<span class="slide-mode-badge" title="SVG 实验页">SVG</span>{% endif %}</div>
                         <div class="drag-indicator bottom"></div>
                     </div>
                     {% endfor %}
@@ -145,6 +146,8 @@
                                     </span>
                                 </a>
                             </li>
+                            <li><a class="dropdown-item toolbar-dropdown-item" href="#" onclick="exportSvgPagesToPptx('native'); return false;">SVG 原生对象 PPTX（文字、基础形状可编辑）</a></li>
+                            <li><a class="dropdown-item toolbar-dropdown-item" href="#" onclick="exportSvgPagesToPptx('vector'); return false;">SVG 矢量保真 PPTX（整页矢量图）</a></li>
                             <li>
                                 <hr class="dropdown-divider toolbar-dropdown-divider">
                             </li>
@@ -721,22 +724,24 @@
         'hasSpeechScripts': has_speech_scripts | default(false),
         'narrationLanguages': narration_languages | default(['zh', 'en']),
         'exportTitle': (project.title if project and project.title else 'presentation'),
+        'renderMode': (project.project_metadata.get('render_mode', 'html') if project and project.project_metadata else 'html'),
     } | tojson | safe }}</script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/js/dom-to-pptx.bundle.js?v=20260709-hybrid-raster-v2"></script>
+    <script src="/static/js/dom-to-pptx.bundle.js?v=20260911-svg-native-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectEditorShareExport.js?v=20260707-queued-export-v1"></script>
-    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.core.js?v=20260613-thumbnail-fill-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.core.js?v=20260911-svg-edit-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.agentClient.js?v=20260726-agent-loop-v2"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.quickEdit.js?v=20260408-quick-reset-v2"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.quickAi.js?v=20260726-agent-loop-v2"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.quickEditActions.js?v=20260408-quick-reset-v2"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.quickEditStyling.js?v=20260408-quick-reset-v2"></script>
-    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideImageOps.js?v=20260408-split-preview-fix-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.svgEdit.js?v=20260913-svg-editor-v4"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideImageOps.js?v=20260911-svg-edit-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideMediaUi.js?v=20260402-split"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.pretextBridge.js?v=20260406-pretext"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.nativeChat.js?v=20260402-split"></script>
-    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.aiChat.js?v=20260726-agent-loop-v2"></script>
-    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.aiApply.js?v=20260726-agent-loop-v2"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.aiChat.js?v=20260911-svg-edit-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.aiApply.js?v=20260911-svg-edit-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideGeneration.js?v=20260408-quick-reset-v2"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.changeTemplate.js?v=20260408-free-template-list-v2"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.slideshow.js?v=20260402-split"></script>
@@ -768,8 +773,9 @@
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.aiOptimize.js?v=20260614-modalui3"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportBase.js?v=20260425-layer-clip-v21"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportIcons.js?v=20260402-split"></script>
-    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportRender.js?v=20260709-hybrid-raster-v2"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportRender.js?v=20260911-svg-native-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportPptx.js?v=20260707-hybrid-raster-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.svgPptx.js?v=20260911-svg-native-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectEditorNarration.js?v=20260802-auto-result-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.init.js?v=20260402-split"></script>
 

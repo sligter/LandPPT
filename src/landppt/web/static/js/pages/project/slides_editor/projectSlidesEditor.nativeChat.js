@@ -21,6 +21,10 @@ function openNativeChatDialog() {
         showNotification('请先选择一个幻灯片', 'warning');
         return;
     }
+    if (typeof currentSlideIsSvg === 'function' && currentSlideIsSvg()) {
+        notifySvgSlideReadOnly('原生对话编辑');
+        return;
+    }
 
     const dialog = document.getElementById('aiNativeChatDialog');
     if (!dialog) return;
@@ -83,6 +87,10 @@ function renderNativeChatMessages() {
 async function clearNativeChatContext() {
     if (currentSlideIndex < 0 || currentSlideIndex >= slidesData.length) {
         showNotification('请先选择一个幻灯片', 'warning');
+        return;
+    }
+    if (typeof currentSlideIsSvg === 'function' && currentSlideIsSvg()) {
+        notifySvgSlideReadOnly('原生对话编辑');
         return;
     }
 
@@ -399,6 +407,10 @@ async function sendNativeChatMessage() {
 
     if (currentSlideIndex < 0 || currentSlideIndex >= slidesData.length) {
         showNotification('请先选择一个幻灯片', 'warning');
+        return;
+    }
+    if (typeof currentSlideIsSvg === 'function' && currentSlideIsSvg()) {
+        notifySvgSlideReadOnly('原生对话编辑');
         return;
     }
 

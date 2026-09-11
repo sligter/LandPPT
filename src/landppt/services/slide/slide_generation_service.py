@@ -3,6 +3,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from ...core.config import app_config
+from .svg_page.render_mode import attach_render_mode
 
 
 logger = logging.getLogger(__name__)
@@ -201,6 +202,10 @@ class SlideGenerationService:
                     }
                 else:
                     confirmed_requirements = project.confirmed_requirements
+
+                # 页面绘制方式来自项目元数据；以运行时键注入，不改变创意指导的缓存指纹。
+                render_mode = attach_render_mode(confirmed_requirements, project)
+                logger.info("Slide render mode for project %s: %s", project_id, render_mode)
 
                 # 确保我们有有效的大纲和slides数据
                 if not outline:
@@ -446,6 +451,9 @@ class SlideGenerationService:
                         # A slide saved by a FAILED run holds an error div. It must not
                         # count as "already generated", or the broken page can never be
                         # repaired by re-running generation.
+                        if existing_slide and (existing_slide.get('render_mode') or 'html') != render_mode:
+                            logger.info("第%d页绘制方式已改变，将重新生成", idx + 1)
+                            existing_slide = None
                         if (
                             existing_slide
                             and existing_slide.get('generation_failed')
@@ -542,7 +550,7 @@ class SlideGenerationService:
                                     html_content = f"<div style='padding: 50px; text-align: center; color: red;'>生成失败：{failure_reason}</div>"
                                 elif slide.get("_generation_degraded"):
                                     generation_failed = True
-                                    failure_reason = "设计生成未完成，已使用基础版式，请重新生成此页。"
+                                    failure_reason = "页面生成尚未通过校验，请重新生成此页。"
                                 else:
                                     logger.info(f"✅ 流式生成第{idx+1}页成功")
 
@@ -560,6 +568,10 @@ class SlideGenerationService:
                                     slide_data["generation_error"] = failure_reason
                                 if slide.get("composition_brief"):
                                     slide_data["composition_brief"] = slide["composition_brief"]
+                                if slide.get("render_mode"):
+                                    slide_data["render_mode"] = slide["render_mode"]
+                                if slide.get("svg_report"):
+                                    slide_data["svg_report"] = slide["svg_report"]
 
                                 # 更新项目数据
                                 while len(project.slides_data) <= idx:
@@ -617,9 +629,13 @@ class SlideGenerationService:
                                     # 更新项目数据
                                     if slide.get("composition_brief"):
                                         slide_data["composition_brief"] = slide["composition_brief"]
+                                    if slide.get("render_mode"):
+                                        slide_data["render_mode"] = slide["render_mode"]
+                                    if slide.get("svg_report"):
+                                        slide_data["svg_report"] = slide["svg_report"]
                                     if slide.get("_generation_degraded"):
                                         slide_data["generation_failed"] = True
-                                        slide_data["generation_error"] = "设计生成未完成，已使用基础版式，请重新生成此页。"
+                                        slide_data["generation_error"] = "页面生成尚未通过校验，请重新生成此页。"
                                     while len(project.slides_data) <= idx:
                                         project.slides_data.append(None)
                                     project.slides_data[idx] = slide_data

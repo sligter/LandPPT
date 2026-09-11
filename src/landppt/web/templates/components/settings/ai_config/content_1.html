@@ -217,6 +217,16 @@
                                     style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
                             </div>
                             <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.85em; color: #555; margin-bottom: 4px; display: block;">最大输出 Token</label>
+                                <input type="number" name="anthropic_max_tokens" min="1024" step="1024"
+                                    value="{{ current_config.get('anthropic_max_tokens', 16384) }}"
+                                    placeholder="16384"
+                                    style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9em;">
+                                <div style="margin-top: 6px; color: #777; font-size: 0.82em;">
+                                    Anthropic 请求的 max_tokens。整页 SVG 与长 HTML 需要 16384 以上，超过模型上限时调用会返回参数错误。
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin: 0;">
                                 <label
                                     style="display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.9em; color: #333;">
                                     <input type="checkbox" name="anthropic_enable_reasoning" {% if

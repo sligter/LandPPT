@@ -78,6 +78,8 @@ class AIConfig(BaseSettings):
     anthropic_model: str = Field(default="claude-3-haiku-20240307", env="ANTHROPIC_MODEL")
     anthropic_enable_reasoning: bool = Field(default=False, env="ANTHROPIC_ENABLE_REASONING")
     anthropic_reasoning_effort: str = Field(default="high", env="ANTHROPIC_REASONING_EFFORT")
+    # Anthropic Messages API 必须显式给 max_tokens；此前硬编码 4096/8192，整页 SVG 与长 HTML 会被截断。
+    anthropic_max_tokens: int = Field(default=16384, env="ANTHROPIC_MAX_TOKENS")
 
     # Google Gemini Configuration
     google_api_key: Optional[str] = Field(default=None, env="GOOGLE_API_KEY")
@@ -302,6 +304,7 @@ class AIConfig(BaseSettings):
                 "model": self.anthropic_model,
                 "enable_reasoning": self.anthropic_enable_reasoning,
                 "reasoning_effort": self.anthropic_reasoning_effort,
+                "anthropic_max_tokens": self.anthropic_max_tokens,
                 "max_tokens": self.max_tokens,
                 "temperature": self.temperature,
                 "top_p": self.top_p,

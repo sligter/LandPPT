@@ -68534,8 +68534,16 @@
     return items;
   }
 
-  var LANDPPT_DOM_TO_PPTX_PATCH_VERSION = '2026-07-09-hybrid-raster-v2';
+  var LANDPPT_DOM_TO_PPTX_PATCH_VERSION = '2026-09-11-svg-native-v1';
   exports.exportToPptx = exportToPptx;
+  // Reuse the bundled constructor for LandPPT's SVG-to-native-object exporter.
+  exports.createPresentation = function () {
+    const pkg = PptxGenJS;
+    const Constructor = typeof pkg === 'function' ? pkg :
+      (typeof pkg.default === 'function' ? pkg.default : pkg.PptxGenJS);
+    if (typeof Constructor !== 'function') throw new Error('PptxGenJS constructor not found.');
+    return new Constructor();
+  };
   exports.setIconRules = setIconRules;
   exports.getIconRules = getIconRules;
   exports.__landpptResolveFontFace = resolveExportFontFace;

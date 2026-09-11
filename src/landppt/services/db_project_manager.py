@@ -292,6 +292,8 @@ class DatabaseProjectManager:
             payload["locked"] = True
         if metadata.get("composition_brief"):
             payload["composition_brief"] = metadata["composition_brief"]
+        if metadata.get("render_mode"):
+            payload["render_mode"] = metadata["render_mode"]
         return payload
 
     async def get_single_slide(self, project_id: str, slide_index: int) -> Optional[Dict[str, Any]]:

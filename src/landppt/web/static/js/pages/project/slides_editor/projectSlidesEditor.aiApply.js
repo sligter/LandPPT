@@ -111,6 +111,11 @@ function syncAppliedSlideHtml(slideIndex, htmlContent, slideData = {}) {
         html_content: htmlContent,
         is_user_edited: true
     };
+    if (slideData.render_mode === 'svg' && slideData.is_user_edited) {
+        delete slidesData[slideIndex].generation_failed;
+        delete slidesData[slideIndex].generation_error;
+        delete slidesData[slideIndex].svg_report;
+    }
 
     if (typeof setInitialSlideState === 'function') {
         setInitialSlideState(slideIndex, htmlContent);

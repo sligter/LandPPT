@@ -14,6 +14,23 @@ const narrationVideoToolsEnabled = !!window.landpptEditorConfig.narrationVideoTo
 
 let slidesData = JSON.parse(document.getElementById('projectSlidesScript').textContent).slides;
 window.slidesData = slidesData;
+
+// SVG 页面使用专用的坐标编辑器；旧版 HTML 专属工具仍提示切换入口。
+function isSvgRenderedSlide(slide) {
+    if (!slide) return false;
+    if (slide.render_mode === 'svg') return true;
+    return /data-render-mode=["']svg["']/i.test(String(slide.html_content || '').slice(0, 600));
+}
+
+function currentSlideIsSvg() {
+    return Array.isArray(slidesData) && isSvgRenderedSlide(slidesData[currentSlideIndex]);
+}
+
+function notifySvgSlideReadOnly(action) {
+    const message = `${action}暂不支持 SVG 页面，请使用快速编辑、源码编辑或 AI 编辑助手`;
+    if (typeof showNotification === 'function') showNotification(message, 'warning');
+    else alert(message);
+}
 let slideshowIndex = 0;
 let isSlideshow = false;
 
@@ -767,6 +784,10 @@ function selectSlide(index) {
 
     currentSlideIndex = index;
 
+    if (currentSlideIsSvg() && currentMode === 'quickedit') {
+        setMode('preview');
+    }
+
     updatePreviewNavButtons();
 
     // 更新AI编辑助手中的当前页数显示
@@ -838,4 +859,3 @@ function selectSlide(index) {
         }
     });
 }
-

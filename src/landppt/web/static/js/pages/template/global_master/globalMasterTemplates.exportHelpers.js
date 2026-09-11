@@ -1,7 +1,7 @@
 let domToPptxLoadPromise = null;
 const DOM_TO_PPTX_BUNDLE_PATH = '/static/js/dom-to-pptx.bundle.js';
-const DOM_TO_PPTX_BUNDLE_VERSION = '20260709-hybrid-raster-v2';
-const DOM_TO_PPTX_EXPECTED_PATCH_VERSION = '2026-07-09-hybrid-raster-v2';
+const DOM_TO_PPTX_BUNDLE_VERSION = '20260911-svg-native-v1';
+const DOM_TO_PPTX_EXPECTED_PATCH_VERSION = '2026-09-11-svg-native-v1';
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));

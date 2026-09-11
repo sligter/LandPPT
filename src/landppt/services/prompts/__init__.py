@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 from .outline_prompts import OutlinePrompts
 from .content_prompts import ContentPrompts
 from .design_prompts import DesignPrompts
+from .svg_page_prompts import SvgPagePrompts
 from .system_prompts import SystemPrompts
 from .template_prompts import TemplatePrompts
 from .repair_prompts import RepairPrompts
@@ -10,6 +11,7 @@ __all__ = [
     'OutlinePrompts',
     'ContentPrompts', 
     'DesignPrompts',
+    'SvgPagePrompts',
     'SystemPrompts',
     'TemplatePrompts',
     'RepairPrompts'
@@ -23,6 +25,7 @@ class PPTPromptsManager:
         self.outline = OutlinePrompts()
         self.content = ContentPrompts()
         self.design = DesignPrompts()
+        self.svg_page = SvgPagePrompts()
         self.system = SystemPrompts()
         self.template = TemplatePrompts()
         self.repair = RepairPrompts()
@@ -98,6 +101,16 @@ class PPTPromptsManager:
 
     def get_creative_template_context_prompt(self, *args, **kwargs):
         return self.design.get_creative_template_context_prompt(*args, **kwargs)
+
+    # SVG 页面模式
+    def get_svg_page_system_prompt(self, *args, **kwargs):
+        return self.svg_page.get_svg_page_system_prompt(*args, **kwargs)
+
+    def get_single_slide_svg_prompt(self, *args, **kwargs):
+        return self.svg_page.get_single_slide_svg_prompt(*args, **kwargs)
+
+    def get_svg_page_repair_prompt(self, *args, **kwargs):
+        return self.svg_page.get_svg_page_repair_prompt(*args, **kwargs)
     
     # 系统相关提示词
     def get_default_ppt_system_prompt(self, *args, **kwargs):

@@ -449,6 +449,20 @@
         }
     }
 
+    // 页面绘制方式：HTML（默认）或 SVG（实验）
+    function initializeRenderModeSelection() {
+        const options = document.querySelectorAll('.render-mode-option');
+        const input = document.getElementById('render_mode');
+        if (!options.length || !input) return;
+        options.forEach(option => {
+            option.addEventListener('click', function () {
+                options.forEach(opt => opt.classList.remove('selected'));
+                this.classList.add('selected');
+                input.value = this.getAttribute('data-render-mode') || 'html';
+            });
+        });
+    }
+
     // Initialize outline display for completed stages
     function initializeOutlineDisplay() {
 
@@ -932,6 +946,7 @@
 
         // Initialize style selection
         initializeStyleSelection();
+        initializeRenderModeSelection();
 
         // Check if we should auto-start outline generation
         checkAutoStartOutline();

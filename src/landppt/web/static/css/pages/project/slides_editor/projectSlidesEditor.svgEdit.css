@@ -1,0 +1,646 @@
+/* SVG 页面编辑器：三段式布局（工具栏 / 画布 + 属性面板 / 状态栏） */
+
+.svg-editor {
+    width: min(96vw, 1680px);
+    max-width: 96vw;
+    height: min(94vh, 1040px);
+    max-height: 94vh;
+    padding: 0;
+    border: 0;
+    border-radius: var(--border-radius-lg, 20px);
+    overflow: hidden;
+    background: var(--surface-elevated, #fff);
+    color: var(--text-primary, #15171c);
+    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.35);
+}
+
+.svg-editor::backdrop {
+    background: rgba(15, 15, 16, 0.55);
+    backdrop-filter: blur(2px);
+}
+
+/* hidden 优先于组件自身的 display，否则隐藏的 chip/字段仍会占位 */
+.svg-editor [hidden] {
+    display: none !important;
+}
+
+.svg-editor__shell {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100%;
+    min-height: 0;
+}
+
+/* ---------- 顶部工具栏 ---------- */
+.svg-editor__topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border-color, #d2d5da);
+    background: var(--surface-elevated, #fff);
+}
+
+.svg-editor__heading {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+}
+
+.svg-editor__title {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.svg-editor__page {
+    font-size: 0.75rem;
+    color: var(--text-muted, #6b7078);
+    padding: 2px 8px;
+    border: 1px solid var(--border-color, #d2d5da);
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.svg-editor__spacer {
+    flex: 1;
+}
+
+.svg-editor__tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ---------- 通用控件 ---------- */
+.svg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    font-size: 0.8125rem;
+    color: var(--text-primary, #15171c);
+    background: #fff;
+    border: 1px solid var(--border-color, #d2d5da);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.svg-btn:hover:not(:disabled) {
+    background: var(--surface-muted, #f4f5f7);
+}
+
+.svg-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.svg-btn--primary {
+    color: var(--accent-contrast, #fff);
+    background: var(--accent-color, #111214);
+    border-color: var(--accent-color, #111214);
+}
+
+.svg-btn--primary:hover:not(:disabled) {
+    background: var(--accent-strong, #000);
+}
+
+.svg-btn--danger:hover:not(:disabled) {
+    color: #b91c1c;
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
+.svg-btn--icon {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+}
+
+.svg-btn:focus-visible,
+.svg-input:focus-visible,
+.svg-select:focus-visible,
+.svg-textarea:focus-visible,
+.svg-layer:focus-visible,
+.svg-swatch:focus-visible {
+    outline: 2px solid rgba(14, 165, 233, 0.45);
+    outline-offset: 1px;
+}
+
+.svg-zoom {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px;
+    border: 1px solid var(--border-color, #d2d5da);
+    border-radius: 8px;
+}
+
+.svg-zoom__value {
+    min-width: 58px;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #3b3f45);
+}
+
+/* ---------- 主区域 ---------- */
+.svg-editor__main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 336px;
+    min-height: 0;
+    background: var(--bg-tertiary, #eceff2);
+}
+
+.svg-editor__stage {
+    position: relative;
+    overflow: auto;
+    padding: 24px;
+    display: flex;
+}
+
+.svg-editor__paper {
+    position: relative;
+    flex: none;
+    /* margin:auto 居中；超出视口时可完整滚动，不会裁掉起始侧 */
+    margin: auto;
+    background: #fff;
+    box-shadow: 0 18px 40px rgba(15, 15, 16, 0.18);
+    outline: 1px solid rgba(15, 15, 16, 0.08);
+}
+
+.svg-editor__frame {
+    display: block;
+    width: 1280px;
+    height: 720px;
+    border: 0;
+    transform-origin: top left;
+}
+
+.svg-editor__badge {
+    position: fixed;
+    z-index: 3;
+    padding: 4px 8px;
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    background: rgba(15, 23, 42, 0.86);
+    border-radius: 6px;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
+/* ---------- 右侧面板 ---------- */
+.svg-editor__panel {
+    display: grid;
+    grid-template-rows: minmax(150px, 32%) minmax(0, 1fr);
+    min-height: 0;
+    background: var(--surface-elevated, #fff);
+    border-left: 1px solid var(--border-color, #d2d5da);
+}
+
+.svg-panel__group {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+}
+
+.svg-panel__group + .svg-panel__group {
+    border-top: 1px solid var(--border-color, #d2d5da);
+}
+
+.svg-panel__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px 8px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-muted, #6b7078);
+    text-transform: uppercase;
+}
+
+.svg-panel__count {
+    margin-left: auto;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.svg-panel__body {
+    min-height: 0;
+    overflow: auto;
+    padding: 0 14px 14px;
+}
+
+/* ---------- 图层列表 ---------- */
+.svg-layers {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 0 8px 12px;
+}
+
+.svg-layer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 0.8125rem;
+    color: var(--text-primary, #15171c);
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.svg-layer:hover {
+    background: var(--surface-muted, #f4f5f7);
+}
+
+.svg-layer.is-active {
+    background: #e0f2fe;
+    box-shadow: inset 0 0 0 1px #7dd3fc;
+}
+
+.svg-layer--role {
+    font-weight: 600;
+}
+
+.svg-layer--locked {
+    color: var(--text-muted, #6b7078);
+}
+
+.svg-layer__tag {
+    flex: none;
+    min-width: 44px;
+    padding: 1px 5px;
+    font-size: 0.6875rem;
+    color: var(--text-secondary, #3b3f45);
+    text-align: center;
+    background: var(--bg-tertiary, #eceff2);
+    border-radius: 4px;
+}
+
+.svg-layer.is-active .svg-layer__tag {
+    background: #bae6fd;
+}
+
+.svg-layer__label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.svg-layer__lock {
+    flex: none;
+    font-size: 0.6875rem;
+    color: var(--text-muted, #6b7078);
+}
+
+/* 缩进用 padding 而不是 margin：行宽留在面板内，不产生横向溢出 */
+.svg-layer[data-depth="1"] {
+    padding-left: 20px;
+}
+
+.svg-layer[data-depth="2"] {
+    padding-left: 32px;
+}
+
+.svg-layer[data-depth="3"] {
+    padding-left: 44px;
+}
+
+/* ---------- 属性表单 ---------- */
+.svg-empty {
+    padding: 10px 2px;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--text-muted, #6b7078);
+}
+
+.svg-elementbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0 10px;
+    border-bottom: 1px dashed var(--border-color, #d2d5da);
+    margin-bottom: 10px;
+}
+
+.svg-elementbar__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.svg-elementbar__actions {
+    display: flex;
+    gap: 4px;
+}
+
+.svg-fieldset {
+    margin: 0 0 14px;
+    padding: 0;
+    border: 0;
+}
+
+.svg-fieldset__legend {
+    padding: 0 0 8px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-muted, #6b7078);
+    text-transform: uppercase;
+}
+
+.svg-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.svg-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.svg-field--full {
+    grid-column: 1 / -1;
+}
+
+.svg-field__label {
+    font-size: 0.6875rem;
+    color: var(--text-muted, #6b7078);
+}
+
+.svg-field__hint {
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: var(--text-muted, #6b7078);
+}
+
+.svg-input,
+.svg-select,
+.svg-textarea {
+    width: 100%;
+    min-width: 0;
+    height: 30px;
+    padding: 0 8px;
+    font-size: 0.8125rem;
+    font-family: inherit;
+    color: var(--text-primary, #15171c);
+    background: #fff;
+    border: 1px solid var(--border-color, #d2d5da);
+    border-radius: 6px;
+}
+
+.svg-textarea {
+    height: auto;
+    min-height: 72px;
+    padding: 6px 8px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.svg-input[type="color"] {
+    padding: 2px 4px;
+    cursor: pointer;
+}
+
+.svg-input--color {
+    width: 52px;
+}
+
+.svg-range {
+    width: 100%;
+    accent-color: var(--accent-color, #111214);
+}
+
+/* 两行对齐控件：每行一个轴，避免 6 个按钮挤成 ~49px 后折行溢出 */
+.svg-align {
+    display: grid;
+    gap: 6px;
+}
+
+.svg-align__row {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+}
+
+.svg-align__axis {
+    font-size: 0.6875rem;
+    color: var(--text-muted, #6b7078);
+}
+
+.svg-seg {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    padding: 2px;
+    gap: 2px;
+    background: var(--bg-tertiary, #eceff2);
+    border-radius: 7px;
+}
+
+.svg-seg__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    height: 24px;
+    padding: 0 6px;
+    font-size: 0.75rem;
+    /* 标签绝不折行：宁可截断，也不让文字溢出药丸边界 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-secondary, #3b3f45);
+    background: none;
+    border: 0;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.svg-seg__btn:hover {
+    color: var(--text-primary, #15171c);
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.svg-seg__btn[aria-pressed="true"] {
+    color: var(--text-primary, #15171c);
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 15, 16, 0.14);
+}
+
+.svg-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.svg-swatch {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid rgba(15, 15, 16, 0.18);
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.svg-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #3b3f45);
+    cursor: pointer;
+}
+
+/* ---------- 状态栏 ---------- */
+.svg-editor__statusbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 18px;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #3b3f45);
+    background: var(--bg-secondary, #f6f7f9);
+    border-top: 1px solid var(--border-color, #d2d5da);
+}
+
+.svg-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.svg-crumb {
+    padding: 2px 6px;
+    color: var(--text-secondary, #3b3f45);
+    background: none;
+    border: 0;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.svg-crumb:hover {
+    background: var(--surface-muted, #f4f5f7);
+}
+
+.svg-crumb:last-child {
+    color: var(--text-primary, #15171c);
+    font-weight: 600;
+}
+
+.svg-crumbs__sep {
+    color: var(--text-muted, #6b7078);
+}
+
+.svg-status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.svg-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 42ch;
+    overflow: hidden;
+    padding: 2px 8px;
+    font-size: 0.6875rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: var(--surface-elevated, #fff);
+    border: 1px solid var(--border-color, #d2d5da);
+    border-radius: 999px;
+}
+
+.svg-chip--warn {
+    color: #92400e;
+    background: #fffbeb;
+    border-color: #fcd34d;
+}
+
+.svg-chip--dirty {
+    color: #1e3a8a;
+    background: #eff6ff;
+    border-color: #93c5fd;
+}
+
+.svg-chip--saved {
+    color: #166534;
+    background: #f0fdf4;
+    border-color: #86efac;
+}
+
+.svg-chip--error {
+    color: #b91c1c;
+    background: #fef2f2;
+    border-color: #fca5a5;
+    max-width: 60ch;
+}
+
+.svg-editor__confirm {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 8px;
+    color: #92400e;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 999px;
+}
+
+.svg-editor__confirm.is-visible {
+    display: inline-flex;
+}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 1080px) {
+    .svg-editor {
+        width: 100vw;
+        max-width: 100vw;
+        height: 100vh;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .svg-editor__main {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) auto;
+    }
+
+    .svg-editor__panel {
+        grid-template-rows: minmax(110px, 26vh) minmax(0, 34vh);
+        border-left: 0;
+        border-top: 1px solid var(--border-color, #d2d5da);
+    }
+
+    .svg-editor__statusbar {
+        flex-wrap: wrap;
+    }
+}

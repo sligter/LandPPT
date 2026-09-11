@@ -875,6 +875,10 @@ function makeQuickAiResultButton(label, icon, variant, onClick) {
  * 编辑过程中草稿直接推进 iframe，用户确认后才落库。
  */
 async function quickAiEditApply() {
+    if (typeof currentSlideIsSvg === 'function' && currentSlideIsSvg()) {
+        setQuickAiStatus('SVG 实验页暂不支持 AI 雕琢，请整页重新生成');
+        return;
+    }
     if (!quickEditMode) {
         setQuickAiStatus('请先进入快速编辑模式');
         return;

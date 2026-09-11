@@ -53,6 +53,7 @@ class DatabaseConfigService:
             "anthropic_model": {"type": "select", "category": "ai_providers", "default": "claude-3.5-haiku-20240307"},
             "anthropic_enable_reasoning": {"type": "boolean", "category": "ai_providers", "default": "false"},
             "anthropic_reasoning_effort": {"type": "select", "category": "ai_providers", "default": "high"},
+            "anthropic_max_tokens": {"type": "number", "category": "ai_providers", "default": "16384"},
 
             "google_api_key": {"type": "password", "category": "ai_providers"},
             "google_base_url": {"type": "url", "category": "ai_providers", "default": "https://generativelanguage.googleapis.com"},
@@ -709,6 +710,7 @@ def _build_user_ai_provider_config(
             "model": user_config.get("anthropic_model"),
             "enable_reasoning": user_config.get("anthropic_enable_reasoning"),
             "reasoning_effort": user_config.get("anthropic_reasoning_effort"),
+            "anthropic_max_tokens": user_config.get("anthropic_max_tokens") or getattr(ai_config, "anthropic_max_tokens", 16384),
             "llm_timeout_seconds": user_config.get("llm_timeout_seconds"),
         },
         "google": {

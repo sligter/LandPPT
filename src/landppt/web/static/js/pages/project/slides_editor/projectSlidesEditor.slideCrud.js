@@ -500,7 +500,7 @@ function refreshSidebar() {
                 <iframe title="Slide ${index + 1}"
                         loading="lazy"></iframe>
             </div>
-            <div class="slide-title">${index + 1}. ${slide.title}</div>
+            <div class="slide-title">${index + 1}. ${slide.title}${(typeof isSvgRenderedSlide === 'function' && isSvgRenderedSlide(slide)) ? '<span class="slide-mode-badge" title="SVG 实验页">SVG</span>' : ''}</div>
             <div class="drag-indicator bottom"></div>
         `;
 

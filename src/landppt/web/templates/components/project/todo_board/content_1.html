@@ -228,6 +228,25 @@
             </div>
         </div>
 
+        <div class="req-divider"></div>
+
+        <!-- 页面绘制方式 -->
+        {% set page_render_mode = (project.project_metadata or {}).get('render_mode', 'html') %}
+        <div class="req-field">
+            <label class="req-label">页面绘制方式<span class="req-label-desc">实验功能，整套演示只用一种</span></label>
+            <div class="req-card-grid-2">
+                <div class="render-mode-option req-select-card{% if page_render_mode != 'svg' %} selected{% endif %}" data-render-mode="html">
+                    <div class="req-select-card-title">HTML 页面（默认）</div>
+                    <p class="req-select-card-desc">浏览器排版，支持快速修改、AI 编辑与全部导出方式</p>
+                </div>
+                <div class="render-mode-option req-select-card{% if page_render_mode == 'svg' %} selected{% endif %}" data-render-mode="svg">
+                    <div class="req-select-card-title">SVG 页面（实验）</div>
+                    <p class="req-select-card-desc">在固定画布上布置文字与图形，支持快速编辑、AI 编辑和 SVG PPTX 导出</p>
+                </div>
+            </div>
+            <input type="hidden" id="render_mode" name="render_mode" value="{{ 'svg' if page_render_mode == 'svg' else 'html' }}">
+        </div>
+
         <!-- 提交 -->
         <div class="req-submit-area">
             <button type="submit" id="confirm-requirements-btn" class="btn btn-primary requirements-submit-btn">

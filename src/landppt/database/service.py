@@ -96,6 +96,8 @@ class DatabaseService:
             "generation_failed",
             "generation_error",
             "composition_brief",
+            "render_mode",
+            "svg_report",
         ):
             if key in slide_data and slide_data.get(key) is not None:
                 metadata[key] = copy.deepcopy(slide_data[key])

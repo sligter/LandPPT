@@ -14,9 +14,12 @@ import difflib
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+
+from ..svg_page.edit import is_svg_document, parse_svg_soup, replace_svg
 
 from .html_safety import (
     AGENT_ID_ATTRS,
@@ -62,7 +65,8 @@ class SlideDraft:
 
     def __init__(self, base_html: str):
         self._base_html = (base_html or "").strip()
-        self._soup = BeautifulSoup(self._base_html, "html.parser")
+        self.is_svg = is_svg_document(self._base_html)
+        self._soup = self._parse(self._base_html)
         self._refs: Dict[str, Tag] = {}
         self._ref_by_node_id: Dict[int, str] = {}
         self._next_ref_index = 1
@@ -93,7 +97,10 @@ class SlideDraft:
     @property
     def html(self) -> str:
         if self._cached_html is None:
-            self._cached_html = str(self._soup).strip()
+            self._cached_html = (
+                replace_svg(self._base_html, str(self._soup.svg))
+                if self.is_svg else str(self._soup).strip()
+            )
         return self._cached_html
 
     @property
@@ -290,18 +297,37 @@ class SlideDraft:
         return True
 
     def _restore(self, html: str) -> None:
-        self._soup = BeautifulSoup(html, "html.parser")
+        self._soup = self._parse(html)
         self._cached_html = html.strip()
         self._invalidate_refs()
 
     def replace_all(self, html: str) -> None:
         self.begin_mutation()
-        self._soup = BeautifulSoup(html, "html.parser")
+        self._soup = self._parse(html)
         self._invalidate_refs()
         self.commit_mutation()
 
     def parse_fragment(self, html: str) -> List[Tag]:
         """把待插入的 HTML 片段清洗后解析成节点列表。"""
+        if self.is_svg:
+            wrapped = '<svg xmlns="http://www.w3.org/2000/svg">' + html + '</svg>'
+            fragment = parse_svg_soup(wrapped)
+            # Validate in the current document: fragments can reference existing defs,
+            # and newly assigned IDs must not collide with existing elements.
+            candidate = parse_svg_soup(self.html)
+            marker = 'edit_fragment_' + uuid4().hex
+            group = candidate.new_tag('g', attrs={'id': marker})
+            for child in list(fragment.svg.children):
+                group.append(child.extract())
+            candidate.svg.append(group)
+            validation = validate_slide_html(str(candidate.svg), baseline_html=self.base_html)
+            if not validation.valid:
+                raise ValueError('; '.join(validation.errors))
+            fragment = parse_svg_soup(validation.sanitized_html)
+            nodes = [child for child in fragment.find(id=marker).children if isinstance(child, Tag)]
+            if not nodes:
+                raise ValueError('fragment SVG contains no element')
+            return nodes
         validation = validate_slide_html(html)
         if not validation.valid:
             raise ValueError("; ".join(validation.errors) or "fragment html failed validation")
@@ -310,6 +336,9 @@ class SlideDraft:
         if not nodes:
             raise ValueError("fragment html contains no element")
         return nodes
+
+    def _parse(self, html):
+        return parse_svg_soup(html) if self.is_svg else BeautifulSoup(html, 'html.parser')
 
 
 def _diff_lines(html: str) -> List[str]:

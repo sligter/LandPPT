@@ -227,6 +227,8 @@ async def apply_slide_edit_agent_proposal(
         existing_slide = {}
 
     current_html = existing_slide.get("html_content") or ""
+    from ...services.slide.svg_page.shell import is_svg_page_html
+
     if compute_slide_html_hash(current_html) != request.expectedBaseHash:
         raise HTTPException(
             status_code=409,
@@ -261,6 +263,11 @@ async def apply_slide_edit_agent_proposal(
         "html_content": validation.sanitized_html,
         "is_user_edited": True,
     }
+    if existing_slide.get("render_mode") == "svg" or is_svg_page_html(current_html):
+        slide_data["render_mode"] = "svg"
+        slide_data.pop("generation_failed", None)
+        slide_data.pop("generation_error", None)
+        slide_data.pop("svg_report", None)
 
     db_manager = DatabaseProjectManager()
     saved = await db_manager.save_single_slide(

@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from ...api.models import PPTGenerationRequest
 from ...auth.middleware import get_current_user_required
 from ...database.models import User
+from ...services.slide.svg_page.render_mode import normalize_render_mode
 from .outline_support import (
     _normalize_content_source_urls,
     _save_uploaded_files_for_confirmed_requirements,
@@ -204,6 +205,7 @@ async def web_create_project_and_confirm(
     topic: str = Form(...),
     requirements: str = Form(None),
     language: str = Form("zh"),
+    render_mode: str = Form("html"),
     network_mode: bool = Form(False),
     audience_type: str = Form("普通大众"),
     custom_audience: str = Form(None),
@@ -311,6 +313,13 @@ async def web_create_project_and_confirm(
             confirmed_requirements.update(saved_file_metadata)
 
         user_ppt_service = get_ppt_service_for_user(user.id)
+        metadata = dict(project.project_metadata or {})
+        metadata["render_mode"] = normalize_render_mode(render_mode)
+        saved = await user_ppt_service.project_manager.update_project_metadata(
+            project_id, metadata, user_id=user.id
+        )
+        if not saved:
+            raise RuntimeError("页面绘制方式保存失败，请重新确认需求")
         success = await user_ppt_service.confirm_requirements_and_update_workflow(
             project_id, confirmed_requirements
         )

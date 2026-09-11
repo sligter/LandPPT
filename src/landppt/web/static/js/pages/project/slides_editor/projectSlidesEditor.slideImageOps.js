@@ -29,6 +29,10 @@ function refreshEditorViewport(options = {}) {
 }
 
 function setMode(mode) {
+    if (mode === 'quickedit' && typeof currentSlideIsSvg === 'function' && currentSlideIsSvg()) {
+        openSvgPageEditor();
+        return;
+    }
 
     currentMode = mode;
     updateEditorContentModeClass(mode);
@@ -118,6 +122,16 @@ async function saveSlide() {
         newContent = codeMirrorEditor.getValue();
     } else {
         newContent = codeEditor.value;
+    }
+
+    if (typeof currentSlideIsSvg === 'function' && currentSlideIsSvg()) {
+        try {
+            await saveSvgSlideContent(currentSlideIndex, newContent);
+            showNotification('SVG 页面已保存', 'success');
+        } catch (error) {
+            showNotification('保存失败：' + error.message, 'error');
+        }
+        return;
     }
 
     // Update slides data

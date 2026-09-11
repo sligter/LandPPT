@@ -415,12 +415,12 @@
             }
         }
 
-        const DOM_TO_PPTX_BUNDLE_VERSION = '20260709-hybrid-raster-v2';
-        const DOM_TO_PPTX_EXPECTED_PATCH_VERSION = '2026-07-09-hybrid-raster-v2';
+        const DOM_TO_PPTX_BUNDLE_VERSION = '20260911-svg-native-v1';
+        const DOM_TO_PPTX_EXPECTED_PATCH_VERSION = '2026-09-11-svg-native-v1';
         let domToPptxReloadPromise = null;
 
         function isDomToPptxPatchedInstance(instance) {
-            if (!instance || typeof instance.exportToPptx !== 'function') return false;
+            if (!instance || typeof instance.exportToPptx !== 'function' || typeof instance.createPresentation !== 'function') return false;
             const patchVersion = String(instance.__landpptPatchVersion || '').trim();
             if (patchVersion === DOM_TO_PPTX_EXPECTED_PATCH_VERSION) return true;
             return false;

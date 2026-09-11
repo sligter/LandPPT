@@ -40,6 +40,7 @@ from .slide_media_service import SlideMediaService
 from .slide_html_cleanup_service import SlideHtmlCleanupService
 from .slide_html_validation_service import SlideHtmlValidationService
 from .slide_document_service import SlideDocumentService
+from .slide_svg_page_service import SlideSvgPageService
 
 if TYPE_CHECKING:
     from .slide_authoring_service import SlideAuthoringService
@@ -55,6 +56,7 @@ class SlideHtmlService:
         self._cleanup_service = SlideHtmlCleanupService(self)
         self._validation_service = SlideHtmlValidationService(self)
         self._document_service = SlideDocumentService(self)
+        self._svg_page_service = SlideSvgPageService(self)
 
     def __getattr__(self, name: str):
         return getattr(self._service, name)

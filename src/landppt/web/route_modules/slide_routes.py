@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from ...ai import AIMessage, MessageRole, get_ai_provider, get_role_provider
 from ...api.models import FileOutlineGenerationRequest, PPTGenerationRequest, PPTProject, TodoBoard
 from ...auth.middleware import get_current_user_optional, get_current_user_required
+from ...services.slide.svg_page.render_mode import RENDER_MODE_HTML, RENDER_MODE_SVG, attach_render_mode
 from ...core.config import ai_config, app_config, resolve_timeout_seconds
 from ...database.database import AsyncSessionLocal, get_db
 from ...database.models import User
@@ -287,7 +288,11 @@ async def _do_batch_regenerate(
 
         # Prepare generation context once.
         system_prompt = user_ppt_service._load_prompts_md_system_prompt()
-        selected_template = await user_ppt_service._ensure_global_master_template_selected(project_id)
+        render_mode = attach_render_mode(project.confirmed_requirements, project)
+        selected_template = (
+            None if render_mode == RENDER_MODE_SVG
+            else await user_ppt_service._ensure_global_master_template_selected(project_id)
+        )
 
         if project.slides_data is None:
             project.slides_data = []
@@ -342,6 +347,16 @@ async def _do_batch_regenerate(
                     **{k: v for k, v in (existing_slide or {}).items() if k not in ["page_number", "title", "html_content", "slide_type", "content_points", "is_user_edited"]}
                 }
 
+                updated_slide["render_mode"] = slide_outline.get("render_mode") or RENDER_MODE_HTML
+                updated_slide.pop("generation_failed", None)
+                updated_slide.pop("generation_error", None)
+                if slide_outline.get("_generation_degraded"):
+                    updated_slide["generation_failed"] = True
+                    updated_slide["generation_error"] = "页面生成尚未通过校验，请重新生成此页。"
+                if slide_outline.get("svg_report"):
+                    updated_slide["svg_report"] = slide_outline["svg_report"]
+                else:
+                    updated_slide.pop("svg_report", None)
                 project.slides_data[slide_index] = updated_slide
 
                 results.append({

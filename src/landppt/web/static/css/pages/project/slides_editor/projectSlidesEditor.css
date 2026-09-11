@@ -1,3 +1,13 @@
+#svg-page-editor::backdrop { background: rgb(15 23 42 / 45%); }
+#svg-page-editor { color: #111827; background: #fff; box-shadow: 0 24px 80px #0003; }
+#svg-page-editor button { padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #111827; cursor: pointer; }
+#svg-page-editor button:hover { background: #f1f5f9; }
+#svg-page-editor button[data-save] { background: #111827; color: #fff; border-color: #111827; }
+#svg-page-editor button:disabled { opacity: .5; cursor: wait; }
+#svg-page-editor input, #svg-page-editor textarea { padding: 7px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; }
+#svg-page-editor label, #svg-page-editor [data-status] { font-size: 13px; }
+#svg-page-editor input[type=color] { height: 36px; padding: 3px; }
+
 :root {
     --surface-dark: #0f0f10;
     --surface-darker: #050506;
@@ -240,6 +250,17 @@ body::before {
     align-items: center;
     justify-content: center;
     color: var(--text-secondary);
+}
+
+.slide-mode-badge {
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    background: #6366f1;
+    color: #fff;
 }
 
 .main-editor {
@@ -1096,4 +1117,3 @@ body::before {
         font-size: 12px;
     }
 }
-

@@ -232,6 +232,7 @@ async def get_ai_providers_config(
         "anthropic_model": current_config.get("anthropic_model", ""),
         "anthropic_enable_reasoning": current_config.get("anthropic_enable_reasoning", False),
         "anthropic_reasoning_effort": current_config.get("anthropic_reasoning_effort", "high"),
+        "anthropic_max_tokens": current_config.get("anthropic_max_tokens", 16384),
         "google_api_key": current_config.get("google_api_key", ""),
         "google_base_url": current_config.get("google_base_url", ""),
         "google_model": current_config.get("google_model", ""),

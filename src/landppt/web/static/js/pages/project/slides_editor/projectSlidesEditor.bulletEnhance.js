@@ -1,4 +1,8 @@
         async function enhanceAllBulletPoints() {
+            if (typeof currentSlideIsSvg === 'function' && currentSlideIsSvg()) {
+                notifySvgSlideReadOnly('要点增强');
+                return;
+            }
             const bulletPointsContainer = document.getElementById('bulletPointsContainer');
             if (!bulletPointsContainer) {
                 showNotification('找不到要点容器', 'error');

@@ -30,6 +30,9 @@ def test_dom_to_pptx_loader_versions_match_bundle_patch_version():
         assert _extract_single(r"DOM_TO_PPTX_EXPECTED_PATCH_VERSION\s*=\s*'([^']+)'", loader_text) == patch_version
         assert _extract_single(r"DOM_TO_PPTX_BUNDLE_VERSION\s*=\s*'([^']+)'", loader_text) == cache_version
 
+    master_entry = LOADER_PATHS[1].with_name("globalMasterTemplates.js").read_text(encoding="utf-8")
+    assert f"globalMasterTemplates.exportHelpers.js?v={cache_version}" in master_entry
+
 
 def test_project_editor_export_render_cache_bust_matches_bundle_version():
     bundle_text = BUNDLE_PATH.read_text(encoding="utf-8")

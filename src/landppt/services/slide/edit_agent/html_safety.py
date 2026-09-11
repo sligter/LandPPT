@@ -46,6 +46,10 @@ def compute_slide_html_hash(html: str) -> str:
 
 
 def strip_agent_ids(html: str) -> str:
+    from ..svg_page.edit import is_svg_document, strip_svg_agent_ids
+
+    if is_svg_document(html):
+        return strip_svg_agent_ids(html)
     soup = BeautifulSoup(html or "", "html.parser")
     for node in soup.find_all(True):
         for attr in AGENT_ID_ATTRS:
@@ -283,6 +287,10 @@ def _find_html_structure_errors(html: str) -> List[str]:
 
 
 def validate_slide_html(html: str, *, baseline_html: Optional[str] = None) -> SlideEditValidationResult:
+    from ..svg_page.edit import is_svg_document, validate_svg_edit
+
+    if is_svg_document(html) or is_svg_document(baseline_html):
+        return validate_svg_edit(html, baseline_html)
     errors: List[str] = []
     warnings: List[str] = []
     original = html or ""

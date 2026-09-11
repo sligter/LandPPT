@@ -1651,6 +1651,7 @@
                     <div class="slide-actions">
                         <span class="badge">第${slideData.page_number}页</span>
                         ${slideData.generation_failed ? '<span class="badge" role="status" title="设计生成未完成，请重新生成此页">待重新生成</span>' : ''}
+                        ${slideData.render_mode === 'svg' ? '<span class="badge" title="SVG 实验页">SVG</span>' : ''}
                         <button class="fullscreen-btn" data-page-number="${slideData.page_number}" title="全屏查看">
                             <i class="fas fa-expand"></i>
                         </button>

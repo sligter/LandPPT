@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from ...auth.middleware import get_current_user_required
 from ...database.models import User
+from ...services.slide.svg_page.render_mode import normalize_render_mode
 from .outline_support import (
     _is_billable_provider,
     _normalize_content_source_urls,
@@ -85,6 +86,7 @@ async def confirm_project_requirements(
     include_page_numbers: bool = Form(True),
     ppt_style: str = Form("general"),
     custom_style_prompt: str = Form(None),
+    render_mode: str = Form("html"),
     description: str = Form(None),
     content_source: str = Form("manual"),
     file_upload: List[UploadFile] = File(None),
@@ -277,6 +279,13 @@ async def confirm_project_requirements(
 
         if not success:
             raise Exception("需求确认失败")
+
+        # 页面绘制方式与 language 一样存在项目元数据里，生成时按运行时键注入。
+        normalized_render_mode = normalize_render_mode(render_mode)
+        project_metadata = dict(project.project_metadata) if isinstance(project.project_metadata, dict) else {}
+        if project_metadata.get("render_mode") != normalized_render_mode:
+            project_metadata["render_mode"] = normalized_render_mode
+            await user_ppt_service.project_manager.update_project_metadata(project_id, project_metadata, user_id=user.id)
 
         # Return JSON success response for AJAX request
         from fastapi.responses import JSONResponse

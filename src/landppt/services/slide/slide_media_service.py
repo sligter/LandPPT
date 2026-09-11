@@ -27,6 +27,7 @@ from ...core.config import ai_config, app_config
 from ..runtime.ai_execution import ExecutionContext
 from ..prompts import prompts_manager
 from ..prompts.prompt_utils import should_include_page_numbers
+from .svg_page.render_mode import RENDER_MODE_SVG
 from ..research.enhanced_research_service import EnhancedResearchService
 from ..research.enhanced_report_generator import EnhancedReportGenerator
 from ..pyppeteer_pdf_converter import get_pdf_converter
@@ -58,6 +59,12 @@ class SlideMediaService:
                 slide_data["_include_page_numbers"] = should_include_page_numbers(confirmed_requirements)
             if not project_id:
                 project_id = confirmed_requirements.get('project_id')
+            # SVG 页面模式：整页由模型在固定画布上绘制，不走 HTML 母版与 HTML 重试循环。
+            if await self._svg_page_service._resolve_render_mode(project_id, confirmed_requirements) == RENDER_MODE_SVG:
+                return await self._svg_page_service._generate_single_slide_svg_with_prompts(
+                    slide_data, confirmed_requirements, system_prompt, page_number, total_pages,
+                    all_slides=all_slides, existing_slides_data=existing_slides_data, project_id=project_id,
+                )
             selected_template = None
             if project_id:
                 # 全局母版在一次生成运行内不会变化：缓存在 run 级别的 confirmed_requirements 中，

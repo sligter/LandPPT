@@ -33,6 +33,7 @@ CLAUDE.md
 helm/landppt/README.md
 
 # Temporary files and cache
+/.qunica/shell/*.log
 temp/
 tmp/
 *.tmp
