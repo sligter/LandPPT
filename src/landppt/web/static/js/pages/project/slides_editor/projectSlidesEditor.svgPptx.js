@@ -225,7 +225,7 @@ async function exportSvgPagesToPptx(mode = 'native') {
     const signal = clientExportAbortController.signal;
     try {
         showExportOverlay(); updateExportCancelButton(true, false, '取消导出');
-        updateExportUI('cog', 'spinning', '正在导出 SVG PPTX', '准备页面和字体...', 0, '准备中');
+        updateExportUI('cog', 'spinning', mode === 'native' ? '正在导出 SVG 原生对象 PPTX' : '正在导出 SVG 矢量保真 PPTX', '准备页面和字体...', 0, '准备中');
         const exporter = await ensureDomToPptxReadyForExport();
         const result = await svgPptx.build([...slidesData].sort((a, b) => a.page_number - b.page_number), mode, exporter, {
             signal, onProgress: (done, total) => updateExportUI(null, null, null, '正在转换 SVG 页面...', done / total * 90, `${done}/${total}`)
@@ -241,3 +241,26 @@ async function exportSvgPagesToPptx(mode = 'native') {
         showNotification(error.name === 'AbortError' ? '已取消导出' : 'SVG 导出失败：' + error.message, error.name === 'AbortError' ? 'info' : 'error');
     } finally { hideExportOverlay(); updateExportCancelButton(false); isClientExporting = false; clientExportAbortController = null; }
 }
+
+// PPTX 导出菜单按页面渲染模式分流：全 SVG 页面只显示 SVG 导出，含 HTML 页面时只显示客户端导出。
+function editorExportTargetsAllSvg() {
+    if (Array.isArray(slidesData) && slidesData.length > 0) {
+        return slidesData.every(isSvgRenderedSlide);
+    }
+    return String(window.landpptEditorConfig?.renderMode || 'html') === 'svg';
+}
+
+function updateExportDropdownModeVisibility() {
+    const allSvg = editorExportTargetsAllSvg();
+    [['exportClientModeItem', !allSvg], ['exportSvgNativeModeItem', allSvg], ['exportSvgVectorModeItem', allSvg]]
+        .forEach(([id, visible]) => {
+            const item = document.getElementById(id);
+            if (item) item.style.display = visible ? '' : 'none';
+        });
+}
+
+(function initExportDropdownModeVisibility() {
+    const btn = document.getElementById('exportDropdownBtn');
+    if (btn) btn.addEventListener('show.bs.dropdown', updateExportDropdownModeVisibility);
+    updateExportDropdownModeVisibility();
+})();

@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
     <!-- CodeMirror Search Dialog CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.css">
-    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.css?v=20260911-svg-edit-v1">
+    <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.css?v=20260912-compact-dropdown-v1">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.aiSidebar.css?v=20260726-agent-loop-v2">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.nativeChat.css?v=20260402-split">
     <link rel="stylesheet" href="/static/css/pages/project/slides_editor/projectSlidesEditor.quickEdit.css?v=20260726-agent-loop-v2">
@@ -135,19 +135,42 @@
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end toolbar-dropdown-menu"
                             aria-labelledby="exportDropdownBtn">
-                            <li>
+                            <li id="exportClientModeItem">
                                 <a class="dropdown-item toolbar-dropdown-item" href="#"
                                     onclick="exportSlidesToPptxClient(); return false;">
                                     <span class="toolbar-dropdown-item__icon">
                                         <i class="fas fa-desktop"></i>
                                     </span>
                                     <span class="toolbar-dropdown-item__content">
-                                        <span class="toolbar-dropdown-item__label">客户端导出(beta)</span>
+                                        <span class="toolbar-dropdown-item__label">客户端导出<span class="toolbar-dropdown-item__badge">Beta</span></span>
+                                        <span class="toolbar-dropdown-item__hint">浏览器内转换，适合 HTML 页面</span>
                                     </span>
                                 </a>
                             </li>
-                            <li><a class="dropdown-item toolbar-dropdown-item" href="#" onclick="exportSvgPagesToPptx('native'); return false;">SVG 原生对象 PPTX（文字、基础形状可编辑）</a></li>
-                            <li><a class="dropdown-item toolbar-dropdown-item" href="#" onclick="exportSvgPagesToPptx('vector'); return false;">SVG 矢量保真 PPTX（整页矢量图）</a></li>
+                            <li id="exportSvgNativeModeItem">
+                                <a class="dropdown-item toolbar-dropdown-item" href="#"
+                                    onclick="exportSvgPagesToPptx('native'); return false;">
+                                    <span class="toolbar-dropdown-item__icon">
+                                        <i class="fas fa-shapes"></i>
+                                    </span>
+                                    <span class="toolbar-dropdown-item__content">
+                                        <span class="toolbar-dropdown-item__label">SVG 原生对象 PPTX</span>
+                                        <span class="toolbar-dropdown-item__hint">文字与基础形状可编辑，复杂图形转矢量</span>
+                                    </span>
+                                </a>
+                            </li>
+                            <li id="exportSvgVectorModeItem">
+                                <a class="dropdown-item toolbar-dropdown-item" href="#"
+                                    onclick="exportSvgPagesToPptx('vector'); return false;">
+                                    <span class="toolbar-dropdown-item__icon">
+                                        <i class="fas fa-vector-square"></i>
+                                    </span>
+                                    <span class="toolbar-dropdown-item__content">
+                                        <span class="toolbar-dropdown-item__label">SVG 矢量保真 PPTX</span>
+                                        <span class="toolbar-dropdown-item__hint">整页转为矢量图，还原度最高</span>
+                                    </span>
+                                </a>
+                            </li>
                             <li>
                                 <hr class="dropdown-divider toolbar-dropdown-divider">
                             </li>
@@ -160,6 +183,7 @@
                                     </span>
                                     <span class="toolbar-dropdown-item__content">
                                         <span class="toolbar-dropdown-item__label">标准导出</span>
+                                        <span class="toolbar-dropdown-item__hint">服务端转换，完成后自动下载</span>
                                     </span>
                                 </a>
                             </li>
@@ -172,6 +196,7 @@
                                     </span>
                                     <span class="toolbar-dropdown-item__content">
                                         <span class="toolbar-dropdown-item__label">以图片形式导出</span>
+                                        <span class="toolbar-dropdown-item__hint">每页转为图片，效果与预览一致</span>
                                     </span>
                                 </a>
                             </li>
@@ -775,7 +800,7 @@
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportIcons.js?v=20260402-split"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportRender.js?v=20260911-svg-native-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.exportPptx.js?v=20260707-hybrid-raster-v1"></script>
-    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.svgPptx.js?v=20260911-svg-native-v1"></script>
+    <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.svgPptx.js?v=20260912-mode-dropdown-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectEditorNarration.js?v=20260802-auto-result-v1"></script>
     <script src="/static/js/pages/project/slides_editor/projectSlidesEditor.init.js?v=20260402-split"></script>
 
