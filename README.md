@@ -478,7 +478,7 @@ OpenAI GPT（及兼容接口）、Anthropic Claude、Google Gemini、Azure OpenA
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=sligter/LandPPT&type=Date)](https://www.star-history.com/#sligter/LandPPT&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=sligter/LandPPT&type=Date)](https://star-history.dera.page/#sligter/LandPPT&Date)
 
 ---
 
