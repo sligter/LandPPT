@@ -472,7 +472,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=sligter/LandPPT&type=Date)](https://www.star-history.com/#sligter/LandPPT&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=sligter/LandPPT&type=Date)](https://star-history.dera.page/#sligter/LandPPT&Date)
 
 ---
 
