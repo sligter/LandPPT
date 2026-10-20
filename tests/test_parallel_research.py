@@ -44,7 +44,7 @@ class MCPServer:
                 await asyncio.sleep(60)
             if self.failure in {'http', 'permission'}:
                 return httpx.Response(403 if self.failure == 'permission' else 503, text='unavailable')
-            if self.failure == 'quota':
+            if self.failure == 'quota' or (self.failure == 'fetch_quota' and body['params']['name'] == 'web_fetch'):
                 result = {'isError': True, 'content': [{'type': 'text', 'text': 'Free anonymous quota exceeded'}]}
             elif self.failure == 'malformed':
                 result = {'content': [{'type': 'text', 'text': 'not JSON'}]}
@@ -223,3 +223,20 @@ def test_private_and_non_http_urls_are_filtered(url):
 def test_cited_public_urls_are_preserved():
     url = 'https://example.com/source?q=a%20b#section'
     assert ParallelSearchProvider._results({'results': [{'url': url, 'excerpts': ['evidence']}]})[0]['url'] == url
+
+
+@pytest.mark.asyncio
+async def test_quota_fetch_keeps_successful_search_identity(research):
+    service, server, _ = research
+    server.failure = 'fetch_quota'
+    events = []
+    with pytest.raises(ParallelSearchError, match='Free anonymous quota exceeded'):
+        await service.conduct_enhanced_research('Quota after search', event_callback=events.append)
+    # The production run owns both identities; no manually supplied test IDs.
+    assert [call['name'] for call in server.calls] == ['web_search', 'web_fetch']
+    session_ids = {call['arguments']['session_id'] for call in server.calls}
+    assert len(session_ids) == 1
+    UUID(next(iter(session_ids)))
+    search_event = next(event for event in events if event['type'] == 'search_results')
+    assert search_event['parallel_results'][0]['content'] == 'SEARCH EVIDENCE'
+    assert not any(event['type'] == 'report_ready' for event in events)
