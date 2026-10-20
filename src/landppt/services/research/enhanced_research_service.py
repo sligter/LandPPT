@@ -17,11 +17,12 @@ from langchain_core.documents import Document
 
 from ...ai import get_ai_provider, AIMessage, MessageRole
 from ...core.config import ai_config
-from ..deep_research_service import DEEPResearchService, ResearchReport, ResearchStep
+from ..deep_research_service import DEEPResearchService, ResearchReport, ResearchStep, _normalize_secret_value
 from ..prompts.system_prompts import SystemPrompts
 from .searxng_provider import SearXNGContentProvider, SearXNGSearchResponse
 from .content_extractor import WebContentExtractor, ExtractedContent
 from ..runtime.ai_execution import scoped_ai_conversation
+from .parallel_provider import ParallelSearchProvider, parallel_research_run
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class EnhancedResearchStep:
     analysis: str = ""
     completed: bool = False
     duration: float = 0.0
+    parallel_results: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -65,6 +67,7 @@ class EnhancedResearchService:
         self.deep_research_service = DEEPResearchService(user_id=user_id)
         self.searxng_provider = SearXNGContentProvider(user_id=user_id)
         self.content_extractor = WebContentExtractor()
+        self.parallel_provider = ParallelSearchProvider()
         
         # Text processing - 使用基于 max_tokens 的简单快速分块策略
         # 保存 FastChunker 类引用，在使用时动态实例化以获取用户配置的 max_tokens
@@ -199,11 +202,13 @@ class EnhancedResearchService:
         searxng_available = self.searxng_provider.is_available()
         ai_available = self.ai_provider is not None
         
-        return ai_available and (tavily_available or searxng_available)
+        return ai_config.enable_network_mode and ai_available and (
+            tavily_available or searxng_available or ai_config.research_provider in {"auto", "parallel"} or self.user_id is not None
+        )
     
     def get_available_providers(self) -> List[str]:
         """Get list of available search providers"""
-        providers = []
+        providers = ["parallel"]
         if self.deep_research_service.is_available():
             providers.append('tavily')
         if self.searxng_provider.is_available():
@@ -231,19 +236,24 @@ class EnhancedResearchService:
         return ai_config.max_tokens
 
     async def _get_research_provider_async(self) -> str:
+        """Resolve saved choices before auto-detecting configured search access."""
+        provider = str(ai_config.research_provider or "auto").strip().lower()
+        config = {}
         if self.user_id is not None:
-            try:
-                from ..db_config_service import get_db_config_service
+            from ..db_config_service import get_db_config_service
 
-                config_service = get_db_config_service()
-                user_config = await config_service.get_all_config(user_id=self.user_id)
-                provider = str(user_config.get("research_provider") or "").strip().lower()
-                if provider:
-                    return provider
-            except Exception as e:
-                logger.warning(f"Failed to get research_provider from database: {e}")
-
-        return str(ai_config.research_provider or "tavily").strip().lower()
+            # A failed settings read must not accidentally enable anonymous search.
+            config = await get_db_config_service().get_all_config(user_id=self.user_id)
+            saved = str(config.get("research_provider") or "auto").strip().lower()
+            if saved != "auto" or await get_db_config_service().is_user_override(self.user_id, "research_provider"):
+                provider = saved
+        if provider != "auto":
+            return provider
+        if _normalize_secret_value(config.get("tavily_api_key")) or _normalize_secret_value(ai_config.tavily_api_key):
+            return "tavily"
+        if config.get("searxng_host") or ai_config.searxng_host:
+            return "searxng"
+        return "parallel"
 
     async def split_text_async(self, text: str) -> List[str]:
         """
@@ -375,6 +385,7 @@ class EnhancedResearchService:
         return 0
     
     @scoped_ai_conversation("enhanced-research")
+    @parallel_research_run
     async def conduct_enhanced_research(
         self,
         topic: str,
@@ -397,6 +408,8 @@ class EnhancedResearchService:
         logger.info(f"Starting enhanced research for topic: {topic}")
 
         try:
+            if not ai_config.enable_network_mode:
+                raise ValueError("Network research is disabled")
             # Step 1: Generate research plan with context
             research_plan = await self._generate_research_plan(
                 topic,
@@ -416,7 +429,7 @@ class EnhancedResearchService:
 
             # Step 2: Execute research steps with multiple providers
             research_steps = []
-            provider_stats = {'tavily': 0, 'searxng': 0, 'content_extraction': 0}
+            provider_stats = {'parallel': 0, 'tavily': 0, 'searxng': 0, 'content_extraction': 0}
 
             for i, step_plan in enumerate(research_plan, 1):
                 await self._emit_stream_event(
@@ -584,7 +597,14 @@ class EnhancedResearchService:
         
         # Determine which providers to use based on configuration
         research_provider = await self._get_research_provider_async()
+        if research_provider == "parallel":
+            step.parallel_results = await self.parallel_provider.search(
+                step.query, language, timeout=ai_config.research_extraction_timeout,
+            )
+            provider_stats['parallel'] += 1
         use_tavily = research_provider in ['tavily', 'both']
+        if research_provider in ['searxng', 'both']:
+            await self.searxng_provider._ensure_config_initialized()
         use_searxng = research_provider in ['searxng', 'both'] and self.searxng_provider.is_available()
         
         # Execute searches with available providers
@@ -625,6 +645,7 @@ class EnhancedResearchService:
                 "step_number": step_number,
                 "query": step.query,
                 "description": step.description,
+                "parallel_results": step.parallel_results or [],
                 "tavily_results": tavily_results or [],
                 "searxng_results": searxng_results.to_dict() if searxng_results else None,
             },
@@ -633,10 +654,20 @@ class EnhancedResearchService:
         # Extract content from URLs if enabled
         if ai_config.research_enable_content_extraction:
             urls = self._collect_urls_from_results(tavily_results, searxng_results)
-            if urls:
+            if research_provider == "parallel":
+                urls = [result['url'] for result in (step.parallel_results or [])]
+                fetched = await self.parallel_provider.fetch(
+                    urls, step.query, timeout=ai_config.research_extraction_timeout,
+                )
+                step.extracted_content = [
+                    ExtractedContent(result['url'], result['title'], result['content'])
+                    for result in fetched
+                ]
+            elif urls:
                 step.extracted_content = await self.content_extractor.extract_multiple(
                     urls[:10], max_concurrent=3  # Limit to top 10 URLs
                 )
+            if step.extracted_content:
                 provider_stats['content_extraction'] += len(step.extracted_content or [])
                 await self._emit_stream_event(
                     event_callback,
@@ -722,6 +753,11 @@ class EnhancedResearchService:
         # Prepare content for analysis
         content_parts = []
 
+        if step.parallel_results:
+            content_parts.append("=== Parallel搜索结果 ===")
+            for i, result in enumerate(step.parallel_results[:5], 1):
+                content_parts.append(f"{i}. {result['title']}\n   URL: {result['url']}\n   内容: {result['content'][:1000]}")
+
         # Add Tavily results
         if step.tavily_results:
             content_parts.append("=== Tavily搜索结果 ===")
@@ -804,6 +840,7 @@ class EnhancedResearchService:
         all_content = []
         total_sources = 0
         content_stats = {
+            'parallel_results': 0,
             'tavily_results': 0,
             'searxng_results': 0,
             'extracted_pages': 0,
@@ -811,6 +848,9 @@ class EnhancedResearchService:
         }
 
         for step in steps:
+            if step.parallel_results:
+                content_stats['parallel_results'] += len(step.parallel_results)
+                total_sources += len(step.parallel_results)
             if step.tavily_results:
                 content_stats['tavily_results'] += len(step.tavily_results)
                 total_sources += len(step.tavily_results)
@@ -899,6 +939,9 @@ class EnhancedResearchService:
             all_findings.append(step.analysis)
 
             # Collect sources
+            for result in step.parallel_results or []:
+                if result['url'] not in all_sources:
+                    all_sources.append(result['url'])
             if step.tavily_results:
                 for result in step.tavily_results:
                     url = result.get('url')
@@ -978,6 +1021,7 @@ class EnhancedResearchService:
             'service': 'enhanced_research',
             'available': self.is_available(),
             'providers': {
+                'parallel': True,
                 'tavily': self.deep_research_service.is_available(),
                 'searxng': self.searxng_provider.is_available(),
                 'content_extraction': ai_config.research_enable_content_extraction

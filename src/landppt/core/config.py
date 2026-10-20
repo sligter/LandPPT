@@ -108,7 +108,7 @@ class AIConfig(BaseSettings):
     searxng_timeout: int = Field(default=30, env="SEARXNG_TIMEOUT")
 
     # Research Configuration
-    research_provider: str = Field(default="tavily", env="RESEARCH_PROVIDER")  # tavily, searxng, both
+    research_provider: str = Field(default="auto", env="RESEARCH_PROVIDER")  # auto, parallel, tavily, searxng, both
     research_enable_content_extraction: bool = Field(default=True, env="RESEARCH_ENABLE_CONTENT_EXTRACTION")
     research_max_content_length: int = Field(default=5000, env="RESEARCH_MAX_CONTENT_LENGTH")
     research_extraction_timeout: int = Field(default=30, env="RESEARCH_EXTRACTION_TIMEOUT")

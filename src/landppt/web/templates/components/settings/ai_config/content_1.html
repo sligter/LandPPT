@@ -660,33 +660,15 @@
                     <div class="config-section-body">
 
                         <div class="sub-section">
-                            <h5 class="sub-section-title">研究提供商 <small>RESEARCH_PROVIDER</small></h5>
-                            {% set _research_provider = current_config.get('research_provider', 'tavily') %}
-                            <div class="provider-pick-grid">
-                                <label class="provider-pick">
-                                    <input type="radio" name="research_provider" value="tavily" {% if _research_provider == 'tavily' %}checked{% endif %}>
-                                    <span class="provider-pick-mark"></span>
-                                    <div class="provider-pick-body">
-                                        <div class="provider-pick-name">Tavily <span style="font-size: 0.7rem; color: #0f0f0f; font-weight: 500;">推荐</span></div>
-                                        <div class="provider-pick-desc">高准确度的研究专用搜索 API</div>
-                                    </div>
-                                </label>
-                                <label class="provider-pick">
-                                    <input type="radio" name="research_provider" value="searxng" {% if _research_provider == 'searxng' %}checked{% endif %}>
-                                    <span class="provider-pick-mark"></span>
-                                    <div class="provider-pick-body">
-                                        <div class="provider-pick-name">SearXNG</div>
-                                        <div class="provider-pick-desc">开源、可自托管的元搜索引擎</div>
-                                    </div>
-                                </label>
-                                <label class="provider-pick">
-                                    <input type="radio" name="research_provider" value="both" {% if _research_provider == 'both' %}checked{% endif %}>
-                                    <span class="provider-pick-mark"></span>
-                                    <div class="provider-pick-body">
-                                        <div class="provider-pick-name">两者都用</div>
-                                        <div class="provider-pick-desc">同时调用以增强结果覆盖</div>
-                                    </div>
-                                </label>
+                            <div class="form-group">
+                                <label class="field-label" for="research_provider">研究提供商</label>
+                                {% set _research_provider = current_config.get('research_provider', 'auto') %}
+                                <select id="research_provider" name="research_provider">
+                                    {% for value, label in [('auto', '自动（保留已配置的搜索服务）'), ('parallel', 'Parallel（免费，无需密钥）'), ('tavily', 'Tavily'), ('searxng', 'SearXNG'), ('both', 'Tavily + SearXNG')] %}
+                                    <option value="{{ value }}" {% if _research_provider == value %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <span class="field-help">自动模式优先使用已配置的 Tavily / SearXNG，否则使用 Parallel Search MCP。现有选择保持不变。</span>
                             </div>
                         </div>
 
