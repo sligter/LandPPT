@@ -3,7 +3,7 @@ import type { ApiData } from './api';
 export const systemDefaults: ApiData = {
   default_ai_provider: 'landppt', landppt_model: 'MODEL1', landppt_base_url: '', landppt_api_key: '',
   max_tokens: 16384, temperature: .7, top_p: 1, llm_timeout_seconds: 600, parallel_slides_count: 3,
-  research_provider: 'tavily', enable_parallel_generation: true, enable_per_slide_creative_guidance: true,
+  research_provider: 'auto', enable_parallel_generation: true, enable_per_slide_creative_guidance: true,
   tavily_api_key: '', tavily_base_url: 'https://api.tavily.com', tavily_max_results: 10, tavily_search_depth: 'advanced',
   searxng_host: '', searxng_max_results: 10, searxng_language: 'auto', searxng_timeout: 30,
   research_max_content_length: 5000, research_extraction_timeout: 30, research_enable_content_extraction: true,
