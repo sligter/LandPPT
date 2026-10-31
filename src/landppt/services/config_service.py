@@ -116,7 +116,7 @@ class ConfigService:
             "searxng_timeout": {"type": "number", "category": "generation_params", "default": "30"},
 
             # Research Configuration
-            "research_provider": {"type": "select", "category": "generation_params", "default": "tavily"},
+            "research_provider": {"type": "select", "category": "generation_params", "default": "auto"},
             "research_enable_content_extraction": {"type": "boolean", "category": "generation_params", "default": "true"},
             "research_max_content_length": {"type": "number", "category": "generation_params", "default": "5000"},
             "research_extraction_timeout": {"type": "number", "category": "generation_params", "default": "30"},

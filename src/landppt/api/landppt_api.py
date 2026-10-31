@@ -1383,6 +1383,7 @@ async def get_available_research_providers():
         providers = {
             "tavily": False,
             "searxng": False,
+            "parallel": False,
             "content_extraction": False
         }
 

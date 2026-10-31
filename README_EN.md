@@ -27,7 +27,7 @@ Current version: **0.5.1**.
 | One-click generation | Topic to full PPT, with parallel slide generation |
 | Quick mode | AI-written content matched to reusable template package layouts and rendered as SVG |
 | Smart images | Local gallery / web stock / AI generation |
-| Deep research | Tavily + SearXNG for live web retrieval and summaries |
+| Deep research | Parallel / Tavily / SearXNG for live web retrieval and summaries |
 | Scripts & video | Speech scripts + Edge-TTS per-slide narration; 1080p video export |
 | Multi-format export | PDF / HTML / PPTX / images / DOCX / Markdown |
 | Automation | OpenAI-compatible API + REST APIs with API-key auth |
@@ -113,7 +113,7 @@ LandPPT folds outline writing, layout, imagery, speaker notes, and export into o
 
 - Formats: PDF / Word / Markdown / TXT / Excel / PowerPoint  
 - High-quality parsing via MinerU + MarkItDown  
-- Multi-engine retrieval with Tavily + SearXNG and web summarization  
+- Retrieval with Parallel / Tavily / SearXNG and web summarization
 
 ### Smart images
 
@@ -180,7 +180,7 @@ Separate **minimum runnable** from **full feature set** so you are not surprised
 |------------|------------|--------|
 | Core generation (outline / HTML PPT) | At least one AI provider key | **Required** |
 | Local models | Ollama, etc. | Optional offline inference |
-| Deep research | `TAVILY_API_KEY` or SearXNG | Optional |
+| Presentation research | Parallel Search MCP (no key), Tavily or SearXNG | Optional; [provider setup](RESEARCH_PROVIDERS.md) |
 | Web / AI images | Gallery or image-gen keys + `ENABLE_IMAGE_SERVICE=true` | Optional (off by default) |
 | Create template packages from PPTX | Separate LibreOffice renderer + template generation model | Included in Compose; visual reconstruction needs an image-capable model |
 | **Standard editable PPTX** | **`APRYSE_LICENSE_KEY` (commercial)** | **Optional, but required for editable PPTX** |
@@ -433,9 +433,9 @@ SLIDE_GENERATION_MODEL_NAME=gpt-4o
 SPEECH_SCRIPT_MODEL_NAME=gpt-4o-mini
 
 # Deep research
-TAVILY_API_KEY=...
+RESEARCH_PROVIDER=auto   # auto | parallel | tavily | searxng | both
+# TAVILY_API_KEY=...
 # SEARXNG_HOST=http://localhost:8888
-# RESEARCH_PROVIDER=tavily   # tavily | searxng | both
 
 # Image service (off by default)
 ENABLE_IMAGE_SERVICE=true
@@ -488,7 +488,7 @@ Without a correct `BASE_URL`, links may still use `localhost:8000`.
 
 ### Q: How does research work?
 
-Configure `TAVILY_API_KEY` or a SearXNG instance, then enable research when creating a project.
+Enable network research when creating a project. Fresh installations use `RESEARCH_PROVIDER=auto`: configured Tavily / SearXNG access takes priority, otherwise free Parallel Search MCP needs no account or API key. Existing saved provider choices remain unchanged. See [provider setup](RESEARCH_PROVIDERS.md).
 
 ### Q: Fully local deployment?
 

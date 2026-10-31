@@ -27,7 +27,7 @@
 | 一键生成 | 主题到完整 PPT，支持并行生成 |
 | 快速模式 | AI 生成内容，自动匹配可复用模板包版式并填充 SVG |
 | 智能配图 | 本地图库 / 网络图库 / AI 生成三源融合 |
-| 深度研究 | Tavily + SearXNG，实时抓取并摘要网络信息 |
+| 深度研究 | Parallel / Tavily / SearXNG，实时抓取并摘要网络信息 |
 | 讲稿与视频 | 演讲稿 + Edge-TTS 逐页讲解，可导出 1080p 视频 |
 | 多格式导出 | PDF / HTML / PPTX / 图片 / DOCX / Markdown |
 | 自动化 | OpenAI 兼容 API + REST API，支持 API Key 鉴权 |
@@ -113,7 +113,7 @@ LandPPT 将「写大纲 → 做版式 → 配图 → 写讲稿 → 导出」整�
 
 - 多格式：PDF / Word / Markdown / TXT / Excel / PowerPoint  
 - MinerU + MarkItDown 高质量解析  
-- Tavily + SearXNG 多引擎检索与网页摘要  
+- Parallel / Tavily / SearXNG 检索与网页摘要
 
 ### 智能图像
 
@@ -184,7 +184,7 @@ LandPPT 将「写大纲 → 做版式 → 配图 → 写讲稿 → 导出」整�
 |------|------|------|
 | 基础生成（大纲 / HTML PPT） | 至少一个 AI Provider Key | **必需** |
 | 本地模型 | Ollama 等 | 可选，可完全离线推理 |
-| 深度研究 | `TAVILY_API_KEY` 或 SearXNG | 可选 |
+| 演示文稿研究 | Parallel Search MCP（无需密钥）、Tavily 或 SearXNG | 可选；[提供商配置](RESEARCH_PROVIDERS.md) |
 | 网络 / AI 配图 | 对应图库或生图 Key + `ENABLE_IMAGE_SERVICE=true` | 可选，默认关闭 |
 | 从 PPTX 创建模板包 | 独立 LibreOffice 渲染器 + 模板生成模型 | Compose 已包含渲染器；视觉复刻需要支持图片输入的模型 |
 | **标准可编辑 PPTX** | **`APRYSE_LICENSE_KEY`（商业许可）** | **可选但导出可编辑 PPTX 时必需** |
@@ -438,10 +438,10 @@ OUTLINE_MODEL_NAME=gpt-4o-mini
 SLIDE_GENERATION_MODEL_NAME=gpt-4o
 SPEECH_SCRIPT_MODEL_NAME=gpt-4o-mini
 
-# 深度研究
-TAVILY_API_KEY=...
+# 演示文稿研究（Parallel 无需密钥）
+RESEARCH_PROVIDER=auto   # auto | parallel | tavily | searxng | both
+# TAVILY_API_KEY=...
 # SEARXNG_HOST=http://localhost:8888
-# RESEARCH_PROVIDER=tavily   # tavily | searxng | both
 
 # 图像服务（默认关闭）
 ENABLE_IMAGE_SERVICE=true
@@ -494,7 +494,7 @@ OpenAI GPT（及兼容接口）、Anthropic Claude、Google Gemini、Azure OpenA
 
 ### Q: 研究功能怎么用？
 
-配置 `TAVILY_API_KEY` 或部署 SearXNG，创建 PPT 时启用研究即可。
+创建 PPT 时启用联网研究即可。新安装默认使用 `RESEARCH_PROVIDER=auto`：优先保留已配置的 Tavily / SearXNG，否则使用无需账号或 API Key 的免费 Parallel Search MCP。已有研究提供商选择保持不变；详见[提供商配置](RESEARCH_PROVIDERS.md)。
 
 ### Q: 支持纯本地部署吗？
 
