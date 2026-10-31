@@ -84,7 +84,8 @@ def extract_google_test_result(data: Dict[str, Any]) -> Tuple[str, Dict[str, int
     usage_metadata = data.get("usageMetadata") or data.get("usage_metadata") or {}
     usage = {
         "prompt_tokens": int(usage_metadata.get("promptTokenCount") or 0),
-        "completion_tokens": int(usage_metadata.get("candidatesTokenCount") or 0),
+        "completion_tokens": int(usage_metadata.get("candidatesTokenCount") or 0)
+        + int(usage_metadata.get("thoughtsTokenCount") or 0),
         "total_tokens": int(usage_metadata.get("totalTokenCount") or 0),
     }
     return response_text, usage

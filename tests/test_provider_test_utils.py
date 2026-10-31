@@ -68,6 +68,22 @@ def test_extract_google_test_result_reads_text_and_usage():
     assert usage == {"prompt_tokens": 3, "completion_tokens": 5, "total_tokens": 8}
 
 
+def test_extract_google_test_result_counts_thinking_tokens_as_completion():
+    _, usage = extract_google_test_result(
+        {
+            "candidates": [{"content": {"parts": [{"text": "Hi"}]}}],
+            "usageMetadata": {
+                "promptTokenCount": 3,
+                "candidatesTokenCount": 5,
+                "thoughtsTokenCount": 20,
+                "totalTokenCount": 28,
+            },
+        }
+    )
+
+    assert usage == {"prompt_tokens": 3, "completion_tokens": 25, "total_tokens": 28}
+
+
 def test_build_anthropic_messages_url_appends_v1_messages():
     assert build_anthropic_messages_url("api.anthropic.com") == "https://api.anthropic.com/v1/messages"
 

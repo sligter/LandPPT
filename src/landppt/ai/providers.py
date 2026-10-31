@@ -1298,10 +1298,23 @@ class GoogleProvider(AIProvider):
         usage_meta = data.get("usageMetadata") or data.get("usage_metadata") or {}
         usage = {
             "prompt_tokens": int(usage_meta.get("promptTokenCount") or 0),
-            "completion_tokens": int(usage_meta.get("candidatesTokenCount") or 0),
+            # Thinking tokens are billed as output but not counted in candidatesTokenCount
+            "completion_tokens": int(usage_meta.get("candidatesTokenCount") or 0)
+            + int(usage_meta.get("thoughtsTokenCount") or 0),
             "total_tokens": int(usage_meta.get("totalTokenCount") or 0),
         }
         return content, str(finish_reason), usage
+
+    @staticmethod
+    def _gemini_sdk_usage(response: Any) -> Dict[str, int]:
+        """Token usage of an SDK response; thinking tokens count as output."""
+        meta = getattr(response, "usage_metadata", None)
+        return {
+            "prompt_tokens": getattr(meta, "prompt_token_count", None) or 0,
+            "completion_tokens": (getattr(meta, "candidates_token_count", None) or 0)
+            + (getattr(meta, "thoughts_token_count", None) or 0),
+            "total_tokens": getattr(meta, "total_token_count", None) or 0,
+        }
 
     def _extract_rest_tool_calls(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Extract function calls from a REST response, in the shape the SDK path returns."""
@@ -1666,11 +1679,7 @@ class GoogleProvider(AIProvider):
             return AIResponse(
                 content=content,
                 model=self.model,
-                usage={
-                    "prompt_tokens": response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else 0,
-                    "completion_tokens": response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else 0,
-                    "total_tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else 0
-                },
+                usage=self._gemini_sdk_usage(response),
                 finish_reason=finish_reason,
                 tool_calls=self._extract_gemini_tool_calls_from_response(response),
                 metadata={"provider": "google"}
