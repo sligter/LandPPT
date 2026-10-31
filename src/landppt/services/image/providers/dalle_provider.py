@@ -3,6 +3,7 @@ DALL-E 图片生成提供者
 """
 
 import asyncio
+import base64
 import logging
 import time
 from typing import Dict, Any, Optional, List
@@ -18,6 +19,19 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MODEL = 'gpt-image-2.5-sunburst'
+GPT_IMAGE_QUALITIES = {'low', 'medium', 'high', 'auto'}
+# gpt-image-2.5-sunburst (and its dated snapshots) also accept xhigh and max.
+GPT_IMAGE_EXTENDED_QUALITY_MODELS = ('gpt-image-2.5-sunburst',)
+GPT_IMAGE_EXTENDED_QUALITIES = {'xhigh', 'max'}
+
+
+def _gpt_image_qualities(model: str) -> set:
+    """Quality values the given GPT Image model accepts."""
+    if model.startswith(GPT_IMAGE_EXTENDED_QUALITY_MODELS):
+        return GPT_IMAGE_QUALITIES | GPT_IMAGE_EXTENDED_QUALITIES
+    return GPT_IMAGE_QUALITIES
+
 
 class DalleProvider(ImageGenerationProvider):
     """DALL-E 图片生成提供者"""
@@ -28,9 +42,9 @@ class DalleProvider(ImageGenerationProvider):
         # API配置
         self.api_key = config.get('api_key')
         self.api_base = config.get('api_base', 'https://api.openai.com/v1')
-        self.model = config.get('model', 'dall-e-3')
+        self.model = config.get('model', DEFAULT_MODEL)
         self.default_size = config.get('default_size', '1024x1024')
-        self.default_quality = config.get('default_quality', 'standard')
+        self.default_quality = config.get('default_quality', 'auto')
         self.default_style = config.get('default_style', 'vivid')
         
         # 速率限制
@@ -115,13 +129,19 @@ class DalleProvider(ImageGenerationProvider):
             "prompt": request.prompt,
             "n": 1,  # DALL-E 3只支持生成1张图片
             "size": size,
-            "quality": request.quality or self.default_quality,
-            "response_format": "url"
         }
 
-        # DALL-E 3支持style参数
-        if self.model == "dall-e-3":
-            api_request["style"] = request.style or self.default_style
+        quality = request.quality or self.default_quality
+        if self.model.startswith("dall-e"):
+            api_request["quality"] = quality
+            api_request["response_format"] = "url"
+            # DALL-E 3支持style参数
+            if self.model == "dall-e-3":
+                api_request["style"] = request.style or self.default_style
+        else:
+            # GPT Image models reject response_format and style, return base64
+            # data and only accept the qualities listed for the model.
+            api_request["quality"] = quality if quality in _gpt_image_qualities(self.model) else "auto"
 
         return api_request
     
@@ -139,17 +159,20 @@ class DalleProvider(ImageGenerationProvider):
             
             image_data = response_data['data'][0]
             image_url = image_data.get('url')
+            image_b64 = image_data.get('b64_json')
             revised_prompt = image_data.get('revised_prompt', request.prompt)
             
-            if not image_url:
+            if image_b64:
+                image_path, image_size = self._save_base64_image(image_b64, request)
+            elif image_url:
+                # 下载图片
+                image_path, image_size = await self._download_image(image_url, request)
+            else:
                 return ImageOperationResult(
                     success=False,
                     message="No image URL in response",
                     error_code="no_url"
                 )
-            
-            # 下载图片
-            image_path, image_size = await self._download_image(image_url, request)
             
             # 创建图片信息
             image_info = self._create_image_info(
@@ -169,6 +192,21 @@ class DalleProvider(ImageGenerationProvider):
                 message=f"Failed to process response: {str(e)}",
                 error_code="response_processing_error"
             )
+    
+    def _save_base64_image(self, image_b64: str, request: ImageGenerationRequest) -> tuple[Path, int]:
+        """保存base64编码的图片"""
+        timestamp = int(time.time())
+        filename = f"dalle_{timestamp}_{hash(request.prompt) % 10000}.png"
+        
+        save_dir = Path("temp/images_cache/ai_generated/dalle")
+        save_dir.mkdir(parents=True, exist_ok=True)
+        image_path = save_dir / filename
+        
+        image_data = base64.b64decode(image_b64)
+        with open(image_path, 'wb') as f:
+            f.write(image_data)
+        
+        return image_path, len(image_data)
     
     async def _download_image(self, 
                             image_url: str, 
@@ -331,6 +369,13 @@ class DalleProvider(ImageGenerationProvider):
     async def get_available_models(self) -> List[Dict[str, Any]]:
         """获取可用模型列表"""
         return [
+            {
+                'id': 'gpt-image-2.5-sunburst',
+                'name': 'GPT Image 2.5 Sunburst',
+                'description': 'OpenAI GPT Image generation model',
+                'max_resolution': '1536x1024',
+                'supported_styles': []
+            },
             {
                 'id': 'dall-e-3',
                 'name': 'DALL-E 3',

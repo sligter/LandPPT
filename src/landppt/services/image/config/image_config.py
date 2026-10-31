@@ -23,9 +23,9 @@ class ImageServiceConfig:
             'dalle': {
                 'api_key': '',
                 'api_base': 'https://api.openai.com/v1',
-                'model': 'dall-e-3',
-                'default_size': '1792x1024',  # 16:9比例，适合PPT
-                'default_quality': 'standard',  # standard, hd
+                'model': 'gpt-image-2.5-sunburst',
+                'default_size': '1536x1024',  # GPT Image支持的最大横版尺寸
+                'default_quality': 'auto',  # GPT Image: low, medium, high, auto
                 'default_style': 'natural',  # vivid, natural
                 'rate_limit_requests': 50,  # 每分钟请求数
                 'rate_limit_window': 60,  # 时间窗口（秒）
