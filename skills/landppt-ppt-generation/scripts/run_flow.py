@@ -17,12 +17,18 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib import error, parse, request
+
+from api_client import (
+    open_authenticated,
+    publish_to_static,
+    resolve_public_static_dir,
+    safe_filename,
+)
 
 
 class WorkflowError(RuntimeError):
@@ -32,13 +38,13 @@ class WorkflowError(RuntimeError):
 def safe_print(message: str) -> None:
     """Print text safely on terminals with limited encodings (e.g. Windows GBK)."""
     try:
-        print(message)
+        print(message, flush=True)
     except UnicodeEncodeError:
         encoding = sys.stdout.encoding or "utf-8"
         sanitized = message.encode(encoding, errors="replace").decode(
             encoding, errors="replace"
         )
-        print(sanitized)
+        print(sanitized, flush=True)
 
 
 def _fmt_seconds(value: float) -> str:
@@ -134,7 +140,7 @@ def call_json(
     req = request.Request(url, data=data, headers=headers, method=method)
 
     try:
-        with request.urlopen(req, timeout=timeout) as resp:
+        with open_authenticated(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8", "ignore")
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "ignore")
@@ -162,7 +168,7 @@ def call_binary(
 ) -> tuple[bytes, Dict[str, str]]:
     req = request.Request(url, headers=_headers(api_key, auth_mode=auth_mode), method=method)
     try:
-        with request.urlopen(req, timeout=timeout) as resp:
+        with open_authenticated(req, timeout=timeout) as resp:
             return resp.read(), dict(resp.headers.items())
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "ignore")
@@ -207,17 +213,6 @@ def _filename_from_headers(headers_map: Dict[str, str], fallback: str) -> str:
     return fallback
 
 
-def resolve_public_static_dir(cli_value: str) -> Path:
-    from_env = (os.environ.get("LANDPPT_PUBLIC_STATIC_DIR") or "").strip()
-    if from_env:
-        return Path(from_env).resolve()
-    if (cli_value or "").strip():
-        return Path(cli_value).resolve()
-    script_path = Path(__file__).resolve()
-    repo_root = script_path.parents[3]
-    return (repo_root / "src" / "landppt" / "web" / "static").resolve()
-
-
 def save_export_file(
     *,
     data: bytes,
@@ -226,42 +221,10 @@ def save_export_file(
     out: str,
     fallback_name: str,
 ) -> str:
-    target = Path(out).resolve() if out else (Path(output_dir).resolve() / _filename_from_headers(headers_map, fallback_name))
+    target = Path(out).resolve() if out else (Path(output_dir).resolve() / safe_filename(_filename_from_headers(headers_map, fallback_name)))
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     return str(target)
-
-
-def publish_to_static(
-    *,
-    saved_file: str,
-    base_url: str,
-    public_static_dir: Path,
-    public_static_subdir: str,
-) -> Dict[str, str]:
-    source = Path(saved_file).resolve()
-    if not source.exists():
-        raise WorkflowError(f"Saved file does not exist: {source}")
-
-    subdir = (public_static_subdir or "downloads").strip().strip("/\\")
-    publish_dir = public_static_dir / subdir if subdir else public_static_dir
-    publish_dir.mkdir(parents=True, exist_ok=True)
-
-    target = publish_dir / source.name
-    if target.exists():
-        target = publish_dir / f"{source.stem}_{int(time.time())}{source.suffix}"
-
-    shutil.copy2(source, target)
-    if subdir:
-        public_path = f"/static/{subdir}/{parse.quote(target.name)}"
-    else:
-        public_path = f"/static/{parse.quote(target.name)}"
-
-    return {
-        "saved_file": str(source),
-        "public_file_path": public_path,
-        "public_file_url": f"{base_url.rstrip('/')}{public_path}",
-    }
 
 
 def stream_slides(
@@ -290,7 +253,7 @@ def stream_slides(
     open_timeout = timeout_sec + 60 if timeout_sec > 0 else 3600
 
     try:
-        with request.urlopen(req, timeout=open_timeout) as resp:
+        with open_authenticated(req, timeout=open_timeout) as resp:
             while True:
                 elapsed = time.time() - start
 
@@ -425,6 +388,9 @@ def wait_for_completion(
             )
             last_heartbeat = elapsed_sec
 
+        if status in {"failed", "error", "cancelled"}:
+            raise WorkflowError(f"Project {project_id} stopped with status {status}")
+
         if status == "completed" and slides_count >= expected_pages:
             return project
 
@@ -503,7 +469,7 @@ def export_pdf_and_publish(
     api_key: str,
     output_dir: str,
     out: str,
-    public_static_dir: Path,
+    public_static_dir: Optional[Path],
     public_static_subdir: str,
     poll_interval_sec: int,
     timeout_sec: int,
@@ -570,7 +536,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run and verify full LandPPT API workflow with user API key."
     )
-    parser.add_argument("--base-url", default="http://localhost:8000")
+    parser.add_argument("--base-url", default=os.environ.get("LANDPPT_BASE_URL", "http://localhost:8000"))
     parser.add_argument("--api-key", default="")
     parser.add_argument("--scenario", default="general")
     parser.add_argument("--topic", required=True)
@@ -594,6 +560,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--heartbeat-sec", type=int, default=20)
     parser.add_argument("--auth-mode", choices=["bearer", "x-api-key"], default="bearer")
     parser.add_argument("--strict-outline-pages", action="store_true")
+    parser.add_argument("--share-link", action="store_true", help="Create a public share link after success (opt-in).")
+    parser.add_argument("--publish-static", action="store_true", help="Copy exports into the actual server's public static directory (opt-in).")
     parser.add_argument(
         "--skip-share-link",
         action="store_true",
@@ -624,7 +592,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--public-static-dir",
         default="",
-        help="Static root for published public files. Defaults to <repo>/src/landppt/web/static or LANDPPT_PUBLIC_STATIC_DIR.",
+        help="Actual server static root. Required with --publish-static; may also use LANDPPT_PUBLIC_STATIC_DIR.",
     )
     parser.add_argument(
         "--public-static-subdir",
@@ -650,7 +618,6 @@ def main() -> int:
     base_url = args.base_url.rstrip("/")
     auth_mode = args.auth_mode
     verbose = not args.quiet
-    public_static_dir = resolve_public_static_dir(args.public_static_dir)
 
     summary: Dict[str, Any] = {
         "base_url": base_url,
@@ -661,6 +628,7 @@ def main() -> int:
     workflow_start = time.time()
 
     try:
+        public_static_dir = resolve_public_static_dir(args.public_static_dir, publish=args.publish_static)
         if verbose:
             safe_print("- [STEP] Verify API key")
         me = call_json(
@@ -693,6 +661,7 @@ def main() -> int:
         if not project_id:
             raise WorkflowError(f"Create project response missing project_id: {project}")
         summary["project_id"] = project_id
+        safe_print(f"- project_id: `{project_id}` (save this ID to resume; do not create another project)")
 
         if verbose:
             safe_print("- [STEP] Confirm requirements")
@@ -756,7 +725,7 @@ def main() -> int:
             "POST",
             f"{base_url}/api/projects/{project_id}/free-template/generate",
             api_key,
-            payload={},
+            payload={"stream": False},
             timeout=600,
             auth_mode=auth_mode,
         )
@@ -822,7 +791,7 @@ def main() -> int:
             and summary["slides_data_total"] >= args.page_count
         )
 
-        if summary["success"] and not args.skip_share_link:
+        if summary["success"] and args.share_link and not args.skip_share_link:
             if verbose:
                 safe_print("- [STEP] Generate share link")
             share_resp = call_json(
@@ -875,7 +844,7 @@ def main() -> int:
 
         return 0
 
-    except WorkflowError as exc:
+    except (WorkflowError, ValueError) as exc:
         summary["success"] = False
         summary["error"] = str(exc)
         summary["elapsed_sec"] = round(time.time() - workflow_start, 2)

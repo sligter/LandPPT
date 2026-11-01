@@ -1,237 +1,114 @@
 ---
 name: landppt-ppt-generation
-description: Execute and verify the end-to-end LandPPT protected project workflow for non-browser automation, including project creation, interruption-safe recovery, free-template generation and confirmation, slide generation, share/export, and post-generation speech or narration operations. Use this skill whenever the user wants to generate, resume, verify, edit, narrate, share, or export a LandPPT project through scripts, curl, n8n, CLI, or other API-driven automation instead of the web UI.
+description: Automate LandPPT through a personal API key. Use for creating, resuming, checking, editing, narrating, sharing or exporting projects without the browser, including free HTML/SVG generation, template-package fast mode, file input, SSE progress and asynchronous tasks. Requires a running LandPPT service; this is not an offline PPTX generator.
 ---
 
-# LandPPT PPT Generation
+# LandPPT API workflows
 
-## Overview
+Use Python 3.11+ and the bundled scripts; they require only the standard library. Read [the endpoint reference](references/endpoints.md) for modes, request shapes and feature limits. Use the running service's authenticated `/openapi.json` for exact schemas, rather than guessing fields from UI labels.
 
-Execute the LandPPT protected API workflow with a user API key and return Markdown-formatted status/output.
-Exported files are published to public `/static` paths by default.
-Prefer the bundled Python scripts for reliability. Use direct curl calls only when the user explicitly asks for curl-only execution.
+## Authentication and authority
 
-## Preferred execution mode
+Obtain a **personal LandPPT API key** from the user's API Key settings. This is a credential for LandPPT, distinct from an AI provider's key. Prefer the environment over CLI arguments or saved configuration:
 
-1. Use `scripts/run_flow.py` for a new end-to-end project run.
-2. Use `scripts/project_ops.py` for follow-up work on an existing `project_id`.
-3. Keep long-running tasks observable with heartbeat-style progress updates.
-4. Preserve and report `project_id` as soon as it exists so interrupted runs can be resumed safely.
-
-## Core workflow
-
-Follow this order unless the user explicitly asks for a narrower post-generation operation.
-
-1. Validate prerequisites.
-- Confirm the service is reachable, usually `http://localhost:8000`.
-- Use the user API key through `Authorization: Bearer <key>` unless `X-API-Key` is requested.
-- Default to 12 pages unless the user requests another count.
-
-2. Create or resume the project.
-- For a fresh run, create the project first.
-- If the run may already have created a project, do **not** blindly rerun project creation. Reuse the existing `project_id` when possible.
-
-3. Confirm requirements and generate the outline.
-- Confirm requirements before outline generation.
-- Generate the outline and, when needed, enforce the target page count with `--strict-outline-pages`.
-
-4. Select and prepare free-template mode.
-- Select `template_mode=free`.
-- Generate the free template.
-- Treat free-template generation as streaming-first when the user wants verification detail; preview events may appear before the final template is persisted.
-- Confirm the free template before starting slide generation.
-
-5. Generate slides and verify completion.
-- Start slide generation through the stream endpoint.
-- Treat the stream as progress, not final proof of success.
-- A run only passes after final polling confirms:
-  - `GET /api/projects/{project_id}` returns `status == completed`
-  - `slides_count >= target_pages`
-  - `GET /api/projects/{project_id}/slides-data` returns `total_slides >= target_pages`
-
-6. Perform post-success actions as requested.
-- Generate a share link after success unless the user wants to skip it.
-- Run default PDF export unless the user disables it.
-- Use `scripts/project_ops.py` for share/export/speech/narration/task flows on an existing project.
-
-## Hard gate: free-template confirmation
-
-If the project is in free-template mode, `GET /api/projects/{project_id}/slides/stream` should be treated as blocked until the free template has been confirmed.
-Do not skip the confirm step or treat it as optional.
-If the user is debugging this path, explain that the stream can immediately emit an error when `free_template_confirmed` is still false.
-Treat `slides/stream` as an execution endpoint, not a probe for deciding what to do next.
-
-## State-first diagnostic mode
-
-When the user is asking how to verify, resume, debug, or decide the next step for an existing project, do not drift into the full create-project cookbook.
-Lead with the minimum state probes and branch from those facts.
-Mirror the user's requested format and length when possible.
-
-Canonical state probes for an existing `project_id`:
-- `GET /api/projects/{project_id}/free-template`
-  - preferred first check when the question is specifically about free-template state, confirm-vs-generate, preview/reuse, or whether slides may start
-  - key fields: `available`, `status`, `confirmed`, `active_mode`
-- `GET /api/projects/{project_id}`
-  - authoritative project status and `slides_count`
-- `GET /api/projects/{project_id}/slides-data`
-  - authoritative `total_slides`
-
-Preferred decision tree for free-template mode:
-1. If `available == true`, `confirmed == true`, and `status == "ready"`, slides are allowed to start.
-2. If `available == true` but `confirmed == false`, do not regenerate first; confirm the existing template.
-3. If `available == false` and `status` is `pending` or empty, generate a template.
-4. If `status == "generating"`, follow the current stream or wait; do not launch a parallel regenerate call unless the user explicitly wants to restart.
-5. If `status == "error"`, explain that the last attempt failed and regeneration is the next step, usually with explicit restart intent.
-6. If the user says an existing template may already be present, call out the reuse path when `force=false`.
-
-Preferred decision tree for interruption-safe resume:
-1. First recover or confirm the existing `project_id` with `GET /api/projects`, not `POST /api/projects`.
-2. Check `GET /api/projects/{project_id}` and `GET /api/projects/{project_id}/slides-data` before suggesting any restart.
-3. In free-template mode, check `GET /api/projects/{project_id}/free-template` before telling the user to call `slides/stream`.
-4. Only recommend a fresh create-project run when you have explicitly ruled out reuse of the interrupted project.
-
-## Success criteria
-
-Treat the workflow as successful only when all of the following are true:
-- `final_project_status == completed`
-- `final_slides_count >= target_pages`
-- `slides_data_total >= target_pages`
-
-A stream `complete` event or stream closure alone is **not** enough.
-
-## Report structure
-
-Return Markdown with the most useful machine-usable fields first:
-- `project_id`
-- `outline_slides`
-- `final_project_status`
-- `final_slides_count`
-- `slides_data_total`
-- `share_url`
-- `public_file_url`
-- `success`
-
-Include raw JSON in fenced code blocks when payload inspection matters.
-If a step fails, report the exact endpoint or script step, HTTP status if known, response body, and the latest known `project_id`.
-
-## Operational gotcha: retries can create duplicate projects
-
-This workflow is **not idempotent** once `POST /api/projects` has succeeded.
-If a runner is interrupted and you simply rerun from scratch, you may create duplicate projects with the same topic.
-
-Preferred recovery behavior:
-- Prefer unbuffered execution for long runs:
-  - `python -u scripts/run_flow.py ...`
-- Prefer background or persistent execution for long generations.
-- If interruption may have happened after project creation:
-  - list recent projects via `GET /api/projects`
-  - locate the most likely matching project
-  - reuse that `project_id`
-  - continue with `scripts/project_ops.py` or direct status polling instead of creating a new project
-
-Cleanup only if the user explicitly asks:
-- Cancel slide generation: `POST /api/projects/{project_id}/slides/cancel`
-- Delete the project: `DELETE /api/projects/{project_id}`
-
-## Script usage
-
-Run from this skill folder:
-
-```bash
-python scripts/run_flow.py \
-  --base-url http://localhost:8000 \
-  --api-key "YOUR_USER_API_KEY" \
-  --topic "AI-driven enterprise knowledge management rollout plan" \
-  --requirements "Management report covering current state, solution, implementation path, risk, and ROI" \
-  --page-count 12 \
-  --heartbeat-sec 20 \
-  --strict-outline-pages
+```powershell
+$env:LANDPPT_BASE_URL = 'https://your-landppt.example'
+$env:LANDPPT_USER_API_KEY = '<personal key supplied securely by the user>'
+python scripts/api_client.py --path /api/auth/me
 ```
 
-Useful flags:
-- `--disconnect-after-sec 30`: intentionally disconnect the slide stream and prove backend completion through polling.
-- `--completion-timeout-sec 3600`: adjust final completion wait time.
-- `--heartbeat-sec 20`: periodic progress updates for long tasks.
-- `--skip-share-link`: skip share-link generation.
-- `--default-export-format none`: disable default PDF export.
-- `--public-static-subdir downloads`: set the `/static` subdirectory for returned file links.
-- `--public-static-dir "<PATH>"`: override the static root directory.
-- `--quiet`: keep script output compact.
+All scripts accept `--base-url` and `--auth-mode bearer|x-api-key`. They use `LANDPPT_USER_API_KEY`, falling back to `LANDPPT_API_KEY`. Do not send a session cookie alongside an API key, put keys in URLs, print them, or include them in generated artifacts. Use HTTPS for remote services. The clients reject redirects to a different origin rather than forwarding the key.
 
-## Post-generation and maintenance operations
+The updated OpenAPI document declares Bearer, `X-API-Key` and session-cookie authentication as alternatives on protected routes; public routes require none. Configure the selected credential in your AI tool after importing the schema. Explicit Bearer/`X-API-Key` credentials take precedence over cookies, including on cache hits; invalid or empty keys never fall back to a session. Prefer key-only requests and check `/api/auth/me`.
 
-Use `scripts/project_ops.py` whenever the user already has a `project_id` or only wants part of the lifecycle.
-This is the preferred tool for maintenance operations and background task handling.
+Keys inherit the owner's account permissions and credits; there are no per-key read/write scopes. A normal user's key cannot activate admin-only unattended execution. Never request an admin key to bypass a permission error. Rotation of a named key invalidates its previous value; deletion and expiration prevent future authentication. The creation response is the only opportunity to save an automatically generated plaintext key.
 
-Supported operations include:
-- share-link generation
-- outline update and confirmation
-- PPT HTML update or `slides_data` update
-- speech script generation, listing, update, deletion, and export
-- narration generation and per-slide download
-- HTML, PDF, standard PPTX, and image-based PPTX export
-- task polling and task download
+**Server upgrade:** apply migration `022` before deploying this auth implementation. New/rotated keys have a unique fingerprint as well as a salted authentication hash. Existing unique keys remain usable and acquire a fingerprint on successful authentication. Registration rejects a key already stored or bound in environment settings. Historical duplicates or overlapping environment/personal bindings fail authentication; sign in through the browser and rotate conflicting keys or remove conflicting environment bindings. Never silently pick an account or repeat a failed billable operation. Older deployments may still contain the bugs audited on 2026-11-01; verify the running server has been upgraded.
 
-Examples:
+## Choose a tool
+
+- `scripts/run_flow.py`: create a **new free-template HTML project**, confirm requirements, generate an outline, generate/confirm its template, stream slides and verify persisted completion. This runner does not implement template-package mode or automatic resume.
+- `scripts/project_ops.py`: follow-up outline, page, speech, narration, share, export and task operations on a known project. Use `--help` and subcommand `--help` for arguments.
+- `scripts/api_client.py`: any service-relative API route using JSON, URL-encoded forms, multipart files, live SSE or private downloads. Use this for project state, quick/package mode, uploads, AI editing and other routes absent from the convenience scripts.
+
+Examples assume the current directory is this skill's root. Installed skills do not need access to the LandPPT repository or server filesystem for ordinary API work.
+
+## New free-template project
 
 ```bash
-python scripts/project_ops.py share-generate --project-id "<PROJECT_ID>"
+python scripts/run_flow.py --topic 'Annual operating plan' --page-count 12 --requirements 'Summarize priorities, budget and risks' --output-dir ./outputs
 ```
+
+The runner defaults to 12 pages and PDF export. Honor the user's requested page count and output format; use `--default-export-format none` when only generation is wanted. The project ID is printed immediately after creation, including under `--quiet`; retain it for recovery. PDF and PPTX conversion depend on the server's configured renderer, permissions and converters.
+
+Execution order:
+
+1. Authenticate, create the project and save its ID.
+2. Confirm requirements as a **form**, then generate the outline.
+3. Select `template_mode=free`, generate with JSON `{"stream":false}`, then confirm the free template.
+4. Call the slide SSE execution endpoint once and observe progress.
+5. Verify project `status == completed`, project `slides_count >= target`, and `/slides-data` `total_slides >= target`. Inspect returned slide content when diagnosing missing or broken pages. A complete event or closed stream alone does not prove success.
+
+Template generation is SSE by default. `api_client.py --stream` supports preview/progress; JSON clients must explicitly send `stream:false`. The runner does so. Do not mix these response formats.
+
+## Existing project and interruption recovery
+
+Do not rerun `run_flow.py` after an interruption: it creates a new project. Recover an unknown ID with `GET /api/projects`; otherwise inspect the existing project first:
 
 ```bash
-python scripts/project_ops.py outline-update --project-id "<PROJECT_ID>" --outline-file "./outline.json"
-python scripts/project_ops.py outline-confirm --project-id "<PROJECT_ID>"
+python scripts/api_client.py --path /api/projects/PROJECT_ID
+python scripts/api_client.py --path /api/projects/PROJECT_ID/slides-data
+python scripts/api_client.py --path /api/projects/PROJECT_ID/free-template
 ```
+
+For free-template mode, inspect `available`, `confirmed`, `status`, and `active_mode`:
+
+- Existing available, confirmed, ready template: slide generation may proceed.
+- Available but unconfirmed: confirm the existing template; do not regenerate it.
+- Pending/unavailable: generate it, then confirm.
+- Generating: poll state and follow the current run; avoid duplicate generation.
+- Error: report the failure and decide whether a retry is appropriate before restarting billable work.
+
+`GET /api/projects/ID/slides/stream` **starts execution**, despite its GET verb. Do not use it as a status probe or replay it after a timeout without inspecting state. Preserve `project_id` and any `task_id` even when a request fails. Task state may continue changing after the client disconnects.
+
+## Quick/package mode and SVG
+
+Read the endpoint reference before these flows. The runner above remains a free-template HTML runner.
+
+For template-package fast mode, list usable packages, confirm requirements with `generation_mode=package` and `package_version_id`, generate the outline, and select the version through `/template-package` if it is not already selected. Inspect the package snapshot before starting slides. Do not apply the free-template confirmation gate to a package project. Page edits use `expected_revision`; on 409, reload state and reconcile instead of blindly overwriting.
+
+For SVG freeform output, set `render_mode=svg` when confirming requirements and retain the normal template/outline gates. SVG generation is available through the API; the editor's native-object/vector PPTX exporters run in browser JavaScript and do **not** have equivalent dedicated server export routes. Never describe the standard server PPTX export as the SVG native exporter.
+
+## Arbitrary requests, uploads and streams
 
 ```bash
-python scripts/project_ops.py speech-generate --project-id "<PROJECT_ID>" --generation-type full --wait
-python scripts/project_ops.py speech-update --project-id "<PROJECT_ID>" --slide-index 0 --script-content "Updated narration script"
+python scripts/api_client.py --method POST --path /api/projects --json-file project.json
+python scripts/api_client.py --method POST --path /projects/PROJECT_ID/confirm-requirements --form 'topic=Annual plan' --form 'audience_type=management' --form 'page_count_mode=fixed' --form 'fixed_pages=12'
+python scripts/api_client.py --method POST --path /api/projects/PROJECT_ID/free-template/generate --json '{"stream":true}' --stream --timeout 3600
+python scripts/api_client.py --path /api/projects/PROJECT_ID/slides/stream --stream --timeout 3600
+python scripts/api_client.py --path /api/landppt/tasks/TASK_ID/download --out ./outputs/deck.pdf
 ```
+
+Use `--json-file` for complex bodies, `--form FIELD=VALUE` for form fields and `--file FIELD=PATH` for multipart file uploads. Fields/files can repeat. For uploaded project source material use the reference's confirmed-requirements flow, not a guessed provider upload endpoint. Do not combine JSON with form/file arguments. Quote encoded query strings as a single `--path` argument.
+
+An HTTP 200 may still contain `success:false` or an SSE error event; inspect the body and follow-up state. Never automatically retry a mutation or a generation endpoint merely because the connection broke. Fix 401 authentication, respect 403 permissions, check ownership/IDs for 404, reload revision conflicts on 409, and use `/openapi.json` to resolve 422 request errors.
+
+## Share and exports
+
+Downloads remain **private local files by default**. Generation does not create a share link unless the user requests sharing; pass `run_flow.py --share-link` or explicitly run `project_ops.py share-generate`. A public share grants access to anyone holding its link. Disable it through the reference endpoint when requested.
 
 ```bash
-python scripts/project_ops.py narration-generate --project-id "<PROJECT_ID>" --language zh --wait
-python scripts/project_ops.py narration-download --project-id "<PROJECT_ID>" --slide-index 0 --out "./slide1.mp3"
+python scripts/project_ops.py --output-dir ./outputs export-pdf --project-id PROJECT_ID
+python scripts/project_ops.py --output-dir ./outputs export-html --project-id PROJECT_ID
+python scripts/project_ops.py --output-dir ./outputs export-pptx-standard --project-id PROJECT_ID
+python scripts/project_ops.py task-status --task-id TASK_ID
+python scripts/project_ops.py --output-dir ./outputs task-download --task-id TASK_ID
 ```
 
-```bash
-python scripts/project_ops.py export-html --project-id "<PROJECT_ID>" --out "./slides.zip"
-python scripts/project_ops.py export-pdf --project-id "<PROJECT_ID>" --mode async --wait
-python scripts/project_ops.py export-pptx-standard --project-id "<PROJECT_ID>" --wait
-python scripts/project_ops.py export-pptx-images --project-id "<PROJECT_ID>" --wait
-python scripts/project_ops.py task-status --task-id "<TASK_ID>"
-python scripts/project_ops.py task-download --task-id "<TASK_ID>" --out "./result.bin"
-```
+Async exports return a task ID. Poll it to `completed` before downloading; report `failed`/`cancelled` without claiming a file is ready. Export access and conversion availability are separate from key validity. The image PPTX route expects rendered slide images; it is not an automatic native-object conversion.
 
-## Curl-only mode
+Only when the user explicitly requests public-file publishing **and** the actual server static directory is mounted locally, use `--publish-static --public-static-dir SERVER_STATIC_ROOT`. The directory must already exist. This copies the file into a public `/static/` path without authenticated download protection. A client-local directory cannot publish a file on a remote server. No server static path is guessed by default. `LANDPPT_PUBLIC_STATIC_DIR` alone does not enable publishing.
 
-Only use curl when the user explicitly requires endpoint-by-endpoint testing.
-Reference `references/endpoints.md` and preserve this sequence:
-1. `GET /api/auth/me`
-2. `POST /api/projects`
-3. `POST /projects/{project_id}/confirm-requirements`
-4. `POST /projects/{project_id}/generate-outline`
-5. `POST /api/projects/{project_id}/select-template` with `template_mode=free`
-6. `POST /api/projects/{project_id}/free-template/generate`
-7. `POST /api/projects/{project_id}/free-template/confirm`
-8. `GET /api/projects/{project_id}/slides/stream`
-9. `GET /api/projects/{project_id}`
-10. `GET /api/projects/{project_id}/slides-data`
+## Reporting
 
-When documenting or debugging curl-only runs:
-- call out that free-template generation is streaming-first by default
-- call out that free-template confirmation is required before the slide stream
-- use final polling checks as the authoritative pass criteria
-
-## Failure handling
-
-When a step fails:
-1. Stop the chain and report the exact endpoint or script step, HTTP status, and response body.
-2. Preserve and return `project_id` if it already exists.
-3. For stream uncertainty, keep polling before declaring failure.
-4. If a task-oriented export was started, report the `task_id` and next polling/download step.
-
-## Resources
-
-- `scripts/run_flow.py`: end-to-end workflow runner and verifier, including share-link output and default PDF public file link output.
-- `scripts/project_ops.py`: follow-up operations for outline/PPT/speech/narration/export tasks and task polling/download.
-- `references/endpoints.md`: endpoint order, curl examples, and behavior notes for streaming and verification semantics.
+Lead with `project_id`, persisted status, slide counts and local artifact path. Include `task_id` for pending exports and a share URL only if one was requested and actually created. Report the failed endpoint/status and existing ID on error. Do not paste credentials or invent public URLs. Distinguish API availability, schema validation and local mocked tests from a paid end-to-end generation run.

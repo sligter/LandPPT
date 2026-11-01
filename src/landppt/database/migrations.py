@@ -210,6 +210,40 @@ class DatabaseMigration:
             "down": self._migration_021_down,
         })
 
+        self.migrations.append({
+            "version": "022",
+            "name": "add_api_key_fingerprint",
+            "description": "Enforce unique API key plaintext without storing credentials",
+            "up": self._migration_022_up,
+            "down": self._migration_022_down,
+        })
+
+    async def _migration_022_up(self, session: AsyncSession):
+        from .models import UserAPIKey
+
+        connection = await session.connection()
+        await connection.run_sync(
+            lambda conn: UserAPIKey.__table__.create(conn, checkfirst=True)
+        )
+        if not await self._column_exists(session, "user_api_keys", "key_fingerprint"):
+            await session.execute(
+                text(
+                    "ALTER TABLE user_api_keys ADD COLUMN key_fingerprint VARCHAR(64) NULL"
+                )
+            )
+        # NULLs allow existing salted hashes to survive without knowing plaintext.
+        await session.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_api_keys_key_fingerprint "
+                "ON user_api_keys (key_fingerprint)"
+            )
+        )
+
+    async def _migration_022_down(self, session: AsyncSession):
+        raise RuntimeError(
+            "Migration 022 enforces credential uniqueness; automatic rollback is disabled"
+        )
+
     async def _migration_021_up(self, session: AsyncSession):
         from .models import ManagedAIProvider, UserAIProviderConfig
 

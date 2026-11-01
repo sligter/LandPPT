@@ -35,13 +35,14 @@ def _extract_api_key(request: Request) -> Optional[str]:
     - X-API-Key: <key>
     """
     auth_header = (request.headers.get("authorization") or "").strip()
-    if auth_header.lower().startswith("bearer "):
-        token = auth_header[7:].strip()
-        if token:
-            return token
+    parts = auth_header.split(None, 1)
+    if parts and parts[0].lower() == "bearer":
+        # Empty credentials are explicit failed authentication, not session auth.
+        return parts[1].strip() if len(parts) > 1 else ""
 
-    api_key = (request.headers.get("x-api-key") or "").strip()
-    return api_key or None
+    if "x-api-key" in request.headers:
+        return (request.headers.get("x-api-key") or "").strip()
+    return None
 
 
 def _extract_session_id(request: Request) -> Optional[str]:
@@ -59,7 +60,7 @@ def _extract_session_id(request: Request) -> Optional[str]:
 
 class AuthMiddleware:
     """Authentication middleware"""
-    
+
     def __init__(self):
         self.auth_service = get_auth_service()
         # 不需要认证的路径
@@ -95,7 +96,7 @@ class AuthMiddleware:
             "/share/",  # 公开分享链接无需认证
             "/api/share/",  # 分享API无需认证
         ]
-    
+
     def is_public_path(self, path: str) -> bool:
         """Check if path is public (doesn't require authentication)"""
         # Check exact matches
@@ -122,10 +123,8 @@ class AuthMiddleware:
     def _resolve_request_user(self, request: Request, db: Session) -> Optional[User]:
         """统一解析当前请求用户，供公开页与受保护页复用。"""
         api_key = _extract_api_key(request)
-        if api_key:
-            user = self.auth_service.get_user_by_api_key(db, api_key)
-            if user:
-                return user
+        if api_key is not None:
+            return self.auth_service.get_user_by_api_key(db, api_key)
 
         session_id = _extract_session_id(request)
         if session_id:
@@ -159,14 +158,14 @@ class AuthMiddleware:
         except Exception as exc:
             logger.debug("Session cache lookup failed for %s: %s", normalized_session_id, exc)
             return None
-    
+
     async def __call__(self, request: Request, call_next: Callable):
         """Middleware function"""
         # Ensure request-scoped user context is always initialized/reset
         ctx_token = current_user_id.set(None)
         base_url_token = current_base_url.set(resolve_request_base_url(request))
         path = request.url.path
-        is_api_request = _is_api_path(path)
+        is_api_request = _is_api_path(path) or _extract_api_key(request) is not None
         session_cookie = request.cookies.get("session_id")
         try:
             # 模板层会读取 request.state.user，这里统一初始化，避免未设置时报错。
@@ -189,7 +188,7 @@ class AuthMiddleware:
                         try:
                             user: Optional[User] = None
                             session_id = _extract_session_id(request)
-                            if session_id:
+                            if session_id and _extract_api_key(request) is None:
                                 user = await self._get_user_from_session_cache(session_id)
 
                             if not user:
@@ -222,7 +221,7 @@ class AuthMiddleware:
                 try:
                     user: Optional[User] = None
                     session_id = _extract_session_id(request)
-                    if session_id:
+                    if session_id and _extract_api_key(request) is None:
                         user = await self._get_user_from_session_cache(session_id)
 
                     if not user:
@@ -292,8 +291,7 @@ def require_admin(request: Request) -> User:
 
 
 def get_current_user_optional(
-    request: Request,
-    db: Session = Depends(get_db)
+    request: Request, db: Session = Depends(get_db)
 ) -> Optional[User]:
     """
     Get current user if authenticated, None otherwise.
@@ -308,11 +306,11 @@ def get_current_user_optional(
 
     # Try machine API key auth.
     api_key = _extract_api_key(request)
-    if api_key:
+    if api_key is not None:
         user = auth_service.get_user_by_api_key(db, api_key)
         if user:
             request.state.user = user
-            return user
+        return user
 
     # Fallback to session auth.
     session_id = _extract_session_id(request)

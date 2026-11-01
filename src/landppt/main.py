@@ -29,6 +29,7 @@ from .api.managed_provider_api import router as managed_provider_router
 from .web.community_routes import router as community_router
 from .web.credits_routes import router as credits_router
 from .auth import auth_router, create_auth_middleware
+from .auth.openapi import install_auth_openapi
 from .database.startup_initialization import run_startup_initialization
 from .core.config import app_config
 from .services.metrics import metrics_collector
@@ -109,6 +110,7 @@ app.add_middleware(
 # Add authentication middleware
 auth_middleware = create_auth_middleware()
 app.middleware("http")(auth_middleware)
+install_auth_openapi(app, auth_middleware.is_public_path)
 
 
 @app.middleware("http")

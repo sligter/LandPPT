@@ -160,6 +160,10 @@ class UserAPIKey(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
     key_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    # Legacy rows are populated after successful authentication or rotation.
+    key_fingerprint: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
     salt: Mapped[str] = mapped_column(String(64), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[float] = mapped_column(Float, default=time.time)

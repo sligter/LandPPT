@@ -10,6 +10,7 @@ import hashlib
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
+from sqlalchemy.exc import IntegrityError
 
 from ..database.models import User, UserSession, UserAPIKey
 from ..core.config import app_config
@@ -213,7 +214,7 @@ class AuthService:
     def _get_current_expire_minutes(self) -> int:
         """Get current session expire minutes from config (for real-time updates)"""
         return app_config.access_token_expire_minutes
-    
+
     def create_user(
         self,
         db: Session,
@@ -257,7 +258,6 @@ class AuthService:
         
         return user
 
-    
     def authenticate_user(self, db: Session, username: str, password: str) -> Optional[User]:
         """Authenticate with an existing username or case-insensitive email."""
         identifier = username.strip()
@@ -285,7 +285,7 @@ class AuthService:
             return user
         
         return None
-    
+
     def create_session(self, db: Session, user: User) -> str:
         """Create a new session for user"""
         # Generate session ID
@@ -326,6 +326,35 @@ class AuthService:
         return hashlib.sha256(f"{salt}:{api_key}".encode("utf-8")).hexdigest()
 
     @staticmethod
+    def fingerprint_api_key(api_key: str) -> str:
+        """Stable digest for uniqueness; authentication still verifies the salted hash."""
+        return hashlib.sha256(
+            f"landppt-api-key:v1:{api_key}".encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
+    def _api_keys_equal(candidate: str, expected: str) -> bool:
+        return secrets.compare_digest(
+            candidate.encode("utf-8"), expected.encode("utf-8")
+        )
+
+    def _matching_api_key_records(
+        self, db: Session, candidate: str
+    ) -> List[UserAPIKey]:
+        if not 16 <= len(candidate) <= 512:
+            return []
+        records = (
+            db.query(UserAPIKey).filter(UserAPIKey.key_prefix == candidate[:12]).all()
+        )
+        return [
+            record
+            for record in records
+            if secrets.compare_digest(
+                self.hash_api_key(candidate, record.salt), record.key_hash
+            )
+        ]
+
+    @staticmethod
     def _validate_api_key(raw_key: str) -> str:
         key = str(raw_key or "").strip()
         if len(key) < 16:
@@ -353,43 +382,65 @@ class AuthService:
         if len(name) > 100:
             raise ValueError("API key name is too long")
 
-        plaintext = self._validate_api_key(raw_api_key) if raw_api_key else self.generate_api_key()
+        plaintext = (
+            self._validate_api_key(raw_api_key)
+            if raw_api_key
+            else self.generate_api_key()
+        )
+        for _, configured_key in app_config.get_api_key_bindings():
+            if self._api_keys_equal(plaintext, str(configured_key).strip()):
+                raise ValueError("API key already in use, choose another key")
         salt = secrets.token_hex(16)
         key_hash = self.hash_api_key(plaintext, salt)
+        fingerprint = self.fingerprint_api_key(plaintext)
         key_prefix = plaintext[:12]
         now = time.time()
 
-        existing = db.query(UserAPIKey).filter(
-            and_(UserAPIKey.user_id == user.id, UserAPIKey.name == name)
-        ).first()
-        conflict = db.query(UserAPIKey).filter(UserAPIKey.key_hash == key_hash).first()
-        if conflict and (not existing or conflict.id != existing.id):
+        existing = (
+            db.query(UserAPIKey)
+            .filter(and_(UserAPIKey.user_id == user.id, UserAPIKey.name == name))
+            .first()
+        )
+        # Check legacy rows with their own salts, including inactive keys.
+        conflicts = self._matching_api_key_records(db, plaintext)
+        if any(not existing or record.id != existing.id for record in conflicts):
             raise ValueError("API key already in use, choose another key")
 
         if existing:
             existing.key_prefix = key_prefix
             existing.key_hash = key_hash
+            existing.key_fingerprint = fingerprint
             existing.salt = salt
             existing.is_active = True
             existing.expires_at = expires_at
             existing.last_used_at = None
             existing.created_at = now
+            record = existing
+        else:
+            record = UserAPIKey(
+                user_id=user.id,
+                name=name,
+                key_prefix=key_prefix,
+                key_hash=key_hash,
+                key_fingerprint=fingerprint,
+                salt=salt,
+                is_active=True,
+                created_at=now,
+                expires_at=expires_at,
+            )
+            db.add(record)
+        try:
             db.commit()
-            db.refresh(existing)
-            return existing, plaintext
-
-        record = UserAPIKey(
-            user_id=user.id,
-            name=name,
-            key_prefix=key_prefix,
-            key_hash=key_hash,
-            salt=salt,
-            is_active=True,
-            created_at=now,
-            expires_at=expires_at,
-        )
-        db.add(record)
-        db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            # A concurrent request may have claimed the same key after our check.
+            if (
+                db.query(UserAPIKey)
+                .filter(UserAPIKey.key_fingerprint == fingerprint)
+                .first()
+            ):
+                raise ValueError("API key already in use, choose another key") from exc
+            raise
         db.refresh(record)
         return record, plaintext
 
@@ -423,7 +474,7 @@ class AuthService:
     def revoke_user_api_key(self, db: Session, user_id: int, key_id: int) -> bool:
         """Backward-compatible alias for deleting a user API key."""
         return self.delete_user_api_key(db=db, user_id=user_id, key_id=key_id)
-    
+
     def get_user_by_session(self, db: Session, session_id: str) -> Optional[User]:
         """Get user by session ID"""
         session = db.query(UserSession).filter(
@@ -461,82 +512,75 @@ class AuthService:
         self._schedule_session_cache_write(session_id, session.user, session.expires_at)
         return session.user
 
-    def get_user_by_api_key(self, db: Session, api_key: Optional[str]) -> Optional[User]:
+    def get_user_by_api_key(
+        self, db: Session, api_key: Optional[str]
+    ) -> Optional[User]:
         """
         Authenticate machine-to-machine API key and return bound active user.
-        Auth sources:
-        1) Environment bindings from AppConfig (global keys)
-        2) User-managed keys persisted in database (hashed)
+        Environment bindings and stored keys must identify one unambiguous credential.
         """
         candidate = str(api_key or "").strip()
         if not candidate:
             return None
 
-        # 1) Global env-based API keys
-        bindings = app_config.get_api_key_bindings()
-        if bindings:
-            matched_username: Optional[str] = None
-            for username, configured_key in bindings:
-                configured = str(configured_key or "").strip()
-                if configured and secrets.compare_digest(candidate, configured):
-                    matched_username = str(username or "").strip()
-                    break
-
-            if matched_username:
-                return db.query(User).filter(
-                    and_(User.username == matched_username, User.is_active == True)
-                ).first()
-
-        # 2) User-managed API keys (hashed + salted)
-        if len(candidate) < 16 or len(candidate) > 512:
+        configured_users = {
+            str(username).strip()
+            for username, key in app_config.get_api_key_bindings()
+            if self._api_keys_equal(candidate, str(key).strip())
+        }
+        records = self._matching_api_key_records(db, candidate)
+        if (
+            len(configured_users) > 1
+            or len(records) > 1
+            or (configured_users and records)
+        ):
+            logger.warning("Rejected an API key with multiple credential bindings")
+            return None
+        if configured_users:
+            return (
+                db.query(User)
+                .filter(
+                    and_(
+                        User.username == next(iter(configured_users)),
+                        User.is_active == True,
+                    )
+                )
+                .first()
+            )
+        if not records:
             return None
 
+        record = records[0]
         now = time.time()
-        prefix = candidate[:12]
-        records = db.query(UserAPIKey).filter(
-            and_(UserAPIKey.key_prefix == prefix, UserAPIKey.is_active == True)
-        ).all()
-
-        matched_user: Optional[User] = None
-        matched_record: Optional[UserAPIKey] = None
-        expired_records: List[UserAPIKey] = []
-
-        for record in records:
-            if record.expires_at is not None and record.expires_at <= now:
-                record.is_active = False
-                expired_records.append(record)
-                continue
-
-            expected_hash = self.hash_api_key(candidate, record.salt)
-            if not secrets.compare_digest(expected_hash, record.key_hash):
-                continue
-
-            user = db.query(User).filter(
-                and_(User.id == record.user_id, User.is_active == True)
-            ).first()
-            if not user:
-                return None
-
-            matched_user = user
-            matched_record = record
-            break
-
-        if not matched_user:
-            if expired_records:
-                try:
-                    db.commit()
-                except Exception:
-                    db.rollback()
+        if not record.is_active:
             return None
-
-        if matched_record:
-            matched_record.last_used_at = now
+        if record.expires_at is not None and record.expires_at <= now:
+            record.is_active = False
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+            return None
+        user = (
+            db.query(User)
+            .filter(and_(User.id == record.user_id, User.is_active == True))
+            .first()
+        )
+        if not user:
+            return None
+        # Legacy keys can only acquire a fingerprint after plaintext is presented.
+        record.key_fingerprint = self.fingerprint_api_key(candidate)
+        record.last_used_at = now
         try:
             db.commit()
+        except IntegrityError:
+            db.rollback()
+            return None
         except Exception:
             db.rollback()
-        return matched_user
-    
+            return None
+        return user
+
     def logout_user(self, db: Session, session_id: str) -> bool:
         """Logout user by deactivating session"""
         session = db.query(UserSession).filter(
@@ -551,7 +595,7 @@ class AuthService:
 
         self._schedule_session_cache_invalidation(session_id)
         return False
-    
+
     def cleanup_expired_sessions(self, db: Session) -> int:
         """Clean up expired sessions"""
         current_time = time.time()
@@ -573,19 +617,19 @@ class AuthService:
         for session in expired_sessions:
             self._schedule_session_cache_invalidation(session.session_id)
         return count
-    
+
     def get_user_by_id(self, db: Session, user_id: int) -> Optional[User]:
         """Get user by ID"""
         return db.query(User).filter(
             and_(User.id == user_id, User.is_active == True)
         ).first()
-    
+
     def get_user_by_username(self, db: Session, username: str) -> Optional[User]:
         """Get user by username"""
         return db.query(User).filter(
             and_(User.username == username, User.is_active == True)
         ).first()
-    
+
     def update_user_password(self, db: Session, user: User, new_password: str) -> bool:
         """Update user password"""
         try:
@@ -599,7 +643,7 @@ class AuthService:
         except Exception:
             db.rollback()
             return False
-    
+
     def deactivate_user(self, db: Session, user: User) -> bool:
         """Deactivate user account"""
         try:
@@ -617,11 +661,11 @@ class AuthService:
         except Exception:
             db.rollback()
             return False
-    
+
     def list_users(self, db: Session, skip: int = 0, limit: int = 100) -> list[User]:
         """List all users"""
         return db.query(User).offset(skip).limit(limit).all()
-    
+
     def get_user_sessions(self, db: Session, user: User) -> list[UserSession]:
         """Get all active sessions for a user"""
         return db.query(UserSession).filter(

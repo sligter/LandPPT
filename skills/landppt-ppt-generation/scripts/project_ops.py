@@ -7,12 +7,18 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import error, parse, request
+
+from api_client import (
+    open_authenticated,
+    publish_to_static,
+    resolve_public_static_dir,
+    safe_filename,
+)
 
 
 class ApiError(RuntimeError):
@@ -149,7 +155,7 @@ def request_raw(
     url = make_url(base_url, path, query=query)
     req = request.Request(url, method=method, headers=req_headers, data=data)
     try:
-        with request.urlopen(req, timeout=timeout) as resp:
+        with open_authenticated(req, timeout=timeout) as resp:
             return resp.read(), dict(resp.headers.items())
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "ignore")
@@ -222,62 +228,14 @@ def save_binary(
     out: Optional[str],
     fallback: str,
 ) -> str:
-    target = Path(out) if out else Path(output_dir) / filename_from_headers(headers_map, fallback)
+    target = Path(out) if out else Path(output_dir) / safe_filename(filename_from_headers(headers_map, fallback))
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
     return str(target.resolve())
 
 
-def resolve_public_static_dir(cli_value: str) -> Path:
-    from_env = (os.environ.get("LANDPPT_PUBLIC_STATIC_DIR") or "").strip()
-    if from_env:
-        return Path(from_env).resolve()
-
-    if (cli_value or "").strip():
-        return Path(cli_value).resolve()
-
-    script_path = Path(__file__).resolve()
-    repo_root = script_path.parents[3]
-    return (repo_root / "src" / "landppt" / "web" / "static").resolve()
-
-
 def _url_join(base_url: str, path: str) -> str:
     return f"{base_url.rstrip('/')}{path}"
-
-
-def publish_to_static(
-    *,
-    saved_file: str,
-    base_url: str,
-    public_static_dir: Path,
-    public_static_subdir: str,
-) -> Dict[str, str]:
-    source = Path(saved_file).resolve()
-    if not source.exists():
-        raise ApiError(f"Saved file does not exist: {source}")
-
-    subdir = (public_static_subdir or "downloads").strip().strip("/\\")
-    publish_dir = public_static_dir / subdir if subdir else public_static_dir
-    publish_dir.mkdir(parents=True, exist_ok=True)
-
-    target = publish_dir / source.name
-    if target.exists():
-        suffix = source.suffix
-        stem = source.stem
-        target = publish_dir / f"{stem}_{int(time.time())}{suffix}"
-
-    shutil.copy2(source, target)
-
-    if subdir:
-        public_path = f"/static/{subdir}/{parse.quote(target.name)}"
-    else:
-        public_path = f"/static/{parse.quote(target.name)}"
-
-    return {
-        "saved_file": str(source),
-        "public_file_path": public_path,
-        "public_file_url": _url_join(base_url, public_path),
-    }
 
 
 def wait_task(
@@ -332,7 +290,7 @@ def download_task(
     task_id: str,
     output_dir: str,
     out: Optional[str],
-    public_static_dir: Path,
+    public_static_dir: Optional[Path],
     public_static_subdir: str,
 ) -> Dict[str, Any]:
     data, hdrs = request_raw("GET", base_url, f"/api/landppt/tasks/{task_id}/download", api_key, auth_mode, timeout=1200)
@@ -363,7 +321,7 @@ def run_command(args: argparse.Namespace) -> Dict[str, Any]:
     base_url = args.base_url.rstrip("/")
     auth_mode = args.auth_mode
     output_dir = args.output_dir
-    public_static_dir = resolve_public_static_dir(args.public_static_dir)
+    public_static_dir = resolve_public_static_dir(args.public_static_dir, publish=args.publish_static)
     public_static_subdir = args.public_static_subdir
 
     if args.command == "share-generate":
@@ -766,17 +724,18 @@ def run_command(args: argparse.Namespace) -> Dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="LandPPT project operations script")
-    p.add_argument("--base-url", default="http://localhost:8000")
+    p.add_argument("--base-url", default=os.environ.get("LANDPPT_BASE_URL", "http://localhost:8000"))
     p.add_argument("--api-key", default="")
     p.add_argument("--auth-mode", choices=["bearer", "x-api-key"], default="bearer")
     p.add_argument("--poll-interval-sec", type=int, default=5)
     p.add_argument("--heartbeat-sec", type=int, default=20)
     p.add_argument("--task-timeout-sec", type=int, default=3600)
     p.add_argument("--output-dir", default=".")
+    p.add_argument("--publish-static", action="store_true", help="Explicitly publish downloads in the server's static directory.")
     p.add_argument(
         "--public-static-dir",
         default="",
-        help="Static root directory used to publish downloadable files. Defaults to <repo>/src/landppt/web/static or LANDPPT_PUBLIC_STATIC_DIR.",
+        help="Actual server static directory; required with --publish-static (or LANDPPT_PUBLIC_STATIC_DIR).",
     )
     p.add_argument(
         "--public-static-subdir",
@@ -898,8 +857,12 @@ def main() -> int:
         result = run_command(args)
         if isinstance(result, dict):
             result["elapsed_sec"] = round(time.time() - start, 2)
-        print_markdown_result(args.command, success=True, result=result)
-        return 0
+        task = result.get("task") or result
+        succeeded = result.get("success") is not False and task.get("status") not in {
+            "failed", "error", "cancelled",
+        }
+        print_markdown_result(args.command, success=succeeded, result=result)
+        return 0 if succeeded else 3
     except ApiError as exc:
         payload = {"elapsed_sec": round(time.time() - start, 2)}
         print_markdown_result(args.command, success=False, result=payload, error=str(exc))
