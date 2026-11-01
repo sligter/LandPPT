@@ -1,7 +1,7 @@
 """
 Enhanced Research Service with SearXNG and Deep Content Analysis
 
-This service integrates multiple search providers (Tavily, SearXNG) with deep content
+This service integrates multiple search providers (Tavily, DeepSeek, SearXNG) with deep content
 extraction and analysis using LangChain and BeautifulSoup for comprehensive research.
 """
 
@@ -38,6 +38,7 @@ class EnhancedResearchStep:
     analysis: str = ""
     completed: bool = False
     duration: float = 0.0
+    deepseek_results: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -63,6 +64,7 @@ class EnhancedResearchService:
         self.user_id = user_id
         self._ai_provider = None  # 缓存的AI提供者
         self.deep_research_service = DEEPResearchService(user_id=user_id)
+        self.deepseek_provider = self.deep_research_service.deepseek_provider
         self.searxng_provider = SearXNGContentProvider(user_id=user_id)
         self.content_extractor = WebContentExtractor()
         
@@ -195,17 +197,22 @@ class EnhancedResearchService:
     def is_available(self) -> bool:
         """Check if enhanced research service is available"""
         # At least one search provider must be available
-        tavily_available = self.deep_research_service.is_available()
+        tavily_available = self.deep_research_service.is_tavily_available()
+        deepseek_available = self.deepseek_provider.is_available()
         searxng_available = self.searxng_provider.is_available()
         ai_available = self.ai_provider is not None
         
+        if self.deep_research_service._get_research_provider_sync() == 'deepseek':
+            return ai_available and deepseek_available
         return ai_available and (tavily_available or searxng_available)
     
     def get_available_providers(self) -> List[str]:
         """Get list of available search providers"""
         providers = []
-        if self.deep_research_service.is_available():
+        if self.deep_research_service.is_tavily_available():
             providers.append('tavily')
+        if self.deepseek_provider.is_available():
+            providers.append('deepseek')
         if self.searxng_provider.is_available():
             providers.append('searxng')
         return providers
@@ -231,19 +238,7 @@ class EnhancedResearchService:
         return ai_config.max_tokens
 
     async def _get_research_provider_async(self) -> str:
-        if self.user_id is not None:
-            try:
-                from ..db_config_service import get_db_config_service
-
-                config_service = get_db_config_service()
-                user_config = await config_service.get_all_config(user_id=self.user_id)
-                provider = str(user_config.get("research_provider") or "").strip().lower()
-                if provider:
-                    return provider
-            except Exception as e:
-                logger.warning(f"Failed to get research_provider from database: {e}")
-
-        return str(ai_config.research_provider or "tavily").strip().lower()
+        return await self.deep_research_service._get_research_provider_async()
 
     async def split_text_async(self, text: str) -> List[str]:
         """
@@ -416,7 +411,7 @@ class EnhancedResearchService:
 
             # Step 2: Execute research steps with multiple providers
             research_steps = []
-            provider_stats = {'tavily': 0, 'searxng': 0, 'content_extraction': 0}
+            provider_stats = {'tavily': 0, 'deepseek': 0, 'searxng': 0, 'content_extraction': 0}
 
             for i, step_plan in enumerate(research_plan, 1):
                 await self._emit_stream_event(
@@ -525,6 +520,7 @@ class EnhancedResearchService:
 
 要求：
 - 查询词要具体、专业，能获取高质量信息
+- 每个查询词不超过 128 个 Unicode 字符
 - 根据应用场景和受众特点调整研究角度和深度
 - 适合{language}语言环境的搜索习惯
 - 每个查询都应该能产生独特且有价值的信息
@@ -586,6 +582,7 @@ class EnhancedResearchService:
         research_provider = await self._get_research_provider_async()
         use_tavily = research_provider in ['tavily', 'both']
         use_searxng = research_provider in ['searxng', 'both'] and self.searxng_provider.is_available()
+        use_deepseek = research_provider == 'deepseek'
         
         # Execute searches with available providers
         search_tasks = []
@@ -595,6 +592,8 @@ class EnhancedResearchService:
         
         if use_searxng:
             search_tasks.append(self._search_with_searxng(step_plan['query'], language))
+        if use_deepseek:
+            search_tasks.append(self.deepseek_provider.search(step_plan['query'], ori_question=topic))
         
         # Execute searches concurrently
         search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
@@ -602,6 +601,7 @@ class EnhancedResearchService:
         # Process search results
         tavily_results = None
         searxng_results = None
+        deepseek_results = None
         
         result_index = 0
         if use_tavily:
@@ -614,9 +614,18 @@ class EnhancedResearchService:
             if result_index < len(search_results) and not isinstance(search_results[result_index], Exception):
                 searxng_results = search_results[result_index]
                 provider_stats['searxng'] += 1
+            result_index += 1
+
+        if use_deepseek:
+            result = search_results[result_index]
+            if isinstance(result, Exception):
+                raise result
+            deepseek_results = result
+            provider_stats['deepseek'] = provider_stats.get('deepseek', 0) + 1
         
         step.tavily_results = tavily_results
         step.searxng_results = searxng_results
+        step.deepseek_results = deepseek_results
 
         await self._emit_stream_event(
             event_callback,
@@ -627,16 +636,20 @@ class EnhancedResearchService:
                 "description": step.description,
                 "tavily_results": tavily_results or [],
                 "searxng_results": searxng_results.to_dict() if searxng_results else None,
+                "deepseek_results": deepseek_results or [],
             },
         )
         
         # Extract content from URLs if enabled
         if ai_config.research_enable_content_extraction:
-            urls = self._collect_urls_from_results(tavily_results, searxng_results)
+            urls = self._collect_urls_from_results(tavily_results, searxng_results, deepseek_results)
             if urls:
-                step.extracted_content = await self.content_extractor.extract_multiple(
-                    urls[:10], max_concurrent=3  # Limit to top 10 URLs
-                )
+                if use_deepseek:
+                    step.extracted_content = await self._fetch_with_deepseek(urls[:10])
+                else:
+                    step.extracted_content = await self.content_extractor.extract_multiple(
+                        urls[:10], max_concurrent=3  # Limit to top 10 URLs
+                    )
                 provider_stats['content_extraction'] += len(step.extracted_content or [])
                 await self._emit_stream_event(
                     event_callback,
@@ -690,13 +703,14 @@ class EnhancedResearchService:
             return None
 
     def _collect_urls_from_results(self, tavily_results: Optional[List[Dict[str, Any]]],
-                                 searxng_results: Optional[SearXNGSearchResponse]) -> List[str]:
+                                 searxng_results: Optional[SearXNGSearchResponse],
+                                 deepseek_results: Optional[List[Dict[str, Any]]] = None) -> List[str]:
         """Collect URLs from all search results"""
         urls = []
 
-        # Collect from Tavily results
-        if tavily_results:
-            for result in tavily_results:
+        # Collect from providers that return normalized result dictionaries.
+        for results in (tavily_results, deepseek_results):
+            for result in results or []:
                 url = result.get('url')
                 if url and url not in urls:
                     urls.append(url)
@@ -708,6 +722,22 @@ class EnhancedResearchService:
                     urls.append(result.url)
 
         return urls
+
+    async def _fetch_with_deepseek(self, urls: List[str]) -> List[ExtractedContent]:
+        semaphore = asyncio.Semaphore(3)
+
+        async def fetch(url):
+            async with semaphore:
+                try:
+                    result = await self.deepseek_provider.fetch(url)
+                    if result['content']:
+                        return ExtractedContent(**result, metadata={'provider': 'deepseek'})
+                except Exception as exc:
+                    logger.warning("DeepSeek content extraction failed: %s", exc)
+            return None
+
+        results = await asyncio.gather(*(fetch(url) for url in urls))
+        return [result for result in results if result is not None]
 
     async def _analyze_step_data(
         self,
@@ -721,6 +751,14 @@ class EnhancedResearchService:
 
         # Prepare content for analysis
         content_parts = []
+
+        if step.deepseek_results:
+            content_parts.append("=== DeepSeek搜索结果 ===")
+            for i, result in enumerate(step.deepseek_results[:5], 1):
+                content_parts.append(f"{i}. {result.get('title', '')}")
+                content_parts.append(f"   URL: {result.get('url', '')}")
+                content_parts.append(f"   内容: {result.get('content', '')[:800]}")
+                content_parts.append("")
 
         # Add Tavily results
         if step.tavily_results:
@@ -805,12 +843,16 @@ class EnhancedResearchService:
         total_sources = 0
         content_stats = {
             'tavily_results': 0,
+            'deepseek_results': 0,
             'searxng_results': 0,
             'extracted_pages': 0,
             'total_words': 0
         }
 
         for step in steps:
+            if step.deepseek_results:
+                content_stats['deepseek_results'] += len(step.deepseek_results)
+                total_sources += len(step.deepseek_results)
             if step.tavily_results:
                 content_stats['tavily_results'] += len(step.tavily_results)
                 total_sources += len(step.tavily_results)
@@ -899,6 +941,10 @@ class EnhancedResearchService:
             all_findings.append(step.analysis)
 
             # Collect sources
+            for result in step.deepseek_results or []:
+                url = result.get('url')
+                if url and url not in all_sources:
+                    all_sources.append(url)
             if step.tavily_results:
                 for result in step.tavily_results:
                     url = result.get('url')
@@ -978,12 +1024,13 @@ class EnhancedResearchService:
             'service': 'enhanced_research',
             'available': self.is_available(),
             'providers': {
-                'tavily': self.deep_research_service.is_available(),
+                'tavily': self.deep_research_service.is_tavily_available(),
+                'deepseek': self.deepseek_provider.is_available(),
                 'searxng': self.searxng_provider.is_available(),
                 'content_extraction': ai_config.research_enable_content_extraction
             },
             'configuration': {
-                'research_provider': ai_config.research_provider,
+                'research_provider': self.deep_research_service._get_research_provider_sync(),
                 'enable_content_extraction': ai_config.research_enable_content_extraction,
                 'max_content_length': ai_config.research_max_content_length,
                 'extraction_timeout': ai_config.research_extraction_timeout

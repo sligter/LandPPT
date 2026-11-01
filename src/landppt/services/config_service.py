@@ -104,6 +104,10 @@ class ConfigService:
             "parallel_slides_count": {"type": "number", "category": "generation_params", "default": "3"},
             "enable_per_slide_creative_guidance": {"type": "boolean", "category": "generation_params", "default": "true"},
             
+            "deepseek_api_key": {"type": "password", "category": "generation_params"},
+            "deepseek_base_url": {"type": "url", "category": "generation_params", "default": "https://api.deepseek.com"},
+            "deepseek_max_results": {"type": "number", "category": "generation_params", "default": "10"},
+            "deepseek_timeout": {"type": "number", "category": "generation_params", "default": "30"},
             "tavily_api_key": {"type": "password", "category": "generation_params"},
             "tavily_base_url": {"type": "url", "category": "generation_params", "default": "https://api.tavily.com"},
             "tavily_max_results": {"type": "number", "category": "generation_params", "default": "10"},

@@ -1,5 +1,5 @@
 """
-DEEP Research Service - Advanced research functionality using Tavily API
+DEEP Research Service - Agent research using Tavily or DeepSeek tools
 """
 
 import asyncio
@@ -112,11 +112,37 @@ class DEEPResearchService:
     """
 
     def __init__(self, user_id: Optional[int] = None):
+        from .research.deepseek_provider import DeepSeekContentProvider
+
         self.user_id = user_id
+        self.deepseek_provider = DeepSeekContentProvider(user_id=user_id)
+        self._research_provider = None
         self.tavily_client = None
         self._active_tavily_key_source = None
         self._tavily_client_initialized = False
         # 不在构造函数中初始化，改为懒加载
+
+    def _get_research_provider_sync(self) -> str:
+        from .db_config_service import get_db_config_service
+
+        try:
+            provider = get_db_config_service().get_config_value_sync(
+                "research_provider", user_id=self.user_id
+            )
+        except Exception:
+            provider = None
+        return str(provider or ai_config.research_provider or "tavily").strip().lower()
+
+    async def _get_research_provider_async(self) -> str:
+        from .db_config_service import get_db_config_service
+
+        try:
+            provider = await get_db_config_service().get_config_value(
+                "research_provider", user_id=self.user_id
+            )
+        except Exception:
+            provider = None
+        return str(provider or ai_config.research_provider or "tavily").strip().lower()
 
     def _initialize_tavily_client_sync(self):
         """Initialize Tavily client synchronously (fallback)"""
@@ -430,6 +456,7 @@ class DEEPResearchService:
         logger.info(f"Starting ReAct DEEP research agent for topic: {topic}")
 
         try:
+            self._research_provider = await self._get_research_provider_async()
             if progress_callback:
                 await progress_callback("正在启动深度研究 Agent...", 0.03)
 
@@ -600,12 +627,12 @@ class DEEPResearchService:
                     "observation": observation,
                 },
             )
-            if action.action == "tavily_search":
+            if action.action in {"tavily_search", "deepseek_search"}:
                 await self._emit_stream_event(
                     event_callback,
                     {
                         "type": "search_results",
-                        "provider": "tavily",
+                        "provider": action.action.removesuffix("_search"),
                         "step_number": iteration,
                         "query": step.query,
                         "description": step.description,
@@ -649,6 +676,8 @@ class DEEPResearchService:
         return 8
 
     def _available_research_tool_names(self) -> List[str]:
+        if (self._research_provider or ai_config.research_provider) == "deepseek":
+            return ["deepseek_search", "deepseek_fetch"]
         return [
             "tavily_search",
             "tavily_extract",
@@ -675,6 +704,15 @@ class DEEPResearchService:
         )
         scratchpad = self._format_agent_scratchpad(transcript)
         tools = json.dumps(self._research_tool_schemas(), ensure_ascii=False, indent=2)
+        use_deepseek = (self._research_provider or ai_config.research_provider) == "deepseek"
+        search_tool = "deepseek_search" if use_deepseek else "tavily_search"
+        count_field = "count" if use_deepseek else "max_results"
+        tool_guidance = (
+            "用 deepseek_search 发现资料（query 不超过 128 个字符），用 deepseek_fetch 读取关键来源的 Markdown 正文。"
+            if use_deepseek else
+            "用 tavily_search 发现资料，用 tavily_extract/fetch/curl 读取关键来源正文。\n"
+            "- 可用 tavily_qna/tavily_context 快速获取背景，用 tavily_map/tavily_crawl 探索特定站点。"
+        )
 
         return f"""当前日期/Current date: {today}
 
@@ -697,8 +735,7 @@ class DEEPResearchService:
 
 约束:
 - 你必须优先调用工具获取外部证据，不要凭空编造来源。
-- 用 tavily_search 发现资料，用 tavily_extract/fetch/curl 读取关键来源正文。
-- 可用 tavily_qna/tavily_context 快速获取背景，用 tavily_map/tavily_crawl 探索特定站点。
+- {tool_guidance}
 - 最多 {max_iterations} 轮。证据足够后立即 final。
 - 每次只选择一个 action。
 - 严格只返回 JSON 对象，不要返回 Markdown 代码块以外的说明。
@@ -706,8 +743,8 @@ class DEEPResearchService:
 普通工具调用格式:
 {{
   "thought": "为什么下一步要调用这个工具",
-  "action": "tavily_search",
-  "action_input": {{"query": "具体查询词", "max_results": 5}}
+  "action": "{search_tool}",
+  "action_input": {{"query": "具体查询词", "{count_field}": 5}}
 }}
 
 最终回答格式:
@@ -724,6 +761,24 @@ class DEEPResearchService:
 """
 
     def _research_tool_schemas(self) -> List[Dict[str, Any]]:
+        if (self._research_provider or ai_config.research_provider) == "deepseek":
+            return [
+                {
+                    "name": "deepseek_search",
+                    "description": "Search the web using DeepSeek's search engine.",
+                    "input": {
+                        "query": "string, required, 1–128 Unicode characters",
+                        "count": "integer, optional, 1–50",
+                        "ori_question": "original user question, optional, 1–128 characters",
+                        "need_content": "boolean, optional, default false",
+                    },
+                },
+                {
+                    "name": "deepseek_fetch",
+                    "description": "Fetch a URL's title and Markdown content via DeepSeek.",
+                    "input": {"url": "HTTP(S) URL without credentials, required"},
+                },
+            ]
         return [
             {
                 "name": "tavily_search",
@@ -936,6 +991,15 @@ class DEEPResearchService:
             "finish": "final",
             "final_answer": "final",
         }
+        if (self._research_provider or ai_config.research_provider) == "deepseek":
+            aliases.update({
+                "search": "deepseek_search",
+                "deepseek": "deepseek_search",
+                "fetch": "deepseek_fetch",
+                "extract": "deepseek_fetch",
+                "http_fetch": "deepseek_fetch",
+                "url_fetch": "deepseek_fetch",
+            })
         return aliases.get(normalized, normalized)
 
     def _is_final_react_action(self, action: str) -> bool:
@@ -951,6 +1015,30 @@ class DEEPResearchService:
         tool_input = self._normalize_tool_input(tool_name, tool_input)
 
         try:
+            if tool_name == "deepseek_search":
+                results = await self.deepseek_provider.search(
+                    tool_input.get("query", ""),
+                    max_results=tool_input.get("count", tool_input.get("max_results")),
+                    ori_question=tool_input.get("ori_question"),
+                    need_content=tool_input.get("need_content", False),
+                )
+                return {
+                    "success": True,
+                    "tool": tool_name,
+                    "query": tool_input.get("query", ""),
+                    "results": results,
+                }
+            if tool_name == "deepseek_fetch":
+                url = str(tool_input.get("url") or "").strip()
+                validation_error = self._validate_public_http_url(url)
+                if validation_error:
+                    return {
+                        "success": False,
+                        "tool": tool_name,
+                        "error": validation_error,
+                    }
+                result = await self.deepseek_provider.fetch(url)
+                return {"success": True, "tool": tool_name, **result}
             if tool_name == "tavily_search":
                 return await self._tool_tavily_search(tool_input, language)
             if tool_name == "tavily_extract":
@@ -983,7 +1071,7 @@ class DEEPResearchService:
         key = (
             "url"
             if tool_name
-            in {"fetch", "curl", "tavily_extract", "tavily_crawl", "tavily_map"}
+            in {"fetch", "curl", "deepseek_fetch", "tavily_extract", "tavily_crawl", "tavily_map"}
             else "query"
         )
         return {key: "" if tool_input is None else str(tool_input)}
@@ -2288,6 +2376,12 @@ class DEEPResearchService:
 
     def is_available(self) -> bool:
         """Check if research service is available"""
+        if self._get_research_provider_sync() == "deepseek":
+            return self.ai_provider is not None and self.deepseek_provider.is_available()
+        return self.is_tavily_available()
+
+    def is_tavily_available(self) -> bool:
+        """Whether the Tavily research tools are configured."""
         return self.ai_provider is not None and (
             self.tavily_client is not None
             or bool(_normalize_secret_value(ai_config.tavily_api_key))
@@ -2295,14 +2389,25 @@ class DEEPResearchService:
 
     def get_status(self) -> Dict[str, Any]:
         """Get service status information"""
+        self._research_provider = self._get_research_provider_sync()
+        deepseek_config = self.deepseek_provider.get_config_sync()
+        use_deepseek = self._research_provider == "deepseek"
         return {
             "mode": "agent_loop",
             "strategy": "react",
             "tools": self._available_research_tool_names(),
             "tavily_available": self.tavily_client is not None,
+            "deepseek_available": bool(deepseek_config["api_key"]),
+            "research_provider": self._research_provider,
             "ai_provider_available": self.ai_provider is not None,
             "ai_provider_type": ai_config.default_ai_provider,
-            "base_url": getattr(ai_config, "tavily_base_url", None),
-            "max_results": ai_config.tavily_max_results,
-            "search_depth": ai_config.tavily_search_depth,
+            "base_url": (
+                deepseek_config["base_url"] if use_deepseek
+                else getattr(ai_config, "tavily_base_url", None)
+            ),
+            "max_results": (
+                deepseek_config["max_results"] if use_deepseek
+                else ai_config.tavily_max_results
+            ),
+            "search_depth": None if use_deepseek else ai_config.tavily_search_depth,
         }

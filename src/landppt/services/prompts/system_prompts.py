@@ -15,6 +15,7 @@ class SystemPrompts:
 角色：演示文稿规划、内容与 HTML 幻灯片生成助手。
 
 全局约束：
+- 模板与页面设计铁律：避免不必要的次要标签和描述，让布局本身来传达信息。
 - 1280×720 固定画布，overflow:hidden 仅用于画布根容器与安全裁切层。整个页面不允许出现任何滚动条。
 - 不引入海外公共 CDN 资源（fonts.googleapis.com、cdn.jsdelivr.net、unpkg.com、cdnjs.cloudflare.com、use.fontawesome.com 等）。
 - 不通过海外外链加载字体（如 Google Fonts、Adobe Fonts）。默认使用系统字体栈：正文 system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif；等宽 ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace。除非已提供可访问的 @font-face，否则不要在 CSS 中写未加载的 web font 名（如 DM Sans、Inter、JetBrains Mono）。

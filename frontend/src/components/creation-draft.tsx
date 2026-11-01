@@ -1,7 +1,8 @@
 import { createContext, useContext, useRef, useState, type MutableRefObject, type ReactNode, type Dispatch, type SetStateAction } from 'react';
 import type { ApiData } from '../api';
+import type { ChatTurn } from './creation-assistant';
 
-type Draft = { fields?: ApiData; files: File[]; sourceTab: string; locked: boolean };
+type Draft = { fields?: ApiData; files: File[]; sourceTab: string; locked: boolean; chat?: ChatTurn[]; chatOpen?: boolean };
 type Feedback = { pending: boolean; error: string; redirect: string };
 type CreationSession = { draft: MutableRefObject<Draft>; feedback: Feedback; setFeedback: Dispatch<SetStateAction<Feedback>> };
 const Context = createContext<CreationSession | null>(null);

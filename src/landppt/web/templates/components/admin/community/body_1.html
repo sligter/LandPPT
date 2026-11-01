@@ -175,6 +175,7 @@
                                                 <label for="system_research_provider">默认研究提供商</label>
                                                 <select id="system_research_provider" name="research_provider">
                                                     <option value="tavily">Tavily</option>
+                                                    <option value="deepseek">DeepSeek</option>
                                                     <option value="searxng">SearXNG</option>
                                                     <option value="both">两者都用</option>
                                                 </select>
@@ -204,7 +205,7 @@
                                         <div class="system-config-block__header">
                                             <small>Research Defaults</small>
                                             <h3>系统默认研究与检索配置</h3>
-                                            <p>集中管理 Tavily API Key、SearXNG 与内容抽取策略，用户不填时自动继承这里的默认值。</p>
+                                            <p>集中管理 Tavily、DeepSeek、SearXNG 与内容抽取策略，用户不填时自动继承这里的默认值。</p>
                                         </div>
                                         <div class="form-grid">
                                             <div class="form-group">
@@ -217,6 +218,26 @@
                                                         <i class="fas fa-eye"></i>
                                                     </button>
                                                 </div>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_deepseek_api_key">DeepSeek API Key</label>
+                                                <input type="password" id="system_deepseek_api_key" name="deepseek_api_key"
+                                                    placeholder="sk-..." autocomplete="off">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_deepseek_base_url">DeepSeek Base URL</label>
+                                                <input type="url" id="system_deepseek_base_url" name="deepseek_base_url"
+                                                    placeholder="https://api.deepseek.com">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_deepseek_max_results">DeepSeek 最大结果数</label>
+                                                <input type="number" id="system_deepseek_max_results" name="deepseek_max_results"
+                                                    min="1" max="50" placeholder="10">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_deepseek_timeout">DeepSeek 超时（秒）</label>
+                                                <input type="number" id="system_deepseek_timeout" name="deepseek_timeout"
+                                                    min="1" max="300" placeholder="30">
                                             </div>
                                             <div class="form-group">
                                                 <label for="system_tavily_base_url">Tavily Base URL</label>

@@ -75,6 +75,7 @@
 
         const researchProviderLabels = {
             tavily: 'Tavily',
+            deepseek: 'DeepSeek',
             searxng: 'SearXNG',
             both: '双通道',
         };
@@ -93,6 +94,10 @@
             { key: 'enable_parallel_generation', id: 'system_enable_parallel_generation', type: 'boolean', fallback: true },
             { key: 'enable_per_slide_creative_guidance', id: 'system_enable_per_slide_creative_guidance', type: 'boolean', fallback: true },
             { key: 'tavily_api_key', id: 'system_tavily_api_key', type: 'text', fallback: '' },
+            { key: 'deepseek_api_key', id: 'system_deepseek_api_key', type: 'text', fallback: '' },
+            { key: 'deepseek_base_url', id: 'system_deepseek_base_url', type: 'text', fallback: 'https://api.deepseek.com' },
+            { key: 'deepseek_max_results', id: 'system_deepseek_max_results', type: 'number', fallback: 10 },
+            { key: 'deepseek_timeout', id: 'system_deepseek_timeout', type: 'number', fallback: 30 },
             { key: 'tavily_base_url', id: 'system_tavily_base_url', type: 'text', fallback: 'https://api.tavily.com' },
             { key: 'tavily_max_results', id: 'system_tavily_max_results', type: 'number', fallback: 10 },
             { key: 'tavily_search_depth', id: 'system_tavily_search_depth', type: 'select', fallback: 'advanced' },
@@ -253,7 +258,7 @@
                     return;
                 }
 
-                if (field.key === 'tavily_base_url') {
+                if (field.key === 'tavily_base_url' || field.key === 'deepseek_base_url') {
                     payload[field.key] = rawValue || systemDefaultsSnapshot[field.key] || field.fallback;
                     return;
                 }

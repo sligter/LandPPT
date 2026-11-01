@@ -15,6 +15,7 @@ from ..services.db_config_service import (
 )
 from ..auth.middleware import get_current_admin_user, get_current_user_required
 from ..database.models import User
+from ..services.research_config import redact_inherited_research_keys
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ async def get_user_config(
         config_service = get_db_config_service()
         # Use get_all_config_for_user which filters admin-only categories for non-admins
         config = await config_service.get_all_config_for_user(user_id=user.id, is_admin=user.is_admin)
+        config = await redact_inherited_research_keys(config, user, config_service)
         return {
             "success": True,
             "config": config,
@@ -68,6 +70,7 @@ async def get_user_config_by_category(
             for key, value in config.items()
             if schema.get(key, {}).get("category") == category
         }
+        config = await redact_inherited_research_keys(config, user, config_service)
         return {
             "success": True,
             "config": config,
@@ -407,21 +410,7 @@ async def get_all_config(
 
         # Redact sensitive values so system/admin defaults are never sent to the browser.
         # If a normal user has their own override, it's OK to return it to that user.
-        tavily_value = config.get("tavily_api_key")
-        tavily_configured = bool(str(tavily_value).strip()) if tavily_value is not None else False
-
-        user_has_override = False
-        if not getattr(user, "is_admin", False):
-            try:
-                user_has_override = await config_service.is_user_override(user.id, "tavily_api_key")
-            except Exception:
-                user_has_override = False
-
-        if getattr(user, "is_admin", False) or not user_has_override:
-            config.pop("tavily_api_key", None)
-
-        config["tavily_api_key_configured"] = tavily_configured
-        config["tavily_uses_admin_default"] = bool(tavily_configured and (not user.is_admin) and (not user_has_override))
+        config = await redact_inherited_research_keys(config, user, config_service)
         
         return {
             "success": True,
@@ -459,8 +448,10 @@ async def update_all_config(
         # the feature without configuring their own key.
         system_scoped = {}
         user_scoped = dict(filtered_config or {})
-        if getattr(user, "is_admin", False) and "tavily_api_key" in user_scoped:
-            system_scoped["tavily_api_key"] = user_scoped.pop("tavily_api_key")
+        if getattr(user, "is_admin", False):
+            for key in ("tavily_api_key", "deepseek_api_key"):
+                if key in user_scoped:
+                    system_scoped[key] = user_scoped.pop(key)
 
         if system_scoped:
             ok = await config_service.update_config(system_scoped, user_id=None)
@@ -654,21 +645,7 @@ async def get_config_by_category(
 
         # Redact sensitive values so system/admin defaults are never sent to the browser.
         # If a normal user has their own override, it's OK to return it to that user.
-        tavily_value = config.get("tavily_api_key")
-        tavily_configured = bool(str(tavily_value).strip()) if tavily_value is not None else False
-
-        user_has_override = False
-        if not getattr(user, "is_admin", False):
-            try:
-                user_has_override = await config_service.is_user_override(user.id, "tavily_api_key")
-            except Exception:
-                user_has_override = False
-
-        if getattr(user, "is_admin", False) or not user_has_override:
-            config.pop("tavily_api_key", None)
-
-        config["tavily_api_key_configured"] = tavily_configured
-        config["tavily_uses_admin_default"] = bool(tavily_configured and (not user.is_admin) and (not user_has_override))
+        config = await redact_inherited_research_keys(config, user, config_service)
         
         return {
             "success": True,
@@ -703,8 +680,10 @@ async def update_config_by_category(
         # For sensitive settings (e.g. Tavily key), admins set the system default.
         system_scoped = {}
         user_scoped = dict(filtered_config or {})
-        if category == "generation_params" and getattr(user, "is_admin", False) and "tavily_api_key" in user_scoped:
-            system_scoped["tavily_api_key"] = user_scoped.pop("tavily_api_key")
+        if category == "generation_params" and getattr(user, "is_admin", False):
+            for key in ("tavily_api_key", "deepseek_api_key"):
+                if key in user_scoped:
+                    system_scoped[key] = user_scoped.pop(key)
 
         if system_scoped:
             ok = await config_service.update_config(system_scoped, user_id=None)

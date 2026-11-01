@@ -131,6 +131,12 @@ class DatabaseConfigService:
             "tavily_max_results": {"type": "number", "category": "generation_params", "default": "10"},
             "tavily_search_depth": {"type": "select", "category": "generation_params", "default": "advanced"},
 
+            # DeepSeek Search / Fetch Configuration
+            "deepseek_api_key": {"type": "password", "category": "generation_params"},
+            "deepseek_base_url": {"type": "url", "category": "generation_params", "default": ai_config.deepseek_base_url},
+            "deepseek_max_results": {"type": "number", "category": "generation_params", "default": str(ai_config.deepseek_max_results)},
+            "deepseek_timeout": {"type": "number", "category": "generation_params", "default": str(ai_config.deepseek_timeout)},
+
             # SearXNG Configuration
             "searxng_host": {"type": "url", "category": "generation_params"},
             "searxng_max_results": {"type": "number", "category": "generation_params", "default": "10"},
@@ -147,7 +153,7 @@ class DatabaseConfigService:
             "unattended_video_render_mode": {"type": "select", "category": "generation_params", "default": "live"},
 
             # Research Configuration
-            "research_provider": {"type": "select", "category": "generation_params", "default": "tavily"},
+            "research_provider": {"type": "select", "category": "generation_params", "default": ai_config.research_provider},
             "research_enable_content_extraction": {"type": "boolean", "category": "generation_params", "default": "true"},
             "research_max_content_length": {"type": "number", "category": "generation_params", "default": "5000"},
             "research_extraction_timeout": {"type": "number", "category": "generation_params", "default": "30"},
@@ -309,7 +315,7 @@ class DatabaseConfigService:
             else:
                 value = schema.get("default", "")
 
-            if key == "tavily_base_url" and (value is None or str(value).strip() == ""):
+            if key in {"tavily_base_url", "deepseek_base_url"} and (value is None or str(value).strip() == ""):
                 value = schema.get("default", "")
 
             config[key] = self._convert_type(value, schema["type"])

@@ -26,6 +26,10 @@ SYSTEM = dict(
     tavily_base_url="https://api.tavily.com",
     tavily_max_results=10,
     tavily_search_depth="advanced",
+    deepseek_api_key="",
+    deepseek_base_url="https://api.deepseek.com",
+    deepseek_max_results=10,
+    deepseek_timeout=30,
     searxng_host="",
     searxng_max_results=10,
     searxng_language="auto",
@@ -168,7 +172,7 @@ def test_system_preserves_every_legacy_field_and_saved_fallback(ui_page):
         .content.querySelectorAll('.system-config-block [name]')].map(e=>e.name)"""
     )
     assert set(catalogue) == set(SYSTEM)
-    assert len(catalogue) == 34
+    assert len(catalogue) == 38
     for name in catalogue:
         assert page.locator("#system_" + name).count() == 1, name
     page.locator("#system_max_tokens").fill("")

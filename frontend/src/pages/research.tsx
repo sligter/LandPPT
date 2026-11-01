@@ -59,7 +59,7 @@ export default function Research() {
       <Card size="small" title="服务状态" extra={<Button icon={<ReloadOutlined aria-hidden />} loading={status.loading} onClick={status.refresh}>刷新状态</Button>}>
         {status.error && <Alert type="error" title={status.error} action={<Button onClick={status.refresh}>重试</Button>} className="page-error" />}
         {status.loading && !status.data ? <div role="status"><Spin /> 正在检查研究服务…</div> : status.data && <>
-          <Space wrap className="research-service-tags"><Tag color={status.data.available ? 'success' : 'default'}>{status.data.available ? '服务可用' : '服务不可用'}</Tag><Tag>{status.data.tavily_configured ? 'Tavily 已配置' : 'Tavily 未配置'}</Tag></Space>
+          <Space wrap className="research-service-tags"><Tag color={status.data.available ? 'success' : 'default'}>{status.data.available ? '服务可用' : '服务不可用'}</Tag><Tag>{status.data.status?.research_provider === 'deepseek' ? (status.data.deepseek_configured ? 'DeepSeek 已配置' : 'DeepSeek 未配置') : (status.data.tavily_configured ? 'Tavily 已配置' : 'Tavily 未配置')}</Tag></Space>
           <Descriptions size="small" column={1} items={[
             { key: 'provider', label: 'AI 提供商', children: text(status.data.status?.ai_provider_type) || '—' },
             { key: 'results', label: '最大搜索结果', children: status.data.status?.max_results ?? '—' },

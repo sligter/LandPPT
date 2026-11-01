@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from .route_modules.ai_edit_routes import router as ai_edit_router
 from .route_modules.artifact_library_routes import router as artifact_library_router
 from .route_modules.config_routes import router as config_router
+from .route_modules.creation_assistant_routes import router as creation_assistant_router
 from .route_modules.editor_document_routes import router as editor_document_router
 from .route_modules.project_agent_routes import router as project_agent_router
 from .route_modules.export_routes import router as export_router
@@ -34,6 +35,7 @@ router.include_router(template_router)
 router.include_router(export_router)
 router.include_router(slide_router)
 router.include_router(ai_edit_router)
+router.include_router(creation_assistant_router)
 router.include_router(slide_edit_agent_router)
 router.include_router(speech_script_router)
 router.include_router(editor_document_router)

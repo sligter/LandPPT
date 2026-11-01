@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Alert, Button, Card, Checkbox, Divider, Empty, Flex, Form, Input, InputNumber, Modal, Segmented, Select, Space, Spin, Tabs, Tag, Tooltip, Typography, Upload, theme } from 'antd';
-import { ArrowRightOutlined, DownOutlined, FontSizeOutlined, InboxOutlined, InfoCircleOutlined, LinkOutlined, PaperClipOutlined, ReloadOutlined, SlidersOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, DownOutlined, FontSizeOutlined, InboxOutlined, InfoCircleOutlined, LinkOutlined, MessageOutlined, PaperClipOutlined, ReloadOutlined, SlidersOutlined } from '@ant-design/icons';
 import { errorText, request, type ApiData } from '../api';
 import { useCreationDraft } from './creation-draft';
+import CreationAssistant from './creation-assistant';
 import { readCreationConfiguration } from '../creation-config';
 import { modalFocus } from './modal-focus';
 import { useTemplateModalFocus } from './templates';
@@ -38,6 +39,7 @@ function ComposerForm({ data, compact }: { data: ApiData; compact: boolean }) {
   const values = { ...initial, ...watched };
   const [sourceTab, setSourceTab] = useState(draft.current.sourceTab); const [files, setFiles] = useState<File[]>(draft.current.files);
   const [warning, setWarning] = useState('');
+  const [chatOpen, setChatOpen] = useState(!!draft.current.chatOpen);
   const { pending, error, redirect } = feedback;
   const locked = draft;
   const mounted = useRef(true);
@@ -121,6 +123,9 @@ function ComposerForm({ data, compact }: { data: ApiData; compact: boolean }) {
     {source === 'mixed' && <Alert type="info" title="附件与网页链接将合并用于生成大纲。" />}
     {warning && <Alert className="page-error" type="warning" title={warning} closable onClose={() => setWarning('')} />}
   </>;
+  const openChat = (open: boolean) => { draft.current.chatOpen = open; setChatOpen(open); };
+  const chatToggle = <Button type="text" size="small" icon={<MessageOutlined aria-hidden />} aria-pressed={chatOpen} disabled={pending} onClick={() => openChat(!chatOpen)}>{chatOpen ? '收起 AI 对话' : 'AI 对话填写'}</Button>;
+  const assistant = chatOpen && <CreationAssistant form={form} files={files} disabled={pending} draft={draft} addFile={addFile} onChange={remember} />;
   const summary = <Typography.Text id="creationAdvancedSummary" className="create-advanced-summary" type="secondary">{settingsSummary}</Typography.Text>;
   const advancedTrigger = <Button ref={advancedTriggerRef} className="create-advanced-trigger" icon={<SlidersOutlined aria-hidden />} aria-label={expanded ? '收起高级参数' : '高级参数'} aria-expanded={expanded} aria-controls="creationAdvanced" disabled={pending} onClick={() => setExpanded(value => !value)}>
     {compact ? <>高级参数<Divider orientation="vertical" />{summary}</> : expanded ? '收起高级参数' : '高级参数'}<DownOutlined aria-hidden className="create-advanced-chevron" />
@@ -187,13 +192,16 @@ function ComposerForm({ data, compact }: { data: ApiData; compact: boolean }) {
   if (compact) return <Card className="creation-composer create-project-page creation-composer--compact" style={{ boxShadow: token.boxShadowTertiary }} styles={{ body: { padding: 0 } }}>
     <Form {...formProps}>
       <div className="composer-body">
+        {assistant}
+        {assistant && <div className="composer-draft-label"><Typography.Text type="secondary">需求草稿 · 由对话自动填写，可直接修改</Typography.Text></div>}
         {topicField}{requirementsField}
         {sourceTab === 'file' && <div className="composer-source">{fileSource}</div>}
         {sourceTab === 'url' && <div className="composer-source">{urlSource}</div>}
         {sourceExtras}
       </div>
       <Flex className="composer-toolbar" wrap gap={8} align="center">
-        <Segmented aria-label="参考资料" value={sourceTab} disabled={pending} onChange={value => chooseSource(String(value))} options={sourceTabs.map(([value, label, icon]) => ({ value, label, icon }))} />
+        <Segmented aria-label="输入方式" value={chatOpen ? 'chat' : sourceTab} disabled={pending} onChange={value => { const next = String(value); openChat(next === 'chat'); chooseSource(next === 'chat' ? 'manual' : next); }}
+          options={[{ value: 'chat', label: 'AI 对话', icon: <MessageOutlined aria-hidden /> }, ...sourceTabs.map(([value, label, icon]) => ({ value, label, icon }))]} />
         <Form.Item name="generation_mode" noStyle><Select aria-label="生成方式" className="composer-mode" variant="filled" options={modeOptions} disabled={pending} popupMatchSelectWidth={false} labelRender={({ value }) => value === 'package' ? '模板包模式' : '自由设计'} /></Form.Item>
         <Flex className="composer-actions" gap={8} align="center">{advancedTrigger}{submitButton}</Flex>
       </Flex>
@@ -207,7 +215,8 @@ function ComposerForm({ data, compact }: { data: ApiData; compact: boolean }) {
     <Form {...formProps}>
       <div className="create-project-grid">
         <div className="create-main">
-          <Card size="small" title="演示内容">{topicField}{requirementsField}</Card>
+          {assistant && <Card size="small" title="AI 对话填写" extra={chatToggle}>{assistant}</Card>}
+          <Card size="small" title={assistant ? '需求草稿' : '演示内容'} extra={!assistant && chatToggle}>{topicField}{requirementsField}</Card>
           <Card size="small" title="参考资料（选填）" extra={<span className="subtle">{sourceSummary}</span>}>
             <Tabs activeKey={sourceTab} onChange={chooseSource} items={[
               { key: 'manual', label: '主题与需求', children: <p className="subtle create-manual-help">根据上方主题和需求生成内容，也可添加文件或网页链接作为参考。</p> },

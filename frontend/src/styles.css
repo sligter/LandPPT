@@ -883,7 +883,8 @@ h2 { margin: 0; font-size: 16px; font-weight: 600; }
   .composer-toolbar { padding: 8px; }
   .composer-toolbar > .ant-segmented { flex: 1 1 100%; }
   .composer-toolbar > .ant-segmented .ant-segmented-group { width: 100%; }
-  .composer-toolbar > .ant-segmented .ant-segmented-item { flex: 1; }
+  .composer-toolbar > .ant-segmented .ant-segmented-item { flex: 1; min-width: 0; }
+  .composer-toolbar > .ant-segmented .ant-segmented-item-label { padding-inline: 4px; overflow: hidden; text-overflow: ellipsis; }
   .composer-actions { display: contents; }
   .creation-composer--compact .create-advanced-trigger { order: 1; flex: 1 1 100%; min-height: 44px; }
   .composer-mode { order: 2; flex: 1 1 0; width: auto; min-width: 0; min-height: 44px; }
@@ -939,3 +940,37 @@ h2 { margin: 0; font-size: 16px; font-weight: 600; }
 .todo-source-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .project-sources-form, .project-sources-files { width: 100%; }
 .project-source-name { min-width: 0; overflow-wrap: anywhere; }
+
+/* Creation assistant: conversational requirement intake above the composer fields. */
+.creation-assistant { display: flex; flex-direction: column; gap: 12px; }
+.composer-body > .creation-assistant { margin: 0 11px; }
+.creation-assistant-log { display: flex; flex-direction: column; gap: 16px; max-height: min(420px, 50vh); overflow-y: auto; padding: 4px 2px; overscroll-behavior: contain; }
+.creation-assistant-welcome { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.creation-assistant-examples { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.creation-assistant-examples .ant-btn { height: auto; padding: 4px 12px; border-radius: 999px; white-space: normal; text-align: left; }
+.creation-assistant-turn { display: flex; gap: 10px; min-width: 0; }
+.creation-assistant-turn.is-user { justify-content: flex-end; }
+.creation-assistant-bubble { max-width: 80%; padding: 8px 14px; border-radius: 16px 16px 4px 16px; background: var(--lp-elevated); border: 1px solid var(--lp-border); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.creation-assistant-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--lp-border); color: var(--lp-text); }
+.creation-assistant-avatar .brand-symbol { display: inline-flex; width: 14px; height: 14px; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: inherit; }
+.creation-assistant-avatar .brand-symbol svg { width: 100%; height: 100%; }
+.creation-assistant-message { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: calc(100% - 38px); }
+.creation-assistant-text { padding-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.creation-assistant-applied { font-size: 12px; }
+.creation-assistant-ready { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 8px 12px; border: 1px solid var(--lp-border); border-radius: 10px; background: var(--lp-surface); }
+.creation-assistant-input { display: flex; align-items: flex-end; gap: 4px; padding: 6px; border: 1px solid var(--lp-border); border-radius: 18px; background: var(--lp-surface); transition: border-color .2s; }
+.creation-assistant-input:focus-within { border-color: var(--lp-border-strong); }
+.creation-assistant-input > .ant-input-textarea-affix-wrapper, .creation-assistant-input > textarea { flex: 1; padding-block: 4px; }
+.composer-body > .composer-draft-label { margin: 16px 11px 0; padding-top: 12px; border-top: 1px dashed var(--lp-border); font-size: 12px; }
+@media (max-width: 400px) {
+  .composer-toolbar > .ant-segmented .ant-segmented-item-icon { display: none; }
+  .composer-toolbar > .ant-segmented .ant-segmented-item-icon + * { margin-inline-start: 0; }
+}
+@media (min-width: 601px) {
+  .creation-composer--compact .composer-toolbar { flex-wrap: nowrap; }
+  .creation-composer--compact .composer-toolbar > .ant-segmented, .creation-composer--compact .composer-mode { flex: none; }
+  .creation-composer--compact .composer-actions { flex: 1 1 auto; justify-content: flex-end; }
+  .creation-composer--compact .composer-actions > .create-advanced-trigger { flex: 0 1 auto; overflow: hidden; }
+  .creation-composer--compact .composer-actions > .create-advanced-trigger > span:not(.ant-btn-icon) { display: flex; align-items: center; overflow: hidden; }
+  .creation-composer--compact .composer-actions > .ant-btn-primary { flex: none; }
+}

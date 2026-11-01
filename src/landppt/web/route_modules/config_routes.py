@@ -33,6 +33,7 @@ from ...core.config import ai_config, app_config, resolve_timeout_seconds
 from ...database.database import AsyncSessionLocal, get_db
 from ...database.models import User
 from ...services.community_service import community_service
+from ...services.research_config import redact_inherited_research_keys
 from ...services.provider_test_utils import (
     DEFAULT_ANTHROPIC_BASE_URL,
     DEFAULT_ANTHROPIC_MODEL,
@@ -338,30 +339,7 @@ async def _redact_sensitive_config_for_frontend(
     exposing the actual secret. This is especially important for system-scoped
     defaults that apply to all users (e.g. admin Tavily key).
     """
-    redacted: Dict[str, Any] = dict(full_config)
-
-    # Tavily: never expose the system/admin default key to the frontend.
-    # If a normal user has their own override, it's OK to return it to *that* user.
-    tavily_value = redacted.get("tavily_api_key")
-    tavily_configured = bool(str(tavily_value).strip()) if tavily_value is not None else False
-
-    user_has_override = False
-    if not getattr(user, "is_admin", False):
-        try:
-            user_has_override = await config_service.is_user_override(user.id, "tavily_api_key")
-        except Exception:
-            user_has_override = False
-
-    if getattr(user, "is_admin", False) or not user_has_override:
-        # Admin/system value (or inherited value): never return to browser.
-        redacted.pop("tavily_api_key", None)
-
-    redacted["tavily_api_key_configured"] = tavily_configured
-    redacted["tavily_uses_admin_default"] = bool(
-        tavily_configured and (not getattr(user, "is_admin", False)) and (not user_has_override)
-    )
-
-    return redacted
+    return await redact_inherited_research_keys(full_config, user, config_service)
 
 
 async def _update_config_category(
@@ -417,8 +395,9 @@ async def _update_config_category(
     user_scoped: Dict[str, Any] = dict(filtered_config)
 
     if category == "generation_params" and getattr(user, "is_admin", False):
-        if "tavily_api_key" in user_scoped:
-            system_scoped["tavily_api_key"] = user_scoped.pop("tavily_api_key")
+        for key in ("tavily_api_key", "deepseek_api_key"):
+            if key in user_scoped:
+                system_scoped[key] = user_scoped.pop(key)
 
     if system_scoped:
         ok = await config_service.update_config(system_scoped, user_id=None)

@@ -1171,14 +1171,16 @@ async def get_research_status():
             return {
                 "available": False,
                 "message": "Research service not initialized",
-                "tavily_configured": bool(ai_config.tavily_api_key)
+                "tavily_configured": bool(ai_config.tavily_api_key),
+                "deepseek_configured": bool(ai_config.deepseek_api_key),
             }
 
         status = research_service.get_status()
         return {
             "available": research_service.is_available(),
             "status": status,
-            "tavily_configured": bool(ai_config.tavily_api_key)
+            "tavily_configured": bool(ai_config.tavily_api_key),
+            "deepseek_configured": status.get("deepseek_available", False),
         }
 
     except Exception as e:
@@ -1192,7 +1194,7 @@ async def conduct_research(topic: str, language: str = "zh"):
         if not research_service or not research_service.is_available():
             raise HTTPException(
                 status_code=503,
-                detail="Research service not available. Please check Tavily API configuration."
+                detail="Research service not available. Please check the selected research provider configuration."
             )
 
         # Conduct research
@@ -1382,6 +1384,7 @@ async def get_available_research_providers():
         enhanced_service = get_enhanced_research_service()
         providers = {
             "tavily": False,
+            "deepseek": False,
             "searxng": False,
             "content_extraction": False
         }

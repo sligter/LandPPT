@@ -71,7 +71,7 @@ class RuntimeResearchService:
                 logger.warning(f"Failed to create research reports directory, will fall back to CWD: {e}")
                 reports_dir = None
 
-            # Enhanced research service (Tavily + SearXNG + content extraction)
+            # Enhanced research service with search providers and content extraction.
             try:
                 self._owner.enhanced_research_service = EnhancedResearchService(user_id=self.user_id)
             except Exception as e:
@@ -87,7 +87,7 @@ class RuntimeResearchService:
                 logger.warning(f"Failed to initialize enhanced report generator: {e}")
                 self._owner.enhanced_report_generator = None
 
-            # Legacy DEEP research service (Tavily-only) used by older workflow paths.
+            # ReAct DEEP research service used by older workflow paths.
             try:
                 from ..deep_research_service import DEEPResearchService
                 self._owner.research_service = DEEPResearchService(user_id=self.user_id)
@@ -326,6 +326,20 @@ class RuntimeResearchService:
                         if result.get("url"):
                             lines.append(f"   URL: {result.get('url')}")
                         snippet = self._excerpt_research_preview_text(result.get("content") or result.get("snippet") or "")
+                        if snippet:
+                            lines.append(f"   摘要: {snippet}")
+                        lines.append("")
+
+                deepseek_results = event.get("deepseek_results")
+                if not deepseek_results and event.get("provider") == "deepseek":
+                    deepseek_results = event.get("results") or []
+                if deepseek_results:
+                    lines.append("DeepSeek 搜索结果:")
+                    for index, result in enumerate(deepseek_results[:6], 1):
+                        lines.append(f"{index}. {result.get('title') or 'Untitled'}")
+                        if result.get("url"):
+                            lines.append(f"   URL: {result['url']}")
+                        snippet = self._excerpt_research_preview_text(result.get("content") or result.get("summary") or result.get("snippet") or "")
                         if snippet:
                             lines.append(f"   摘要: {snippet}")
                         lines.append("")

@@ -153,6 +153,7 @@ export default function Settings({ data }: { data: ApiData }) {
       let text = String(value ?? '');
       if (category !== 'generation_params') text = text.trim();
       if (field.name === 'tavily_base_url') text = text.trim() || 'https://api.tavily.com';
+      if (field.name === 'deepseek_base_url') text = text.trim() || 'https://api.deepseek.com';
       if (field.required && !text.trim()) errors[field.name] = '请填写此项';
       if (field.kind === 'number' && text && (!Number.isFinite(Number(text)) || (field.min !== undefined && Number(text) < field.min) || (field.max !== undefined && Number(text) > field.max))) errors[field.name] = `请输入 ${field.min ?? '有效数值'} 至 ${field.max ?? '有效数值'} 之间的数值`;
       if (field.name === 'ai_image_resolution_presets' && text.trim()) {
@@ -216,7 +217,9 @@ export default function Settings({ data }: { data: ApiData }) {
         }
         const base = String(config[`${provider}_${provider === 'pollinations' ? 'api_base' : 'base_url'}`] || (provider === 'openai' ? 'https://api.openai.com/v1' : provider === 'pollinations' ? 'https://gen.pollinations.ai' : '')).replace(/\/$/, '');
         if (!config[`${provider}_api_key`] && provider !== 'pollinations') throw new Error('请先配置 API Key');
-        try {
+        // OpenAI-compatible endpoints often lack CORS headers (e.g. LAN gateways); fetch through the backend proxy.
+        if (provider === 'openai') list = names((await request('/api/ai/providers/openai/models', 'POST', { base_url: base, api_key: config.openai_api_key, llm_timeout_seconds: config.llm_timeout_seconds }, signal)).models || []);
+        else try {
           const response = await fetch(`${base}/${provider === 'pollinations' ? 'image/models' : 'models'}`, { signal, headers: config[`${provider}_api_key`] ? { Authorization: `Bearer ${config[`${provider}_api_key`]}` } : {} });
           if (!response.ok) throw new Error(`模型列表读取失败（${response.status}）`);
           const result = await response.json();

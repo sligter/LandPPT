@@ -101,6 +101,12 @@ class AIConfig(BaseSettings):
     tavily_include_domains: Optional[str] = Field(default=None, env="TAVILY_INCLUDE_DOMAINS")
     tavily_exclude_domains: Optional[str] = Field(default=None, env="TAVILY_EXCLUDE_DOMAINS")
 
+    # DeepSeek Search / Fetch API (independent of the text generation provider)
+    deepseek_api_key: Optional[str] = Field(default=None, env="DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(default="https://api.deepseek.com", env="DEEPSEEK_BASE_URL")
+    deepseek_max_results: int = Field(default=10, ge=1, le=50, env="DEEPSEEK_MAX_RESULTS")
+    deepseek_timeout: int = Field(default=30, ge=1, env="DEEPSEEK_TIMEOUT")
+
     # SearXNG Configuration (for research functionality)
     searxng_host: Optional[str] = Field(default=None, env="SEARXNG_HOST")
     searxng_max_results: int = Field(default=10, env="SEARXNG_MAX_RESULTS")
@@ -108,7 +114,7 @@ class AIConfig(BaseSettings):
     searxng_timeout: int = Field(default=30, env="SEARXNG_TIMEOUT")
 
     # Research Configuration
-    research_provider: str = Field(default="tavily", env="RESEARCH_PROVIDER")  # tavily, searxng, both
+    research_provider: str = Field(default="tavily", env="RESEARCH_PROVIDER")  # tavily, deepseek, searxng, both
     research_enable_content_extraction: bool = Field(default=True, env="RESEARCH_ENABLE_CONTENT_EXTRACTION")
     research_max_content_length: int = Field(default=5000, env="RESEARCH_MAX_CONTENT_LENGTH")
     research_extraction_timeout: int = Field(default=30, env="RESEARCH_EXTRACTION_TIMEOUT")
@@ -539,6 +545,12 @@ def reload_ai_config():
     ai_config.tavily_search_depth = os.environ.get('TAVILY_SEARCH_DEPTH', ai_config.tavily_search_depth)
     ai_config.tavily_include_domains = os.environ.get('TAVILY_INCLUDE_DOMAINS', ai_config.tavily_include_domains)
     ai_config.tavily_exclude_domains = os.environ.get('TAVILY_EXCLUDE_DOMAINS', ai_config.tavily_exclude_domains)
+
+    # Update DeepSeek research configuration
+    ai_config.deepseek_api_key = os.environ.get('DEEPSEEK_API_KEY', ai_config.deepseek_api_key)
+    ai_config.deepseek_base_url = os.environ.get('DEEPSEEK_BASE_URL', ai_config.deepseek_base_url)
+    ai_config.deepseek_max_results = int(os.environ.get('DEEPSEEK_MAX_RESULTS', str(ai_config.deepseek_max_results)))
+    ai_config.deepseek_timeout = int(os.environ.get('DEEPSEEK_TIMEOUT', str(ai_config.deepseek_timeout)))
 
     # Update SearXNG configuration
     ai_config.searxng_host = os.environ.get('SEARXNG_HOST', ai_config.searxng_host)

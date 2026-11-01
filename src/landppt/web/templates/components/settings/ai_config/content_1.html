@@ -662,37 +662,42 @@
                         <div class="sub-section">
                             <h5 class="sub-section-title">研究提供商 <small>RESEARCH_PROVIDER</small></h5>
                             {% set _research_provider = current_config.get('research_provider', 'tavily') %}
-                            <div class="provider-pick-grid">
-                                <label class="provider-pick">
-                                    <input type="radio" name="research_provider" value="tavily" {% if _research_provider == 'tavily' %}checked{% endif %}>
-                                    <span class="provider-pick-mark"></span>
-                                    <div class="provider-pick-body">
-                                        <div class="provider-pick-name">Tavily <span style="font-size: 0.7rem; color: #0f0f0f; font-weight: 500;">推荐</span></div>
-                                        <div class="provider-pick-desc">高准确度的研究专用搜索 API</div>
-                                    </div>
-                                </label>
-                                <label class="provider-pick">
-                                    <input type="radio" name="research_provider" value="searxng" {% if _research_provider == 'searxng' %}checked{% endif %}>
-                                    <span class="provider-pick-mark"></span>
-                                    <div class="provider-pick-body">
-                                        <div class="provider-pick-name">SearXNG</div>
-                                        <div class="provider-pick-desc">开源、可自托管的元搜索引擎</div>
-                                    </div>
-                                </label>
-                                <label class="provider-pick">
-                                    <input type="radio" name="research_provider" value="both" {% if _research_provider == 'both' %}checked{% endif %}>
-                                    <span class="provider-pick-mark"></span>
-                                    <div class="provider-pick-body">
-                                        <div class="provider-pick-name">两者都用</div>
-                                        <div class="provider-pick-desc">同时调用以增强结果覆盖</div>
-                                    </div>
-                                </label>
+                            <div class="form-group">
+                                <label class="field-label" for="research_provider">研究提供商</label>
+                                <select id="research_provider" name="research_provider">
+                                    <option value="tavily" {% if _research_provider == 'tavily' %}selected{% endif %}>Tavily</option>
+                                    <option value="deepseek" {% if _research_provider == 'deepseek' %}selected{% endif %}>DeepSeek</option>
+                                    <option value="searxng" {% if _research_provider == 'searxng' %}selected{% endif %}>SearXNG</option>
+                                    <option value="both" {% if _research_provider == 'both' %}selected{% endif %}>Tavily + SearXNG</option>
+                                </select>
                             </div>
                         </div>
 
                         <div class="sub-section">
                             <h5 class="sub-section-title">API 接入配置</h5>
                             <div class="field-grid">
+                                <div class="form-group">
+                                    <label class="field-label">DeepSeek API Key</label>
+                                    <input type="password" name="deepseek_api_key" autocomplete="off"
+                                        placeholder="{% if current_config.get('deepseek_api_key_configured') %}已配置，留空保留{% else %}sk-...{% endif %}">
+                                    <span class="field-help">用于 DeepSeek 网页搜索和抓取，可在 <a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer">DeepSeek 开放平台</a> 获取</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="field-label">DeepSeek Base URL</label>
+                                    <input type="url" name="deepseek_base_url" placeholder="https://api.deepseek.com"
+                                        value="{{ current_config.get('deepseek_base_url', 'https://api.deepseek.com') }}">
+                                    <span class="field-help">支持以 /v1 结尾；使用系统密钥时沿用系统接口地址</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="field-label">DeepSeek 最大结果数</label>
+                                    <input type="number" name="deepseek_max_results" min="1" max="50" step="1"
+                                        value="{{ current_config.get('deepseek_max_results', 10) }}">
+                                </div>
+                                <div class="form-group">
+                                    <label class="field-label">DeepSeek 超时（秒）</label>
+                                    <input type="number" name="deepseek_timeout" min="1" max="300" step="1"
+                                        value="{{ current_config.get('deepseek_timeout', 30) }}">
+                                </div>
                                 <div class="form-group">
                                     <label class="field-label">
                                         Tavily API Key

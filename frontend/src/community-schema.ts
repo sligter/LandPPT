@@ -5,6 +5,7 @@ export const systemDefaults: ApiData = {
   max_tokens: 16384, temperature: .7, top_p: 1, llm_timeout_seconds: 600, parallel_slides_count: 3,
   research_provider: 'tavily', enable_parallel_generation: true, enable_per_slide_creative_guidance: true,
   tavily_api_key: '', tavily_base_url: 'https://api.tavily.com', tavily_max_results: 10, tavily_search_depth: 'advanced',
+  deepseek_api_key: '', deepseek_base_url: 'https://api.deepseek.com', deepseek_max_results: 10, deepseek_timeout: 30,
   searxng_host: '', searxng_max_results: 10, searxng_language: 'auto', searxng_timeout: 30,
   research_max_content_length: 5000, research_extraction_timeout: 30, research_enable_content_extraction: true,
   tts_voice_zh: 'zh-CN-XiaoxiaoNeural', tts_voice_en: 'en-US-JennyNeural', comfyui_base_url: 'http://127.0.0.1:8188',
@@ -25,7 +26,7 @@ export function normalizeSystem(config: ApiData, fallback = systemDefaults) {
 }
 export function systemPayload(values: ApiData, snapshot: ApiData) {
   const payload = normalizeSystem(values, snapshot);
-  for (const key of ['default_ai_provider', 'research_provider', 'tavily_search_depth', 'tavily_base_url', 'landppt_model']) payload[key] ||= snapshot[key] || systemDefaults[key];
+  for (const key of ['default_ai_provider', 'research_provider', 'tavily_search_depth', 'tavily_base_url', 'deepseek_base_url', 'landppt_model']) payload[key] ||= snapshot[key] || systemDefaults[key];
   return payload;
 }
 export function readSystemFields() {
