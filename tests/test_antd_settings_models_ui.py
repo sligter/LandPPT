@@ -1,4 +1,4 @@
-"""Model lists remain browsable independently of the saved model name."""
+"""Model lists load through the backend proxy without replacing saved drafts."""
 import re
 
 import pytest
@@ -9,6 +9,7 @@ from test_antd_ui import settings
 
 MODELS = ["agnes-3.0-flash", "gpt-4.1", "o3-mini"]
 SIZES = [(1920, 1080), (1440, 900), (1024, 768), (390, 844), (320, 568), (844, 390)]
+MODEL_PROXY = "**/api/ai/providers/openai/models"
 
 
 def model_fixture(ui_page, current="agnes-3.0-flash", records=None, **config):
@@ -17,15 +18,16 @@ def model_fixture(ui_page, current="agnes-3.0-flash", records=None, **config):
     page.on("pageerror", lambda error: errors.append(str(error)))
 
     def list_models(route):
-        reads.append(route.request.url)
-        route.fulfill(json={"data": records if records is not None else [{"id": model} for model in MODELS]})
+        assert route.request.method == "POST"
+        reads.append(route.request.post_data_json)
+        route.fulfill(json={"success": True, "models": records if records is not None else [{"id": model} for model in MODELS]})
 
     def save(route):
         if route.request.method == "POST":
             writes.append(route.request.post_data_json)
         route.fulfill(json={"success": True, "config": {}})
 
-    page.route("https://models.example.invalid/v1/models", list_models)
+    page.route(MODEL_PROXY, list_models)
     page.route("**/api/config/ai_providers", save)
     settings(page, load, current_config={"openai_model": current, "openai_api_key": "fixture-key", "openai_base_url": "https://models.example.invalid/v1", **config})
     return page, reads, writes, errors
@@ -81,20 +83,39 @@ def test_model_search_keyboard_custom_name_and_save_preserve_contract(ui_page, w
     assert not errors
 
 
-def test_empty_and_failed_model_refresh_preserve_draft_and_allow_retry(ui_page):
+@pytest.mark.parametrize("failure", [
+    {"status": 503, "json": {"detail": "unavailable"}},
+    {"json": {"success": False, "error": "unavailable"}},
+], ids=["http-error", "proxy-error"])
+def test_empty_and_failed_model_refresh_preserve_draft_and_allow_retry(ui_page, failure):
     page, reads, writes, errors = model_fixture(ui_page, "private-model", records=[])
     field = refresh(page)
     expect(page.get_by_text("暂无可用模型，可手动填写", exact=True)).to_be_visible()
     expect(field).to_have_value("private-model")
     field.fill("custom-draft")
-    page.route("https://models.example.invalid/v1/models", lambda route: route.fulfill(status=503, json={"detail": "unavailable"}))
+    page.route(MODEL_PROXY, lambda route: route.fulfill(**failure))
     refresh(page)
-    expect(page.get_by_role("alert").filter(has_text="模型列表读取失败")).to_be_visible()
+    expect(page.get_by_role("alert").filter(has_text="unavailable")).to_be_visible()
     expect(field).to_have_value("custom-draft")
-    page.route("https://models.example.invalid/v1/models", lambda route: route.fulfill(json={"data": [None, {"id": "new-model"}, {"id": "new-model"}, {}, {"name": "another-model"}]}))
+    page.route(MODEL_PROXY, lambda route: route.fulfill(json={"success": True, "models": [None, {"id": "new-model"}, {"id": "new-model"}, {}, {"name": "another-model"}]}))
     refresh(page)
     expect(options(page)).to_have_text(["another-model", "new-model"])
     expect(field).to_have_value("custom-draft")
+    assert not writes and not errors
+
+
+def test_model_proxy_receives_unsaved_connection_settings(ui_page):
+    page, reads, writes, errors = model_fixture(ui_page, llm_timeout_seconds=75)
+    page.locator("#field-openai_api_key").fill("unsaved-fixture-key")
+    page.locator("#field-openai_base_url").fill("http://192.0.2.10:8080/v1/")
+    field = refresh(page)
+    expect(options(page)).to_have_text(MODELS)
+    expect(field).to_have_value(MODELS[0])
+    assert reads == [{
+        "base_url": "http://192.0.2.10:8080/v1",
+        "api_key": "unsaved-fixture-key",
+        "llm_timeout_seconds": 75,
+    }]
     assert not writes and not errors
 
 
@@ -135,14 +156,14 @@ def test_late_model_response_keeps_selected_tab_and_saved_name(ui_page):
     page, _ = ui_page
     page.add_init_script("""(() => {
       const original = fetch;
-      window.fetch = (...args) => String(args[0]) === 'https://models.example.invalid/v1/models'
+      window.fetch = (...args) => String(args[0]) === '/api/ai/providers/openai/models'
         ? new Promise(resolve => { window.resolveModels = resolve; }) : original(...args);
     })();""")
     page, _, _, errors = model_fixture(ui_page, "custom-draft")
     field = refresh(page)
     expect(field).to_be_disabled()
     page.get_by_role("tab", name="应用配置", exact=True).click()
-    page.evaluate("models => window.resolveModels(new Response(JSON.stringify({data:models.map(id=>({id}))})))", MODELS)
+    page.evaluate("models => window.resolveModels(new Response(JSON.stringify({success:true,models:models.map(id=>({id}))})))", MODELS)
     expect(page.get_by_text("已获取 3 个模型", exact=True)).to_be_visible()
     expect(page.get_by_role("tab", name="应用配置", exact=True)).to_have_attribute("aria-selected", "true")
     assert page.locator(".ant-select-dropdown:visible").count() == 0

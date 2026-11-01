@@ -55,6 +55,7 @@ jobs:
           - shard: ui-4
             tests: >-
               tests/test_antd_creation_research_ui.py tests/test_antd_account_ui.py tests/test_antd_presentation_ui.py
+              tests/test_antd_deepseek_research_ui.py
               tests/test_antd_pagination_ui.py tests/test_antd_remaining_ui.py tests/test_antd_admin_management_ui.py
               tests/test_antd_settings_models_ui.py tests/test_antd_project_search_ui.py tests/test_antd_asset_updates_ui.py
               tests/test_antd_managed_providers_ui.py tests/test_antd_creation_workspace_ui.py tests/test_antd_creation_templates_ui.py
