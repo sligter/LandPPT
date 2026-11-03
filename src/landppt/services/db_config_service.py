@@ -239,7 +239,7 @@ class DatabaseConfigService:
             # Gemini Image Generation Configuration
             "gemini_image_api_key": {"type": "password", "category": "image_service"},
             "gemini_image_api_base": {"type": "url", "category": "image_service", "default": "https://generativelanguage.googleapis.com/v1beta"},
-            "gemini_image_model": {"type": "text", "category": "image_service", "default": "gemini-2.0-flash-exp-image-generation"},
+            "gemini_image_model": {"type": "text", "category": "image_service", "default": "gemini-nano-banana-2.1"},
 
             # OpenAI Image Generation Configuration
             "openai_image_api_key": {"type": "password", "category": "image_service"},

@@ -29,7 +29,7 @@ class GeminiImageProvider(ImageGenerationProvider):
         # API配置
         self.api_key = config.get('api_key')
         self.api_base = config.get('api_base', 'https://generativelanguage.googleapis.com/v1beta')
-        self.model = config.get('model', 'gemini-2.0-flash-exp-image-generation')
+        self.model = config.get('model', 'gemini-nano-banana-2.1')
         self.default_size = config.get('default_size', '1024x1024')
         self.default_aspect = "1:1"
         self.default_image_size = "1K"  # 1K or 2K supported by Gemini image models
@@ -82,6 +82,14 @@ class GeminiImageProvider(ImageGenerationProvider):
                 success=False,
                 message="Gemini API key not configured",
                 error_code="api_key_missing"
+            )
+
+        # generateContent returns one image per call and this provider reads only the first
+        if int(getattr(request, "num_images", 1) or 1) > 1:
+            return ImageOperationResult(
+                success=False,
+                message="Gemini image generation produces one image per request; num_images must be 1",
+                error_code="unsupported_num_images"
             )
 
         try:
@@ -143,7 +151,6 @@ class GeminiImageProvider(ImageGenerationProvider):
         # Gemini图片生成使用generateContent API
         aspect_ratio = self._map_aspect_ratio(request.width, request.height)
         image_size = self._map_image_size(request.width, request.height)
-        num_images = max(1, min(int(getattr(request, "num_images", 1)), 4))
 
         api_request = {
             "contents": [
@@ -157,10 +164,10 @@ class GeminiImageProvider(ImageGenerationProvider):
             ],
             "generationConfig": {
                 "responseModalities": ["IMAGE"],
-                "aspectRatio": aspect_ratio,
-                "imageSize": image_size,
-                "numberOfImages": num_images,
-                "personGeneration": "allow_adult"
+                "imageConfig": {
+                    "aspectRatio": aspect_ratio,
+                    "imageSize": image_size
+                }
             }
         }
 
@@ -380,10 +387,10 @@ class GeminiImageProvider(ImageGenerationProvider):
         """获取可用模型列表"""
         return [
             {
-                'id': 'gemini-2.0-flash-exp-image-generation',
-                'name': 'Gemini 2.0 Flash (Image Generation)',
-                'description': 'Google Gemini 2.0 Flash model with image generation capability',
-                'max_resolution': '1024x1024',
+                'id': 'gemini-nano-banana-2.1',
+                'name': 'Gemini Nano Banana 2.1 (Image Generation)',
+                'description': 'Google Gemini Nano Banana 2.1 model with image generation capability',
+                'max_resolution': '2048x2048',
                 'supported_styles': ['natural']
             }
         ]
