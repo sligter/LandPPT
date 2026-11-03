@@ -66,7 +66,7 @@ class ImageServiceConfig:
             'gemini': {
                 'api_key': '',
                 'api_base': 'https://generativelanguage.googleapis.com/v1beta',
-                'model': 'gemini-2.0-flash-exp-image-generation',
+                'model': 'gemini-nano-banana-2.1',
                 'default_size': '1024x1024',
                 'rate_limit_requests': 60,  # 每分钟请求数
                 'rate_limit_window': 60,  # 时间窗口（秒）

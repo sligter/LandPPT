@@ -29,7 +29,7 @@ class GeminiImageProvider(ImageGenerationProvider):
         # API配置
         self.api_key = config.get('api_key')
         self.api_base = config.get('api_base', 'https://generativelanguage.googleapis.com/v1beta')
-        self.model = config.get('model', 'gemini-2.0-flash-exp-image-generation')
+        self.model = config.get('model', 'gemini-nano-banana-2.1')
         self.default_size = config.get('default_size', '1024x1024')
         self.default_aspect = "1:1"
         self.default_image_size = "1K"  # 1K or 2K supported by Gemini image models
@@ -380,9 +380,9 @@ class GeminiImageProvider(ImageGenerationProvider):
         """获取可用模型列表"""
         return [
             {
-                'id': 'gemini-2.0-flash-exp-image-generation',
-                'name': 'Gemini 2.0 Flash (Image Generation)',
-                'description': 'Google Gemini 2.0 Flash model with image generation capability',
+                'id': 'gemini-nano-banana-2.1',
+                'name': 'Gemini Nano Banana 2.1 (Image Generation)',
+                'description': 'Google Gemini Nano Banana 2.1 model with image generation capability',
                 'max_resolution': '1024x1024',
                 'supported_styles': ['natural']
             }
