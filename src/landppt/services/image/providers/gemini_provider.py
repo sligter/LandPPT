@@ -84,6 +84,14 @@ class GeminiImageProvider(ImageGenerationProvider):
                 error_code="api_key_missing"
             )
 
+        # generateContent returns one image per call and this provider reads only the first
+        if int(getattr(request, "num_images", 1) or 1) > 1:
+            return ImageOperationResult(
+                success=False,
+                message="Gemini image generation produces one image per request; num_images must be 1",
+                error_code="unsupported_num_images"
+            )
+
         try:
             # 检查速率限制
             if not await self._check_rate_limit():
@@ -143,7 +151,6 @@ class GeminiImageProvider(ImageGenerationProvider):
         # Gemini图片生成使用generateContent API
         aspect_ratio = self._map_aspect_ratio(request.width, request.height)
         image_size = self._map_image_size(request.width, request.height)
-        num_images = max(1, min(int(getattr(request, "num_images", 1)), 4))
 
         api_request = {
             "contents": [
@@ -157,10 +164,10 @@ class GeminiImageProvider(ImageGenerationProvider):
             ],
             "generationConfig": {
                 "responseModalities": ["IMAGE"],
-                "aspectRatio": aspect_ratio,
-                "imageSize": image_size,
-                "numberOfImages": num_images,
-                "personGeneration": "allow_adult"
+                "imageConfig": {
+                    "aspectRatio": aspect_ratio,
+                    "imageSize": image_size
+                }
             }
         }
 
@@ -383,7 +390,7 @@ class GeminiImageProvider(ImageGenerationProvider):
                 'id': 'gemini-nano-banana-2.1',
                 'name': 'Gemini Nano Banana 2.1 (Image Generation)',
                 'description': 'Google Gemini Nano Banana 2.1 model with image generation capability',
-                'max_resolution': '1024x1024',
+                'max_resolution': '2048x2048',
                 'supported_styles': ['natural']
             }
         ]
