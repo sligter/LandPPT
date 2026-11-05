@@ -1113,6 +1113,11 @@ _GEMINI_SYNTHETIC_CALL_ID = "gemini-tool-call-"
 class GoogleProvider(AIProvider):
     """Google Gemini API provider"""
 
+    # finishReason values meaning Gemini withheld the candidate's content.
+    _SAFETY_BLOCK_FINISH_REASONS = frozenset(
+        {"SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY"}
+    )
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         # Base URL can be a mirror/proxy endpoint. Frontend config test hits:
@@ -1641,8 +1646,8 @@ class GoogleProvider(AIProvider):
                 finish_reason = candidate.finish_reason.name if hasattr(candidate.finish_reason, 'name') else str(candidate.finish_reason)
 
                 # 检查是否被安全过滤器阻止或其他问题
-                if finish_reason == "SAFETY":
-                    logger.warning("Content was blocked by safety filters")
+                if finish_reason in self._SAFETY_BLOCK_FINISH_REASONS:
+                    logger.warning(f"Content was blocked by safety filters ({finish_reason})")
                     content = "[内容被安全过滤器阻止]"
                 elif finish_reason == "RECITATION":
                     logger.warning("Content was blocked due to recitation")
