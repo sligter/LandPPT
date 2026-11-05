@@ -13,6 +13,11 @@ from .prompts.system_prompts import SystemPrompts
 
 logger = logging.getLogger(__name__)
 
+def _explicit_or_default(value: Optional[float], default: float) -> float:
+    """Keep a caller-supplied 0 (valid for temperature and top_p) instead of treating it as unset."""
+    return default if value is None else value
+
+
 class AIService:
     """Enhanced AI service for processing requests and generating responses"""
 
@@ -94,8 +99,8 @@ class AIService:
             # Generate response using AI provider
             request_kwargs: Dict[str, Any] = {
                 "messages": ai_messages,
-                "temperature": request.temperature or ai_config.temperature,
-                "top_p": request.top_p or ai_config.top_p,
+                "temperature": _explicit_or_default(request.temperature, ai_config.temperature),
+                "top_p": _explicit_or_default(request.top_p, ai_config.top_p),
             }
             response = await self.ai_provider.chat_completion(**request_kwargs)
 
@@ -117,8 +122,8 @@ class AIService:
             # Generate response using AI provider
             request_kwargs: Dict[str, Any] = {
                 "prompt": enhanced_prompt,
-                "temperature": request.temperature or ai_config.temperature,
-                "top_p": request.top_p or ai_config.top_p,
+                "temperature": _explicit_or_default(request.temperature, ai_config.temperature),
+                "top_p": _explicit_or_default(request.top_p, ai_config.top_p),
             }
             response = await self.ai_provider.text_completion(**request_kwargs)
 
@@ -150,8 +155,8 @@ class AIService:
             # Generate response using AI provider
             request_kwargs: Dict[str, Any] = {
                 "messages": ai_messages,
-                "temperature": request.temperature or ai_config.temperature,
-                "top_p": request.top_p or ai_config.top_p,
+                "temperature": _explicit_or_default(request.temperature, ai_config.temperature),
+                "top_p": _explicit_or_default(request.top_p, ai_config.top_p),
             }
             response = await self.ai_provider.chat_completion(**request_kwargs)
 
@@ -173,8 +178,8 @@ class AIService:
             # Generate response using AI provider
             request_kwargs: Dict[str, Any] = {
                 "prompt": enhanced_prompt,
-                "temperature": request.temperature or ai_config.temperature,
-                "top_p": request.top_p or ai_config.top_p,
+                "temperature": _explicit_or_default(request.temperature, ai_config.temperature),
+                "top_p": _explicit_or_default(request.top_p, ai_config.top_p),
             }
             response = await self.ai_provider.text_completion(**request_kwargs)
 
