@@ -12,6 +12,7 @@ import uuid
 from importlib.metadata import PackageNotFoundError, version as package_version
 from urllib.parse import urlparse
 from collections import OrderedDict
+from contextlib import aclosing
 from typing import List, Dict, Any, Optional, AsyncGenerator, Union, Tuple
 
 from .base import AIProvider, AIMessage, AIResponse, MessageRole, TextContent, ImageContent, MessageContentType
@@ -947,25 +948,31 @@ class AnthropicProvider(AIProvider):
 
         try:
             full_content = ""
-            async for chunk in self.stream_chat_completion(messages, **kwargs):
-                full_content += chunk
-            
+            stream_meta: Dict[str, Any] = {}
+            async for kind, value in self._stream_chat_events(messages, **kwargs):
+                if kind == "text":
+                    full_content += value
+                else:
+                    stream_meta = value
+
+            input_tokens = int(stream_meta.get("input_tokens") or 0)
+            output_tokens = int(stream_meta.get("output_tokens") or 0)
             return AIResponse(
                 content=full_content,
                 model=config.get("model", self.model),
                 usage={
-                    "prompt_tokens": 0,  # 流式响应不提供精确的 token 统计
-                    "completion_tokens": 0,
-                    "total_tokens": 0
+                    "prompt_tokens": input_tokens,
+                    "completion_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
                 },
-                finish_reason="stop",
+                finish_reason=str(stream_meta.get("stop_reason") or "stop"),
                 metadata={"provider": "anthropic"}
             )
-            
+
         except Exception as e:
             logger.error(f"Anthropic API error: {e}")
             raise
-    
+
     async def text_completion(self, prompt: str, **kwargs) -> AIResponse:
         """Generate text completion using Anthropic chat format"""
         messages = [AIMessage(role=MessageRole.USER, content=prompt)]
@@ -987,6 +994,17 @@ class AnthropicProvider(AIProvider):
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """Stream chat completion using Anthropic Claude with proper streaming support"""
+        async with aclosing(self._stream_chat_events(messages, **kwargs)) as events:
+            async for kind, value in events:
+                if kind == "text":
+                    yield value
+
+    async def _stream_chat_events(
+        self,
+        messages: List[AIMessage],
+        **kwargs
+    ) -> AsyncGenerator[Tuple[str, Any], None]:
+        """Stream events as ("text", chunk) and a final ("meta", {stop_reason, input_tokens, output_tokens})."""
         config = self._merge_config(**kwargs)
         api_key = config.get("api_key", "")
         base_url = config.get("base_url", "https://api.anthropic.com")
@@ -1040,6 +1058,7 @@ class AnthropicProvider(AIProvider):
             yielded_text = False
 
             for index, (auth_name, auth_header) in enumerate(auth_methods):
+                stream_meta: Dict[str, Any] = {}
                 is_last_method = index == len(auth_methods) - 1
                 try:
                     headers = {
@@ -1081,7 +1100,20 @@ class AnthropicProvider(AIProvider):
                                                 text = delta.get('text', '')
                                                 if text:
                                                     yielded_text = True
-                                                    yield text
+                                                    yield ("text", text)
+                                        elif event_data.get('type') == 'message_start':
+                                            usage = (event_data.get('message') or {}).get('usage') or {}
+                                            stream_meta['input_tokens'] = int(usage.get('input_tokens') or 0)
+                                            stream_meta['output_tokens'] = int(usage.get('output_tokens') or 0)
+                                        elif event_data.get('type') == 'message_delta':
+                                            stream_meta['stop_reason'] = (
+                                                (event_data.get('delta') or {}).get('stop_reason')
+                                                or stream_meta.get('stop_reason')
+                                            )
+                                            usage = event_data.get('usage') or {}
+                                            for key in ('input_tokens', 'output_tokens'):
+                                                if usage.get(key) is not None:
+                                                    stream_meta[key] = int(usage[key])
                                         elif event_data.get('type') == 'error':
                                             # overloaded_error / api_error mid-stream: the reply is cut short
                                             error = event_data.get('error') or {}
@@ -1090,6 +1122,7 @@ class AnthropicProvider(AIProvider):
                                             )
                                     except json.JSONDecodeError:
                                         pass
+                            yield ("meta", stream_meta)
                             return  # Success, exit the function
 
                 except Exception as auth_error:
