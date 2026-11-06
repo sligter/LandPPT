@@ -19,7 +19,7 @@ def _text_delta(text):
     }
 
 
-def _install_fake_session(monkeypatch, lines):
+def _install_fake_session(monkeypatch, lines, *, attempts=None, closed=None):
     posts = []
 
     class FakeContent:
@@ -38,6 +38,8 @@ def _install_fake_session(monkeypatch, lines):
             return self
 
         async def __aexit__(self, *exc):
+            if closed is not None:
+                closed.append("response")
             return False
 
     class FakeSession:
@@ -48,11 +50,23 @@ def _install_fake_session(monkeypatch, lines):
             return self
 
         async def __aexit__(self, *exc):
+            if closed is not None:
+                closed.append("session")
             return False
 
         def post(self, url, headers=None, json=None):
             posts.append(headers)
-            return FakeResponse()
+            response = FakeResponse()
+            if attempts is not None:
+                attempt_lines = attempts[len(posts) - 1]
+
+                class AttemptContent:
+                    async def __aiter__(self):
+                        for line in attempt_lines:
+                            yield line
+
+                response.content = AttemptContent()
+            return response
 
     monkeypatch.setattr(aiohttp, "ClientSession", FakeSession)
     return posts
@@ -133,3 +147,47 @@ async def test_chat_completion_without_usage_events_keeps_the_old_defaults(
         "total_tokens": 0,
     }
     assert response.finish_reason == "stop"
+
+
+@pytest.mark.asyncio
+async def test_auth_fallback_does_not_reuse_failed_attempt_usage(monkeypatch):
+    posts = _install_fake_session(
+        monkeypatch, [], attempts=[
+            _sse(
+                {"type": "message_start", "message": {
+                    "usage": {"input_tokens": 250, "output_tokens": 1},
+                }},
+                {"type": "error", "error": {
+                    "type": "overloaded_error", "message": "Overloaded",
+                }},
+            ),
+            _sse(_text_delta("hi")),
+        ],
+    )
+
+    response = await _chat(_provider())
+
+    assert response.content == "hi"
+    assert response.usage == {
+        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+    }
+    assert response.finish_reason == "stop"
+    assert [list(headers)[-1] for headers in posts] == ["x-api-key", "Authorization"]
+
+
+@pytest.mark.asyncio
+async def test_closing_stream_awaits_response_and_session_cleanup(monkeypatch):
+    closed = []
+    _install_fake_session(
+        monkeypatch, _sse(_text_delta("hello"), _text_delta("world")), closed=closed,
+    )
+    stream = _provider().stream_chat_completion(
+        [AIMessage(role=MessageRole.USER, content="hello")]
+    )
+    try:
+        assert await anext(stream) == "hello"
+        assert closed == []
+    finally:
+        await stream.aclose()
+
+    assert closed == ["response", "session"]

@@ -12,6 +12,7 @@ import uuid
 from importlib.metadata import PackageNotFoundError, version as package_version
 from urllib.parse import urlparse
 from collections import OrderedDict
+from contextlib import aclosing
 from typing import List, Dict, Any, Optional, AsyncGenerator, Union, Tuple
 
 from .base import AIProvider, AIMessage, AIResponse, MessageRole, TextContent, ImageContent, MessageContentType
@@ -993,9 +994,10 @@ class AnthropicProvider(AIProvider):
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """Stream chat completion using Anthropic Claude with proper streaming support"""
-        async for kind, value in self._stream_chat_events(messages, **kwargs):
-            if kind == "text":
-                yield value
+        async with aclosing(self._stream_chat_events(messages, **kwargs)) as events:
+            async for kind, value in events:
+                if kind == "text":
+                    yield value
 
     async def _stream_chat_events(
         self,
@@ -1054,9 +1056,9 @@ class AnthropicProvider(AIProvider):
 
             last_error: Optional[str] = None
             yielded_text = False
-            stream_meta: Dict[str, Any] = {}
 
             for index, (auth_name, auth_header) in enumerate(auth_methods):
+                stream_meta: Dict[str, Any] = {}
                 is_last_method = index == len(auth_methods) - 1
                 try:
                     headers = {
