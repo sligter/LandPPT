@@ -320,8 +320,10 @@ async def test_google_provider_rest_round_trip_omits_synthetic_ids(monkeypatch):
 async def test_google_provider_rest_reports_blocked_prompt(monkeypatch, block_reason):
     _fake_rest_session(monkeypatch, [{"promptFeedback": {"blockReason": block_reason}}])
 
-    with pytest.raises(RuntimeError, match=f"Gemini prompt was blocked: {block_reason}"):
-        await _rest_provider().text_completion("hello")
+    response = await _rest_provider().text_completion("hello")
+
+    assert response.content == "[内容被安全过滤器阻止]"
+    assert response.finish_reason == block_reason
 
 
 @pytest.mark.asyncio

@@ -1312,11 +1312,6 @@ class GoogleProvider(AIProvider):
 
     def _extract_rest_text(self, data: Dict[str, Any]) -> tuple[str, str, Dict[str, int]]:
         """Extract content, finish_reason, and usage from REST response JSON."""
-        prompt_feedback = data.get("promptFeedback") or {}
-        block_reason = prompt_feedback.get("blockReason")
-        if block_reason:
-            raise RuntimeError(f"Gemini prompt was blocked: {block_reason}")
-
         finish_reason = "stop"
         content = ""
 
@@ -1346,6 +1341,11 @@ class GoogleProvider(AIProvider):
             + int(usage_meta.get("thoughtsTokenCount") or 0),
             "total_tokens": int(usage_meta.get("totalTokenCount") or 0),
         }
+        prompt_feedback = data.get("promptFeedback") or {}
+        block_reason = prompt_feedback.get("blockReason")
+        if block_reason:
+            return "[内容被安全过滤器阻止]", str(block_reason), usage
+
         return content, str(finish_reason), usage
 
     @staticmethod
