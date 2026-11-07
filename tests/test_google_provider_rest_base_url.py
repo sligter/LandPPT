@@ -313,3 +313,31 @@ async def test_google_provider_rest_round_trip_omits_synthetic_ids(monkeypatch):
         {"functionResponse": {"name": "a", "response": {"r": 1}}},
         {"functionResponse": {"name": "b", "response": {"result": "plain"}}},
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("block_reason", ["SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "OTHER"])
+async def test_google_provider_rest_reports_blocked_prompt(monkeypatch, block_reason):
+    _fake_rest_session(monkeypatch, [{"promptFeedback": {"blockReason": block_reason}}])
+
+    response = await _rest_provider().text_completion("hello")
+
+    assert response.content == "[内容被安全过滤器阻止]"
+    assert response.finish_reason == block_reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("feedback", [{}, {"safetyRatings": []}])
+async def test_google_provider_rest_allows_unblocked_prompt_feedback(monkeypatch, feedback):
+    _fake_rest_session(
+        monkeypatch,
+        [{
+            "promptFeedback": feedback,
+            "candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}],
+        }],
+    )
+
+    response = await _rest_provider().text_completion("hello")
+
+    assert response.content == "ok"
+    assert response.finish_reason == "STOP"
