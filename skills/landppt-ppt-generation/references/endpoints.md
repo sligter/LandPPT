@@ -151,4 +151,4 @@ The editor's client-side native SVG/object and vector PPTX exporters have no ded
 
 ## Compatibility boundary
 
-`/v1/models`, `/v1/chat/completions` and `/v1/completions` form a limited chat compatibility facade. The current chat route returns JSON even when `stream:true` is supplied; it is not a full streaming/tools API or a substitute for the persisted project workflow. No `/v1/responses` endpoint is registered. Use the LandPPT project endpoints above for creation, template selection, edits and exports.
+`/v1/models`, `/v1/chat/completions` and `/v1/completions` form a limited chat compatibility facade. The chat route returns JSON by default and `text/event-stream` SSE chunks when `stream:true` is supplied. SSE buffers the full answer before emitting chunks; it is not token-by-token generation, a full tools API, or a substitute for the persisted project workflow. No `/v1/responses` endpoint is registered. Use the LandPPT project endpoints above for creation, template selection, edits and exports.

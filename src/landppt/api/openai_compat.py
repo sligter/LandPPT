@@ -5,7 +5,9 @@ OpenAI-compatible API endpoints
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 import json
-import asyncio
+import re
+import time
+import uuid
 from typing import AsyncGenerator
 
 from .models import (
@@ -19,10 +21,16 @@ from ..core.config import ai_config
 router = APIRouter()
 ai_service = AIService()
 
-@router.post("/chat/completions", response_model=ChatCompletionResponse)
+@router.post(
+    "/chat/completions",
+    response_model=ChatCompletionResponse,
+    responses={200: {"content": {"text/event-stream": {}}}},
+)
 async def create_chat_completion(request: ChatCompletionRequest):
     """
-    Create a chat completion (OpenAI compatible)
+    Create a chat completion (OpenAI compatible).
+
+    Streaming buffers the full answer before emitting SSE chunks.
     """
     try:
         # Check if this is a PPT-related request
@@ -34,6 +42,12 @@ async def create_chat_completion(request: ChatCompletionRequest):
         else:
             # Handle general chat request
             response_content = await ai_service.handle_general_chat_request(request)
+        
+        if request.stream:
+            return StreamingResponse(
+                _chat_completion_chunks(request.model, response_content),
+                media_type="text/event-stream",
+            )
         
         # Calculate token usage (simplified)
         prompt_tokens = sum(len(msg.content.split()) for msg in request.messages)
@@ -125,12 +139,36 @@ async def list_models():
         ]
     }
 
+async def _chat_completion_chunks(model: str, response_content: str) -> AsyncGenerator[str, None]:
+    """
+    Yield OpenAI-style SSE chunks for an already generated response
+    """
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
+    created = int(time.time())
+
+    def chunk(delta: dict, finish_reason=None) -> str:
+        data = {
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+        }
+        return f"data: {json.dumps(data)}\n\n"
+
+    yield chunk({"role": "assistant"})
+    # Split on word boundaries but keep the original whitespace (newlines matter)
+    for piece in re.findall(r"\S+\s*|\s+", response_content):
+        yield chunk({"content": piece})
+    yield chunk({}, "stop")
+    yield "data: [DONE]\n\n"
+
+
 async def stream_chat_completion(request: ChatCompletionRequest) -> AsyncGenerator[str, None]:
     """
     Stream chat completion responses
     """
     try:
-        # Simulate streaming response
         last_message = request.messages[-1].content if request.messages else ""
         
         if ai_service.is_ppt_request(last_message):
@@ -138,37 +176,8 @@ async def stream_chat_completion(request: ChatCompletionRequest) -> AsyncGenerat
         else:
             response_content = await ai_service.handle_general_chat_request(request)
         
-        # Split response into chunks for streaming
-        words = response_content.split()
-        for i, word in enumerate(words):
-            chunk_data = {
-                "id": f"chatcmpl-{i}",
-                "object": "chat.completion.chunk",
-                "created": 1677610602,
-                "model": request.model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"content": word + " "},
-                    "finish_reason": None
-                }]
-            }
-            yield f"data: {json.dumps(chunk_data)}\n\n"
-            await asyncio.sleep(0.05)  # Simulate processing delay
-        
-        # Send final chunk
-        final_chunk = {
-            "id": f"chatcmpl-final",
-            "object": "chat.completion.chunk", 
-            "created": 1677610602,
-            "model": request.model,
-            "choices": [{
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop"
-            }]
-        }
-        yield f"data: {json.dumps(final_chunk)}\n\n"
-        yield "data: [DONE]\n\n"
+        async for line in _chat_completion_chunks(request.model, response_content):
+            yield line
         
     except Exception as e:
         error_chunk = {
