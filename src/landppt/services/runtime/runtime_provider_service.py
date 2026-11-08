@@ -177,12 +177,6 @@ class RuntimeProviderService:
             ])
             return record_completion(await provider.chat_completion(messages=messages, **kwargs))
         prompt = SystemPrompts.with_text_cache_prefix(prompt)
-        if role == 'outline' and settings.get('provider') == 'anthropic':
-            full_response = ''
-            async for chunk in provider.stream_text_completion(prompt=prompt, **kwargs):
-                full_response += chunk
-            from ...ai.base import AIResponse
-            return AIResponse(content=full_response, model=settings.get('model', 'anthropic'), usage={'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0}, finish_reason='stop', metadata={'provider': 'anthropic', 'streamed': True})
         return record_completion(await provider.text_completion(prompt=prompt, **kwargs))
 
     async def _stream_text_completion_for_role(self, role: str, *, prompt: str, **kwargs):

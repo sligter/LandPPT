@@ -171,6 +171,40 @@ async def test_runtime_provider_service_passes_system_prompt_to_chat_completion(
 
 
 @pytest.mark.asyncio
+async def test_anthropic_outline_preserves_provider_response(monkeypatch):
+    provider = _FakeProvider()
+    response = AIResponse(
+        content="partial outline",
+        model="claude-sonnet-test",
+        usage={"prompt_tokens": 12, "completion_tokens": 34, "total_tokens": 46},
+        finish_reason="max_tokens",
+        metadata={"provider": "anthropic"},
+    )
+
+    async def text_completion(prompt, **kwargs):
+        provider.text_calls.append((prompt, kwargs))
+        return response
+
+    service = RuntimeProviderService(_RuntimeStubService())
+
+    async def get_provider(role):
+        return provider, {"provider": "anthropic", "model": "claude-sonnet-test"}
+
+    monkeypatch.setattr(provider, "text_completion", text_completion)
+    monkeypatch.setattr(service, "_get_role_provider_async", get_provider)
+    result = await service._text_completion_for_role(
+        "outline", prompt="Generate an outline", temperature=0.2, top_p=0.9,
+    )
+
+    assert result is response
+    assert not provider.stream_text_calls
+    assert len(provider.text_calls) == 1
+    prompt, kwargs = provider.text_calls[0]
+    assert prompt == SystemPrompts.with_text_cache_prefix("Generate an outline")
+    assert kwargs["model"] == "claude-sonnet-test"
+
+
+@pytest.mark.asyncio
 async def test_runtime_provider_service_streaming_passes_system_prompt_to_chat_completion(monkeypatch):
     provider = _FakeProvider()
     service = RuntimeProviderService(_RuntimeStubService())
