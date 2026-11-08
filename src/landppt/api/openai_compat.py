@@ -21,10 +21,16 @@ from ..core.config import ai_config
 router = APIRouter()
 ai_service = AIService()
 
-@router.post("/chat/completions", response_model=None)
+@router.post(
+    "/chat/completions",
+    response_model=ChatCompletionResponse,
+    responses={200: {"content": {"text/event-stream": {}}}},
+)
 async def create_chat_completion(request: ChatCompletionRequest):
     """
-    Create a chat completion (OpenAI compatible)
+    Create a chat completion (OpenAI compatible).
+
+    Streaming buffers the full answer before emitting SSE chunks.
     """
     try:
         # Check if this is a PPT-related request

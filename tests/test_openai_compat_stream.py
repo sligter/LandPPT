@@ -47,3 +47,9 @@ def test_stream_true_returns_sse(client):
     assert len({c["id"] for c in chunks}) == 1
     text = "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
     assert text == CONTENT
+
+
+def test_openapi_declares_json_model_and_sse(client):
+    content = client.get("/openapi.json").json()["paths"]["/v1/chat/completions"]["post"]["responses"]["200"]["content"]
+    assert content["application/json"]["schema"] == {"$ref": "#/components/schemas/ChatCompletionResponse"}
+    assert "text/event-stream" in content
