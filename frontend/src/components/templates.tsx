@@ -80,7 +80,7 @@ export function TemplatePreview({ template, onClose, onSelect, selectLabel = '�
 }
 
 export async function postStream(url: string, payload: ApiData, signal: AbortSignal, onEvent: (event: ApiData) => void): Promise<ApiData> {
-  const response = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal });
+  const response = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' }, body: JSON.stringify(payload), signal });
   if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(errorText(data.detail || data.message || `请求失败（${response.status}）`)); }
   if (!response.headers.get('Content-Type')?.includes('text/event-stream')) {
     const data = await response.json(); if (data.success === false || data.type === 'error' || data.status === 'error') throw new Error(errorText(data.detail || data.message)); return data.data || data;

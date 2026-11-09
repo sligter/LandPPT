@@ -521,6 +521,90 @@ def test_ai_adjustment_sends_generated_draft_and_remains_unsaved(ui_page):
     assert len(state["writes"]) == 2
 
 
+def start_master_stream(page, load):
+    state = template_api(page)
+    management(page, load)
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.masterRequests = [];
+      window.masterAborts = 0;
+      window.fetch = (url, options) => {
+        if (!String(url).includes('/global-master-templates/generate?stream=true')) return original(url, options);
+        window.masterRequests.push({url, headers: options.headers, body: JSON.parse(options.body)});
+        return Promise.resolve(new Response(new ReadableStream({start(writer) {
+          window.masterWriter = writer;
+          options.signal.addEventListener('abort', () => {
+            window.masterAborts++;
+            writer.error(new DOMException('已取消', 'AbortError'));
+          }, {once: true});
+        }}), {headers: {'Content-Type': 'text/event-stream'}}));
+      };
+      window.masterEmit = item => window.masterWriter.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(item) + '\\r\\n\\r\\n'));
+    }""")
+    page.get_by_role("button", name="AI 生成模板", exact=True).click()
+    page.get_by_label("设计要求", exact=True).fill("黑白商务设计")
+    page.get_by_label("AI 模板名称", exact=True).fill("流式母版")
+    page.get_by_role("button", name="开始生成模板", exact=True).click()
+    page.wait_for_function("window.masterRequests.length === 1")
+    return state
+
+
+@pytest.mark.parametrize("size", [(1440, 900), (390, 844)])
+def test_master_stream_renders_partial_preview_then_requires_manual_save(ui_page, size):
+    page, load = ui_page
+    page.set_viewport_size(dict(zip(["width", "height"], size)))
+    state = start_master_stream(page, load)
+    partial = '<html><body style="margin:0;width:1280px;height:720px"><h1>流式预览</h1>'
+    page.evaluate("html => {masterEmit({type:'thinking',content:html});masterEmit({type:'preview',html_template:html})}", partial)
+    expect(page.frame_locator('iframe[title="AI 生成模板实时预览"]').get_by_role("heading", name="流式预览")).to_be_visible()
+    assert not state["writes"]
+    assert page.get_by_role("button", name="保存生成模板", exact=True).count() == 0
+    page.get_by_text("查看实时响应", exact=True).click()
+    expect(page.locator(".template-raw")).to_have_text(partial)
+    payload = page.evaluate("masterRequests[0]")
+    assert payload["headers"]["Accept"] == "text/event-stream"
+    assert payload["body"]["template_name"] == "流式母版"
+    # Complete a second snapshot without closing the HTTP stream: the complete
+    # event, rather than EOF, unlocks saving and stops the reader.
+    complete = dict(template_name="流式母版", html_template=partial.replace("流式预览", "最终母版") + "</body></html>")
+    page.evaluate("data => masterEmit({type:'complete',...data})", complete)
+    expect(page.frame_locator('iframe[title="AI 生成模板预览"]').get_by_role("heading", name="最终母版")).to_be_visible()
+    expect(page.get_by_role("button", name="保存生成模板", exact=True)).to_be_enabled()
+    assert not state["writes"]
+    if size[0] == 1440:
+        page.get_by_role("button", name="保存生成模板", exact=True).click()
+        page.get_by_role("dialog").wait_for(state="hidden")
+        assert state["writes"][0][0].endswith("/save-generated")
+        assert state["writes"][0][2]["html_template"] == complete["html_template"]
+    else:
+        page.get_by_role("button", name="重新生成", exact=True).click()
+        expect(page.get_by_role("region", name="模板生成进度")).to_have_count(0)
+        expect(page.get_by_role("button", name="开始生成模板", exact=True)).to_be_enabled()
+
+
+@pytest.mark.parametrize("end", ["error", "eof", "abort"])
+def test_incomplete_master_stream_keeps_preview_but_cannot_be_saved_or_auto_retried(ui_page, end):
+    page, load = ui_page
+    state = start_master_stream(page, load)
+    partial = '<html><body style="margin:0;width:1280px;height:720px"><h1>未完成预览</h1>'
+    page.evaluate("html => masterEmit({type:'preview',html_template:html})", partial)
+    expect(page.frame_locator('iframe[title="AI 生成模板实时预览"]').get_by_role("heading", name="未完成预览")).to_be_visible()
+    if end == "abort":
+        page.get_by_role("button", name="停止接收", exact=True).click()
+        page.wait_for_function("masterAborts === 1")
+    elif end == "eof":
+        page.evaluate("masterWriter.close()")
+        expect(page.get_by_role("alert")).to_contain_text("未收到完成确认")
+    else:
+        page.evaluate("masterEmit({type:'error',message:'模型连接中断'})")
+        expect(page.get_by_role("alert")).to_contain_text("模型连接中断")
+    expect(page.get_by_role("button", name="开始生成模板", exact=True)).to_be_enabled()
+    assert page.get_by_role("button", name="保存生成模板", exact=True).count() == 0
+    assert page.evaluate("masterRequests.length") == 1
+    assert not state["writes"]
+    expect(page.frame_locator('iframe[title="AI 生成模板实时预览"]').get_by_role("heading", name="未完成预览")).to_be_visible()
+
+
 @pytest.mark.parametrize("complete", [True, False])
 def test_package_sse_requires_completion_before_success(ui_page, complete):
     page, load = ui_page

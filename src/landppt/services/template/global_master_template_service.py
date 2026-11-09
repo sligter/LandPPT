@@ -530,7 +530,34 @@ class GlobalMasterTemplateService:
                                       reference_pptx: dict = None,
                                       prompt_is_ready: bool = False):
         """Generate a new template using AI (non-streaming) - does not save to database"""
-        import json
+        messages = await self._prepare_template_generation_messages(
+            prompt, generation_mode, reference_image, reference_images,
+            reference_pptx, prompt_is_ready,
+        )
+        response = await self._chat_completion(messages=messages)
+        return self._template_generation_result(
+            response.content, prompt, template_name, description, tags,
+        )
+
+    def _template_generation_result(self, response, prompt, template_name, description, tags):
+        if not response or not response.strip():
+            raise ValueError("AI服务返回空响应")
+        html = self._extract_html_from_response(response)
+        if not html or not html.strip():
+            raise ValueError("AI响应中未找到有效的HTML模板")
+        return {
+            "html_template": html,
+            "template_name": template_name,
+            "description": description or f"AI生成的模板：{prompt[:100]}",
+            "tags": tags or ["AI生成"],
+            "llm_response": response,
+        }
+
+    async def _prepare_template_generation_messages(
+        self, prompt, generation_mode="text_only", reference_image=None,
+        reference_images=None, reference_pptx=None, prompt_is_ready=False,
+    ):
+        """Share image hosting, PPTX extraction and prompts across both transports."""
 
         extra_images: list = []  # slide screenshot images for multimodal AI
 
@@ -647,12 +674,6 @@ class GlobalMasterTemplateService:
             messages = [{"role": "user", "content": content_parts}]
 
         try:
-            # 获取模板生成任务的配置（使用异步版本以支持 landppt 系统级配置）
-            provider, template_settings = await self._get_template_role_provider_async()
-
-            if not provider:
-                raise ValueError("AI服务未配置或不可用")
-
             # 转换消息格式
             ai_messages = []
             for msg in messages:
@@ -681,29 +702,7 @@ class GlobalMasterTemplateService:
                         content=content_parts
                     ))
 
-            ai_response = await self._chat_completion(
-                messages=ai_messages,
-                model=template_settings.get('model')
-            )
-            full_response = ai_response.content
-
-            if not full_response or not full_response.strip():
-                raise ValueError("AI服务返回空响应")
-
-            html_template = self._extract_html_from_response(full_response)
-            if not html_template or not html_template.strip():
-                raise ValueError("AI响应中未找到有效的HTML模板")
-
-            logger.info(f"Generated HTML template length: {len(html_template)}")
-
-            # 返回结果（不保存到数据库）
-            return {
-                'html_template': html_template,
-                'template_name': template_name,
-                'description': description or f"AI生成的模板：{prompt[:100]}",
-                'tags': tags or ['AI生成'],
-                'llm_response': full_response  # 包含完整的LLM响应
-            }
+            return ai_messages
 
         except Exception as e:
             logger.error(f"Failed to generate template with AI: {e}", exc_info=True)
@@ -711,126 +710,51 @@ class GlobalMasterTemplateService:
 
     async def generate_template_with_ai_stream(self, prompt: str, template_name: str, description: str = "",
                                              tags: List[str] = None, generation_mode: str = "text_only",
-                                             reference_image: dict = None, prompt_is_ready: bool = False):
+                                             reference_image: dict = None, prompt_is_ready: bool = False,
+                                             reference_images: List[dict] = None, reference_pptx: dict = None):
         """Generate a new template using AI with streaming response"""
-        import asyncio
-        import json
-
-        # 构建AI提示词
-        if generation_mode == "text_only" or not reference_image:
-            # 纯文本生成模式
-            ai_prompt = prompt if prompt_is_ready else self._build_template_generation_prompt(prompt)
-        else:
-            # 多模态生成模式
-            if generation_mode == "reference_style":
-                mode_instruction = """
-请参考上传图片的气质、配色和版式逻辑，生成一个通用 1280×720 单页母版。
-"""
-            else:  # exact_replica
-                mode_instruction = """
-请尽量贴近上传图片的风格和版式特征，生成一个通用 1280×720 单页母版。
-"""
-
-            ai_prompt = prompt if prompt_is_ready else self._build_template_generation_prompt(
-                prompt,
-                mode_instruction=mode_instruction,
-            )
+        from contextlib import aclosing
+        from .template_selection_service import TemplateSelectionService
+        from ..template_package.reply_stream import stream_replies
 
         try:
-            # 获取模板生成任务的配置（使用异步版本以支持 landppt 系统级配置）
+            yield {'type': 'status', 'message': '正在准备模板和参考资料…'}
+            messages = await self._prepare_template_generation_messages(
+                prompt, generation_mode, reference_image, reference_images,
+                reference_pptx, prompt_is_ready,
+            )
             provider, template_settings = await self._get_template_role_provider_async()
+            if not provider:
+                raise ValueError("AI服务未配置或不可用")
+            messages = SystemPrompts.normalize_messages_for_cache(messages)
 
-            # 构建AI消息
-            if generation_mode != "text_only" and reference_image:
-                # 多模态消息
-                image_url = await self._prompt_safe_image_url_from_reference(reference_image)
-                if not image_url:
-                    raise ValueError("参考图片上传到系统图床失败，已取消发送 base64 图片")
+            async def generate(emit):
+                full_response, last_preview, last_render = "", None, 0.0
 
-                content_parts = [
-                    TextContent(text=ai_prompt),
-                    ImageContent(image_url={"url": image_url})
-                ]
-                messages = [AIMessage(role=MessageRole.USER, content=content_parts)]
+                async def on_chunk(chunk):
+                    nonlocal full_response, last_preview, last_render
+                    full_response += chunk
+                    await emit({'type': 'thinking', 'content': chunk})
+                    if time.monotonic() - last_render < 0.2:
+                        return
+                    html = TemplateSelectionService._extract_free_template_preview_html(full_response)
+                    if html and html != last_preview:
+                        last_preview, last_render = html, time.monotonic()
+                        await emit({'type': 'preview', 'html_template': html, 'template_name': template_name})
 
-                # 检查AI提供商是否支持流式聊天
-                if hasattr(provider, 'stream_chat_completion'):
-                    # 使用流式聊天API
-                    full_response = ""
-                    async for chunk in provider.stream_chat_completion(
-                        messages=messages,
-                        temperature=0.7,
-                        model=template_settings.get('model')
-                    ):
-                        full_response += chunk
-                        yield {
-                            'type': 'thinking',
-                            'content': chunk
-                        }
-                else:
-                    # 使用标准聊天API
-                    response = await self._chat_completion(
-                        messages=messages,
-                        temperature=0.7
-                    )
-                    full_response = response.content
+                # The collector checks provider completion and closes its HTTP
+                # stream on failure/cancellation instead of accepting a partial EOF.
+                response = await provider.collect_streamed_chat_completion(
+                    messages=messages, model=template_settings.get('model'), on_chunk=on_chunk,
+                )
+                result = self._template_generation_result(
+                    response.content, prompt, template_name, description, tags,
+                )
+                yield {'type': 'complete', 'message': '模板生成完成！', **result}
 
-                    # 模拟流式输出
-                    yield {'type': 'thinking', 'content': '🖼️ 正在分析参考图片...\n\n'}
-                    await asyncio.sleep(1)
-                    yield {'type': 'thinking', 'content': full_response}
-            else:
-                # 纯文本消息
-                if hasattr(provider, 'stream_text_completion'):
-                    # 使用流式API
-                    full_response = ""
-                    async for chunk in provider.stream_text_completion(
-                        prompt=ai_prompt,
-                        temperature=0.7,
-                        model=template_settings.get('model')
-                    ):
-                        full_response += chunk
-                        yield {
-                            'type': 'thinking',
-                            'content': chunk
-                        }
-                else:
-                    # 使用标准文本完成API
-                    response = await provider.text_completion(
-                        prompt=ai_prompt,
-                        temperature=0.7,
-                        model=template_settings.get('model')
-                    )
-                    full_response = response.content
-
-                    # 模拟流式输出
-                    yield {'type': 'thinking', 'content': '🤔 正在分析您的需求...\n\n'}
-                    await asyncio.sleep(1)
-                    yield {'type': 'thinking', 'content': full_response}
-
-                # 流式完成后，处理完整响应
-                yield {'type': 'thinking', 'content': '\n\n✨ 优化样式和交互效果...\n'}
-                await asyncio.sleep(0.5)
-
-                # 处理AI响应
-                html_template = self._extract_html_from_response(full_response)
-
-                if not html_template or not html_template.strip():
-                    raise ValueError("Generated HTML template is empty")
-
-                yield {'type': 'thinking', 'content': '✅ 模板生成完成，准备预览...\n'}
-                await asyncio.sleep(0.3)
-
-                # 返回生成完成的信息，包含HTML模板用于预览
-                yield {
-                    'type': 'complete',
-                    'message': '模板生成完成！',
-                    'html_template': html_template,
-                    'template_name': template_name,
-                    'description': description or f"AI生成的模板：{prompt[:100]}",
-                    'tags': tags or ['AI生成'],
-                    'llm_response': full_response  # 添加完整的LLM响应
-                }
+            async with aclosing(stream_replies(generate)) as events:
+                async for event in events:
+                    yield event
 
         except Exception as e:
             logger.error(f"Failed to generate template with AI stream: {e}", exc_info=True)

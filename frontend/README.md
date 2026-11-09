@@ -918,6 +918,18 @@ preview scripts run in an isolated frame; package previews retain their existing
 script-free sandbox. Choice submission is locked until it completes, preserves a
 failed choice, and navigates to the existing automatic generation URL.
 
+AI master generation requests SSE from `/api/global-master-templates/generate`.
+All four input modes share prompt preparation and the provider's streamed
+completion collector. Text deltas and throttled HTML snapshots update the
+response view and sandboxed preview before completion. Ten-second heartbeat
+comments keep slow preparation and model calls active; disconnect closes the
+model task. Failed or stopped output remains an unsavable preview, with explicit
+retry and no automatic second generation. Only completed generations are billed;
+database saving still requires the user's Save action. Legacy JSON callers remain
+supported. Backend and browser regressions live in
+`tests/test_global_template_generation_streaming.py` and
+`tests/test_antd_templates_ui.py`.
+
 Package metadata changes remain template-level PATCH requests; published manifests
 are not rewritten by the catalogue. JSON/ZIP import, cloning, publication, retirement
 and version deletion retain their APIs and ownership controls. Package creation

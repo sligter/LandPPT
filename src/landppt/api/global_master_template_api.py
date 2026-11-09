@@ -2,10 +2,12 @@
 Global Master Template API endpoints
 """
 
+import asyncio
+import json
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .models import (
     GlobalMasterTemplateCreate, GlobalMasterTemplateUpdate, GlobalMasterTemplateResponse,
@@ -17,6 +19,7 @@ from ..auth.middleware import get_current_user_required
 from ..core.config import app_config
 from ..database.database import AsyncSessionLocal
 from ..services.credits_service import CreditsService
+from ..web.responses import ClosingStreamingResponse
 
 logger = logging.getLogger(__name__)
 
@@ -197,12 +200,46 @@ async def get_template_by_id(template_id: int, user=Depends(get_current_user_req
         raise HTTPException(status_code=500, detail="Failed to get template")
 
 
+async def _template_generation_events(events, on_complete, heartbeat_seconds=10):
+    """Keep slow preparation/model calls alive and close upstream on disconnect."""
+    pending = None
+    try:
+        yield 'data: ' + json.dumps({'type': 'status', 'message': '正在请求 AI 生成…'}, ensure_ascii=False) + '\n\n'
+        while True:
+            pending = asyncio.create_task(anext(events))
+            while True:
+                done, _ = await asyncio.wait({pending}, timeout=heartbeat_seconds)
+                if done:
+                    break
+                yield ': heartbeat\n\n'
+            try:
+                item = pending.result()
+            except StopAsyncIteration:
+                raise ValueError('连接已中断，未收到模板生成完成确认。')
+            finally:
+                pending = None
+            if item['type'] == 'complete':
+                await on_complete()
+            yield 'data: ' + json.dumps(item, ensure_ascii=False) + '\n\n'
+            if item['type'] in {'complete', 'error'}:
+                return
+    except Exception as exc:
+        logger.exception('Failed to stream template generation')
+        yield 'data: ' + json.dumps({'type': 'error', 'message': str(exc) or '模板生成失败，请重试'}, ensure_ascii=False) + '\n\n'
+    finally:
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        await events.aclose()
+
+
 @router.post("/generate")
 async def generate_template_with_ai(
     request: GlobalMasterTemplateGenerateRequest,
-    user = Depends(get_current_user_required)
+    user = Depends(get_current_user_required),
+    http_request: Request = None,
 ):
-    """Generate a new template using AI (does not save to database)"""
+    """Stream generation on request; retain JSON compatibility and explicit saving."""
     try:
         # Create service with user_id for proper landppt config handling
         user_template_service = GlobalMasterTemplateService(user_id=user.id)
@@ -259,8 +296,7 @@ async def generate_template_with_ai(
                 "type": request.reference_pptx.type,
             }
 
-        # 使用AI生成服务（不保存到数据库）
-        result = await user_template_service.generate_template_with_ai(
+        generation_options = dict(
             prompt=request.prompt,
             template_name=request.template_name,
             description=request.description,
@@ -271,20 +307,38 @@ async def generate_template_with_ai(
             reference_pptx=reference_pptx_data,
         )
 
-        # Deduct credits after successful generation.
-        if app_config.enable_credits_system and (provider_name or "").strip().lower() == "landppt":
-            try:
-                async with AsyncSessionLocal() as session:
-                    credits_service = CreditsService(session)
-                    await credits_service.consume_credits(
-                        user_id=user.id,
-                        operation_type="template_generation",
-                        quantity=1,
-                        description="AI模板生成",
-                        reference_id=f"global_master_template:{request.template_name or ''}".rstrip(":"),
-                    )
-            except Exception as e:
-                logger.error(f"Failed to consume credits for template generation: {e}")
+        async def consume_credits():
+            # A preview/token is not a completed generation and must not be billed.
+            if app_config.enable_credits_system and (provider_name or "").strip().lower() == "landppt":
+                try:
+                    async with AsyncSessionLocal() as session:
+                        credits_service = CreditsService(session)
+                        await credits_service.consume_credits(
+                            user_id=user.id,
+                            operation_type="template_generation",
+                            quantity=1,
+                            description="AI模板生成",
+                            reference_id=f"global_master_template:{request.template_name or ''}".rstrip(":"),
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to consume credits for template generation: {e}")
+
+        want_stream = http_request is not None and (
+            http_request.query_params.get('stream', '').lower() in {'1', 'true', 'yes'}
+            or 'text/event-stream' in http_request.headers.get('accept', '')
+        )
+        if want_stream:
+            return ClosingStreamingResponse(
+                _template_generation_events(
+                    user_template_service.generate_template_with_ai_stream(**generation_options),
+                    consume_credits,
+                ),
+                media_type='text/event-stream',
+                headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+            )
+
+        result = await user_template_service.generate_template_with_ai(**generation_options)
+        await consume_credits()
 
         return {
             "success": True,
