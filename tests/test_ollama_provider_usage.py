@@ -38,3 +38,26 @@ def test_falls_back_when_ollama_omits_counts():
 
     assert result.usage["completion_tokens"] == 2
     assert result.finish_reason == "stop"
+
+
+def test_images_are_sent_as_ollama_images_not_placeholder_text():
+    from landppt.ai.base import ImageContent, TextContent
+
+    captured = {}
+
+    class _Capture:
+        async def chat(self, **kwargs):
+            captured.update(kwargs)
+            return {"message": {"content": "ok"}}
+
+    provider = OllamaProvider({"model": "llava", "base_url": "http://localhost:11434"})
+    provider.client = _Capture()
+    messages = [AIMessage(role=MessageRole.USER, content=[
+        TextContent(text="describe this"),
+        ImageContent(image_url={"url": "data:image/png;base64,QUJD"}),
+    ])]
+    asyncio.run(provider.chat_completion(messages))
+
+    sent = captured["messages"][0]
+    assert sent["images"] == ["QUJD"]
+    assert sent["content"] == "describe this"
