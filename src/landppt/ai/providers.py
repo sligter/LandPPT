@@ -1801,22 +1801,25 @@ class OllamaProvider(AIProvider):
                     message["tool_calls"] = msg.tool_calls
                 ollama_messages.append(message)
             elif isinstance(msg.content, list):
-                # Multimodal message - convert to text description for Ollama
+                # Multimodal message - Ollama takes base64 images in a separate "images" list
                 content_parts = []
+                images = []
                 for part in msg.content:
                     if isinstance(part, TextContent):
                         content_parts.append(part.text)
                     elif isinstance(part, ImageContent):
-                        # Ollama doesn't support images directly, add text description
                         image_url = part.image_url.get("url", "")
-                        if image_url.startswith("data:image/"):
-                            content_parts.append("[Image provided - base64 data]")
+                        if image_url.startswith("data:image/") and "," in image_url:
+                            images.append(image_url.split(",", 1)[1])
                         else:
                             content_parts.append(f"[Image: {image_url}]")
-                ollama_messages.append({
+                message = {
                     "role": msg.role.value,
                     "content": " ".join(content_parts)
-                })
+                }
+                if images:
+                    message["images"] = images
+                ollama_messages.append(message)
             else:
                 # Fallback to string representation
                 ollama_messages.append({"role": msg.role.value, "content": str(msg.content)})
