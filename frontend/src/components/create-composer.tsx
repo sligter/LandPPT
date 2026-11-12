@@ -110,7 +110,7 @@ function ComposerForm({ data, compact }: { data: ApiData; compact: boolean }) {
   </Form.Item>;
   const requirementsField = <Form.Item name="requirements" label={compact ? undefined : '具体需求（选填）'}><Input.TextArea aria-label="具体需求" variant={compact ? 'borderless' : undefined} autoSize={{ minRows: compact ? 2 : 4, maxRows: 10 }} placeholder={compact ? '补充重点内容、章节思路、数据或风格偏好（选填）' : '重点内容、章节思路、数据素材、风格偏好…'} /></Form.Item>;
   const fileSource = <Upload.Dragger multiple disabled={pending} accept={extensions.map(ext => '.' + ext).join(',')} beforeUpload={addFile} showUploadList={false}>
-    <InboxOutlined aria-hidden className="create-upload-icon" /><p>点击选择或拖入文件</p><p className="subtle">PDF / DOCX / TXT / MD / 图片，单个最大 100MB</p>
+    <InboxOutlined aria-hidden className="create-upload-icon" /><p>点击选择或拖入文件</p><p className="subtle">PDF / DOCX / PPTX / XLSX / TXT / MD / 图片，单个最大 100MB</p>
   </Upload.Dragger>;
   const urlSource = <Form.Item name="content_urls" label={compact ? undefined : '内容链接'} extra="每行一个或逗号分隔，最多使用前 50 个链接。支持网页与文件 URL。"><Input.TextArea aria-label="内容链接" autoSize={{ minRows: compact ? 2 : 3, maxRows: 6 }} placeholder="https://example.com/article" /></Form.Item>;
   const sourceExtras = <>

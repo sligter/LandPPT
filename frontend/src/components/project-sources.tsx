@@ -73,7 +73,7 @@ export function ProjectSources({ projectId, disabled, onSaved, onOpenChange, onA
         {error && <Alert type="error" showIcon title={snapshot ? '资料保存失败' : '资料读取失败'} description={error}
           action={!snapshot && <Button icon={<ReloadOutlined aria-hidden />} onClick={() => setAttempt(value => value + 1)}>重试读取</Button>} />}
         {snapshot && <Form layout="vertical" disabled={saving || blocked}>
-          <Form.Item label="附件" extra="PDF、Word、文本与图片，单个文件不超过 100MB；最多 50 个附件。">
+          <Form.Item label="附件" extra="PDF、Word、演示文稿、表格、文本与图片，单个文件不超过 100MB；最多 50 个附件。">
             <Space orientation="vertical" className="project-sources-files">
               {snapshot.files.filter(file => retained.includes(file.id)).map(file => <Flex key={file.id} gap={8} justify="space-between" align="center"><Typography.Text className="project-source-name">{file.filename}</Typography.Text><Button size="small" aria-label={`移除已存附件 ${file.filename}`} onClick={() => setRetained(current => current.filter(id => id !== file.id))}>移除</Button></Flex>)}
               {uploads.map((file, index) => <Flex key={`${file.name}-${file.size}`} gap={8} justify="space-between" align="center"><Typography.Text className="project-source-name">{file.name} <Tag>待保存</Tag></Typography.Text><Button size="small" aria-label={`移除新增附件 ${file.name}`} onClick={() => setUploads(current => current.filter((_, i) => i !== index))}>移除</Button></Flex>)}

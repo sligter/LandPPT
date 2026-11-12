@@ -90,7 +90,7 @@ Current version: **0.5.1**.
 
 LandPPT folds outline writing, layout, imagery, speaker notes, and export into one AI workflow:
 
-1. **Input** — topic text, or PDF / Word / Markdown / Excel / PPT documents  
+1. **Input** — topic text, or PDF / Word / Excel / PowerPoint / Markdown / image documents  
 2. **Plan** — editable outline; optional deep research for up-to-date context  
 3. **Generate** — parallel HTML slides with templates and AI-adaptive layouts  
 4. **Refine** — sidebar AI chat editing, image swap, visual references  
@@ -111,7 +111,8 @@ LandPPT folds outline writing, layout, imagery, speaker notes, and export into o
 
 ### Files & deep research
 
-- Formats: PDF / Word / Markdown / TXT / Excel / PowerPoint  
+- Formats: PDF / Word / Excel / PowerPoint / Markdown / TXT / images (`.pdf`, `.docx`, `.xlsx`, `.pptx`, `.md`, `.txt`, `.jpg`, `.jpeg`, `.png`)  
+- Word / Excel / PowerPoint are parsed with MarkItDown and need editable text: picture-only slides carry no text, so convert them to PDF or add text in the original file; legacy `.doc` / `.xls` / `.ppt` binary formats are not supported  
 - High-quality parsing via MinerU + MarkItDown  
 - Multi-engine retrieval with Tavily + SearXNG and web summarization  
 

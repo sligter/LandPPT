@@ -879,10 +879,22 @@ def _normalize_content_source_urls(content_urls: Optional[str], max_urls: int = 
     return normalized
 
 
-_URL_SOURCE_SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".jpg", ".jpeg", ".png"}
+_URL_SOURCE_SUPPORTED_EXTENSIONS = {
+    ".pdf",
+    ".docx",
+    ".pptx",
+    ".xlsx",
+    ".txt",
+    ".md",
+    ".jpg",
+    ".jpeg",
+    ".png",
+}
 _URL_SOURCE_CONTENT_TYPE_TO_EXT = {
     "application/pdf": ".pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
     "text/plain": ".txt",
     "text/markdown": ".md",
     "text/x-markdown": ".md",

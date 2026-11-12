@@ -32,9 +32,31 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
+try:
+    from importlib.util import find_spec
+
+    MARKITDOWN_AVAILABLE = find_spec("markitdown") is not None
+except Exception:
+    MARKITDOWN_AVAILABLE = False
+
 from ..api.models import FileUploadResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _has_extractable_text(content: str) -> bool:
+    """Whether converted text carries anything an outline can actually use.
+
+    MarkItDown renders a picture-only slide as a slide marker comment plus an
+    image reference, so both have to be ignored before deciding the file is empty.
+    """
+    if not content:
+        return False
+
+    text = re.sub(r"<!--.*?-->", " ", content, flags=re.DOTALL)
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)
+    text = re.sub(r"[#>*_`|\-\s]+", " ", text)
+    return bool(text.strip())
 
 
 class FileProcessor:
@@ -44,6 +66,8 @@ class FileProcessor:
         self.supported_formats = {
             '.pdf': self._process_pdf,
             '.docx': self._process_docx,
+            '.pptx': self._process_pptx,
+            '.xlsx': self._process_xlsx,
             '.txt': self._process_txt,
             '.md': self._process_markdown,
             '.jpg': self._process_image,
@@ -141,6 +165,23 @@ class FileProcessor:
         except Exception as e:
             logger.error(f"Error processing DOCX file: {e}")
             raise ValueError(f"DOCX 文件处理失败: {str(e)}")
+
+    async def _process_pptx(self, file_path: str) -> str:
+        """Process PPTX by flattening slides into Markdown via MarkItDown."""
+        content = await self._convert_with_markitdown(file_path, label="PPTX")
+        if content and _has_extractable_text(content):
+            return content
+        raise ValueError(
+            "PPTX 文件处理失败: 未能提取到可编辑文字。"
+            "扫描件或纯图片幻灯片没有文字内容，请改用 PDF 或包含文字的演示文稿。"
+        )
+
+    async def _process_xlsx(self, file_path: str) -> str:
+        """Process XLSX by converting sheets into Markdown tables via MarkItDown."""
+        content = await self._convert_with_markitdown(file_path, label="XLSX")
+        if content and _has_extractable_text(content):
+            return content
+        raise ValueError("Excel 文件处理失败: 工作簿中没有可提取的内容，请确认表格包含数据。")
     
     async def _process_pdf(self, file_path: str, *, file_processing_mode: Optional[str] = None) -> str:
         """Process PDF file (manual upload path keeps original behavior)."""
@@ -237,8 +278,8 @@ class FileProcessor:
             except Exception:
                 pass
 
-    async def _extract_pdf_with_markitdown(self, file_path: str) -> Optional[str]:
-        """Fallback parser when MinerU is unavailable."""
+    async def _convert_with_markitdown(self, file_path: str, *, label: str) -> Optional[str]:
+        """Convert one document to Markdown; None when unavailable or empty."""
         try:
             from summeryanyfile.core.markitdown_converter import MarkItDownConverter
         except Exception as e:
@@ -263,13 +304,17 @@ class FileProcessor:
             content = await loop.run_in_executor(None, _convert_sync, file_path)
             cleaned = (content or "").strip()
             if cleaned:
-                logger.info("MarkItDown PDF 解析成功")
+                logger.info(f"MarkItDown {label} 解析成功")
                 return cleaned
-            logger.warning("MarkItDown 返回内容为空")
+            logger.warning(f"MarkItDown {label} 返回内容为空")
             return None
         except Exception as e:
-            logger.warning(f"MarkItDown PDF 解析失败: {e}")
+            logger.warning(f"MarkItDown {label} 解析失败: {e}")
             return None
+
+    async def _extract_pdf_with_markitdown(self, file_path: str) -> Optional[str]:
+        """Fallback parser when MinerU is unavailable."""
+        return await self._convert_with_markitdown(file_path, label="PDF")
 
     async def _extract_pdf_with_pypdf2(self, file_path: str) -> str:
         """Final fallback parser to avoid complete failure."""
@@ -377,6 +422,9 @@ class FileProcessor:
         """Extract potential topics from content"""
         if not content:
             return []
+
+        # MarkItDown marks slide boundaries with HTML comments; they are not topics.
+        content = re.sub(r"<!--.*?-->", "\n", content, flags=re.DOTALL)
         
         topics = []
         
@@ -455,6 +503,9 @@ class FileProcessor:
         
         if file_ext == '.pdf' and not PDF_AVAILABLE:
             return False, "PDF 处理功能不可用，请联系管理员安装 PyPDF2"
+
+        if file_ext in {'.pptx', '.xlsx'} and not MARKITDOWN_AVAILABLE:
+            return False, "PPTX/Excel 处理功能不可用，请联系管理员安装 markitdown[all]"
         
         if file_ext in ['.jpg', '.jpeg', '.png'] and not OCR_AVAILABLE:
             return True, "图片文件可以上传，但文字识别功能不可用"

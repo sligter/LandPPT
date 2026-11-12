@@ -90,7 +90,7 @@
 
 LandPPT 将「写大纲 → 做版式 → 配图 → 写讲稿 → 导出」整合成一条 AI 工作流：
 
-1. **输入**：主题描述，或 PDF / Word / Markdown / Excel / PPT 等文档  
+1. **输入**：主题描述，或 PDF / Word / Excel / PowerPoint / Markdown / 图片等文档  
 2. **规划**：生成可编辑大纲，可选深度研究补充最新信息  
 3. **生成**：并行产出 HTML 幻灯片，支持模板与 AI 自适应布局  
 4. **打磨**：侧边栏 AI 对话编辑、换图、视觉参考  
@@ -111,7 +111,8 @@ LandPPT 将「写大纲 → 做版式 → 配图 → 写讲稿 → 导出」整�
 
 ### 文件处理与深度研究
 
-- 多格式：PDF / Word / Markdown / TXT / Excel / PowerPoint  
+- 多格式：PDF / Word / Excel / PowerPoint / Markdown / TXT / 图片（`.pdf`、`.docx`、`.xlsx`、`.pptx`、`.md`、`.txt`、`.jpg`、`.jpeg`、`.png`）  
+- Word / Excel / PowerPoint 使用 MarkItDown 解析，需可编辑文字：纯图片幻灯片没有文字内容，请先转成 PDF 或在原文件中添加文字；旧版 `.doc` / `.xls` / `.ppt` 二进制格式不支持  
 - MinerU + MarkItDown 高质量解析  
 - Tavily + SearXNG 多引擎检索与网页摘要  
 
