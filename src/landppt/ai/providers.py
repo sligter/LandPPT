@@ -1383,13 +1383,75 @@ class GoogleProvider(AIProvider):
             tool_calls.append(tool_call)
         return tool_calls
 
+    def _content_has_image(self, content: Any) -> bool:
+        return isinstance(content, list) and any(isinstance(part, ImageContent) for part in content)
+
+    @staticmethod
+    def _inline_data_from_data_url(image_url: str) -> Optional[Dict[str, str]]:
+        """REST Blob for a data URL. JSON uses camelCase, unlike the SDK's inline_data."""
+        if not image_url.startswith("data:image/") or "," not in image_url:
+            return None
+        header, data = image_url.split(",", 1)
+        if not data:
+            return None
+        mime_type = header[5:].split(";", 1)[0]
+        if not mime_type.startswith("image/"):
+            return None
+        return {"mimeType": mime_type, "data": data}
+
+    def _user_message_rest_parts(self, msg: AIMessage) -> List[Dict[str, Any]]:
+        """User/system parts. Text-only stays one placeholder string; data URLs become inlineData."""
+        if not self._content_has_image(msg.content):
+            text = self._messages_to_plaintext_prompt([msg])
+            return [{"text": text}] if text else []
+
+        parts: List[Dict[str, Any]] = []
+        text_bits: List[str] = []
+        prefix_pending = True
+
+        def flush() -> None:
+            nonlocal prefix_pending
+            if prefix_pending:
+                prefix = f"[{msg.role.value.upper()}]: "
+                prefix_pending = False
+            else:
+                prefix = ""
+            body = " ".join(text_bits)
+            text_bits.clear()
+            text = prefix + body if body else prefix.rstrip()
+            if text:
+                parts.append({"text": text})
+
+        for part in msg.content:
+            if isinstance(part, TextContent):
+                if part.text:
+                    text_bits.append(part.text)
+            elif isinstance(part, ImageContent):
+                url = part.image_url.get("url", "") if isinstance(part.image_url, dict) else ""
+                inline = self._inline_data_from_data_url(url)
+                if inline is None:
+                    text_bits.append(f"[Image: {url}]" if url else "[Image]")
+                    continue
+                flush()
+                parts.append({"inlineData": inline})
+        flush()
+        return parts
+
     def _messages_to_rest_contents(self, messages: List[AIMessage]) -> Optional[List[Dict[str, Any]]]:
-        """Structured `contents` for a tool round trip; None when no message carries tool state.
+        """Structured `contents` for tool state or user images; None when plaintext is enough.
 
         Replays assistant functionCall parts (with their original id and thoughtSignature)
         and tool results as functionResponse parts, instead of flattening them to text.
+        Data-URL images on user messages are inlineData; other image URLs stay placeholders.
         """
-        if not any(msg.tool_calls or msg.role == MessageRole.TOOL for msg in messages):
+        def needs_structure(msg: AIMessage) -> bool:
+            if msg.tool_calls or msg.role == MessageRole.TOOL:
+                return True
+            if msg.role in (MessageRole.ASSISTANT, MessageRole.TOOL):
+                return False
+            return self._content_has_image(msg.content)
+
+        if not any(needs_structure(msg) for msg in messages):
             return None
 
         call_names: Dict[str, str] = {}
@@ -1440,8 +1502,7 @@ class GoogleProvider(AIProvider):
                     parts.append(part)
                 add("model", parts)
             else:
-                text = self._messages_to_plaintext_prompt([msg])
-                add("user", [{"text": text}])
+                add("user", self._user_message_rest_parts(msg))
         return contents
 
     def _convert_tools_to_gemini(self, tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
