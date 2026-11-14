@@ -316,6 +316,82 @@ async def test_google_provider_rest_round_trip_omits_synthetic_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_google_provider_rest_sends_data_url_images_as_inline_data(monkeypatch):
+    from landppt.ai.base import AIMessage, ImageContent, MessageRole, TextContent
+
+    payloads = _fake_rest_session(
+        monkeypatch, [{"candidates": [{"content": {"parts": [{"text": "a chart"}]}, "finishReason": "STOP"}]}]
+    )
+    messages = [
+        AIMessage(
+            role=MessageRole.USER,
+            content=[
+                TextContent(text="describe this"),
+                ImageContent(image_url={"url": "data:image/png;base64,QUJD"}),
+                ImageContent(image_url={"url": "https://example.com/photo.jpg"}),
+            ],
+        )
+    ]
+
+    await _rest_provider().chat_completion(messages)
+
+    # A mirror never sees the data URL flattened into placeholder text.
+    assert payloads[0]["contents"] == [
+        {
+            "role": "user",
+            "parts": [
+                {"text": "[USER]: describe this"},
+                {"inlineData": {"mimeType": "image/png", "data": "QUJD"}},
+                {"text": "[Image: https://example.com/photo.jpg]"},
+            ],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_google_provider_rest_tool_round_trip_keeps_user_images(monkeypatch):
+    from landppt.ai.base import AIMessage, ImageContent, MessageRole, TextContent
+
+    payloads = _fake_rest_session(
+        monkeypatch, [{"candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}]
+    )
+    messages = [
+        AIMessage(
+            role=MessageRole.USER,
+            content=[
+                TextContent(text="look"),
+                ImageContent(image_url={"url": "data:image/jpeg;base64,eHh4"}),
+            ],
+        ),
+        AIMessage(
+            role=MessageRole.ASSISTANT,
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "read_slide", "arguments": "{}"},
+                    "thought_signature": "sig",
+                }
+            ],
+        ),
+        AIMessage(role=MessageRole.TOOL, content='{"ok": true}', tool_call_id="call_1"),
+    ]
+
+    await _rest_provider().chat_completion(messages)
+
+    contents = payloads[0]["contents"]
+    assert contents[0]["parts"] == [
+        {"text": "[USER]: look"},
+        {"inlineData": {"mimeType": "image/jpeg", "data": "eHh4"}},
+    ]
+    assert contents[1]["parts"] == [
+        {"functionCall": {"id": "call_1", "name": "read_slide", "args": {}}, "thoughtSignature": "sig"}
+    ]
+    assert "data:image" not in str(contents[0])
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("block_reason", ["SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "OTHER"])
 async def test_google_provider_rest_reports_blocked_prompt(monkeypatch, block_reason):
     _fake_rest_session(monkeypatch, [{"promptFeedback": {"blockReason": block_reason}}])
