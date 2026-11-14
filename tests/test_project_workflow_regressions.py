@@ -130,6 +130,51 @@ async def test_dashboard_renders_model_timestamp_without_falling_back_to_error(m
 
 
 @pytest.mark.asyncio
+async def test_dashboard_ships_recent_project_candidates_newest_first(monkeypatch):
+    from fastapi import Request
+    from landppt.api.models import PPTProject, ProjectListResponse
+    from landppt.web.route_modules import project_lifecycle_routes
+
+    projects = [
+        PPTProject(
+            project_id=f"recent-{index:02d}",
+            title=f"最近项目 {index}",
+            topic="Dashboard",
+            scenario="general",
+            status="completed",
+            updated_at=float(1000 + index),
+        )
+        for index in range(15)
+    ]
+
+    class ProjectManager:
+        async def list_projects(self, **query):
+            return ProjectListResponse(
+                projects=projects, total=len(projects), page=1, page_size=100
+            )
+
+    monkeypatch.setattr(
+        project_lifecycle_routes, "ppt_service",
+        SimpleNamespace(project_manager=ProjectManager()),
+    )
+    request = Request({"type": "http", "path": "/dashboard", "headers": []})
+    user = SimpleNamespace(id=23, username="recent-user", is_admin=False)
+    request.state.user = user
+    response = await project_lifecycle_routes.web_dashboard(request, user=user)
+    payload = json.loads(
+        response.body.decode()
+        .split('<script id="antdData" type="application/json">', 1)[1]
+        .split("</script>", 1)[0]
+    )
+    # The page turns these candidates into whole card rows at the current column
+    # count, so the payload must be newest-first and wide enough for desktop grids.
+    assert project_lifecycle_routes.RECENT_PROJECT_CANDIDATE_LIMIT == 12
+    assert [project["project_id"] for project in payload["projects"]] == [
+        f"recent-{index:02d}" for index in range(14, 2, -1)
+    ]
+
+
+@pytest.mark.asyncio
 async def test_enhanced_ppt_service_keeps_project_workflow_proxy():
     execute_project_workflow = _load_class_method(
         "src/landppt/services/enhanced_ppt_service.py",

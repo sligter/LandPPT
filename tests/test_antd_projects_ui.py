@@ -122,6 +122,56 @@ def test_dashboard_overview_and_tasks_are_usable_without_overflow(
         assert item.evaluate("e => e.scrollWidth <= e.clientWidth + 1")
 
 
+@pytest.mark.parametrize(
+    "width,height", [(1600, 900), (1440, 900), (1180, 800), (1024, 768), (768, 1024), (390, 844)]
+)
+def test_dashboard_recent_projects_fill_whole_card_rows(
+    ui_page, detail_project, width, height
+):
+    page, load = ui_page
+    page.set_viewport_size({"width": width, "height": height})
+    candidates = [
+        {
+            **detail_project,
+            "project_id": f"recent-{index}",
+            "title": f"最近项目 {index}",
+            "updated_at": detail_project["created_at"] + index,
+            "todo_board": None,
+        }
+        for index in range(8)
+    ]
+    load(
+        "pages/project/project_dashboard.html",
+        path="/dashboard",
+        total_projects=len(candidates),
+        completed_projects=len(candidates),
+        in_progress_projects=0,
+        draft_projects=0,
+        recent_projects=candidates,
+    )
+    page.locator(".dashboard-project-item").first.wait_for()
+    # The grid tracks decide the card count, so every rendered card must belong
+    # to a complete row instead of a lone leftover beneath the last full row.
+    columns = page.evaluate(
+        "() => getComputedStyle(document.querySelector('.dashboard-projects ul'))"
+        ".gridTemplateColumns.split(' ').filter(Boolean).length"
+    )
+    cards = page.locator(".dashboard-project-item")
+    count = cards.count()
+    rows = -(-count // columns)
+    assert count == min(len(candidates), columns * -(-4 // columns))
+    assert count % columns == 0
+    tops = [round(cards.nth(index).bounding_box()["y"]) for index in range(count)]
+    for row in range(rows):
+        assert len(set(tops[row * columns : (row + 1) * columns])) == 1
+    assert page.get_by_role(
+        "link", name=candidates[count - 1]["title"], exact=True
+    ).is_visible()
+    assert page.get_by_role(
+        "link", name=candidates[count]["title"], exact=True
+    ).count() == 0
+
+
 def detail(page, load, project, **values):
     load(
         "pages/project/project_detail.html",

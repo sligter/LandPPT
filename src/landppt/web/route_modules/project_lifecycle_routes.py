@@ -30,6 +30,11 @@ from .unattended_support import (
 
 router = APIRouter()
 
+# Candidates shipped to the dashboard's recent-projects grid. The page renders
+# only as many cards as fill whole rows at its current column count, so the
+# payload has to cover the widest layouts instead of a fixed card count.
+RECENT_PROJECT_CANDIDATE_LIMIT = 12
+
 SCENARIOS = [
     {"id": "general", "name": "通用", "description": "适用于各类通用场景的 PPT 模板", "icon": "📚"},
     {"id": "tourism", "name": "旅游观光", "description": "旅游线路、景点介绍等旅游相关 PPT", "icon": "🗺️"},
@@ -118,9 +123,10 @@ async def web_dashboard(
         completed_projects = len([project for project in projects if project.status == "completed"])
         in_progress_projects = len([project for project in projects if project.status == "in_progress"])
         draft_projects = len([project for project in projects if project.status == "draft"])
+        # Newest first, pinned first; the page trims this to whole card rows.
         recent_projects = sorted(
             projects, key=lambda project: (-int(project.is_pinned), -project.updated_at, project.project_id)
-        )[:5]
+        )[:RECENT_PROJECT_CANDIDATE_LIMIT]
 
         active_todo_boards = []
         for project in projects:

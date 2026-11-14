@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { App, Button, Card, ConfigProvider, Empty, Flex, Grid, Progress, Typography } from 'antd';
 import { ArrowRightOutlined, FileTextOutlined } from '@ant-design/icons';
 import type { ApiData } from '../api';
@@ -7,11 +7,38 @@ import { projectPath, ProjectCover, ProjectLibraryTitle, ProjectStatus, useProje
 import CreateComposer from '../components/create-composer';
 
 const summaries = [['总项目数', '/projects'], ['已完成', '/projects?status=completed'], ['进行中', '/projects?status=in_progress'], ['草稿', '/projects?status=draft']];
+// The recent grid fills whole rows; below four columns that means more than one
+// row so phones do not drop to a single card.
+const MIN_RECENT_CARDS = 4;
+
+function recentCardCount(columns: number) {
+  return columns * Math.max(1, Math.ceil(MIN_RECENT_CARDS / columns));
+}
 
 export default function Dashboard({ data }: { data: ApiData }) {
   const [projects, setProjects] = useState<Project[]>(data.projects);
+  // Start from the usual four-card desktop row; the grid is measured right after
+  // mount so wider layouts grow before the first paint.
+  const [columns, setColumns] = useState(MIN_RECENT_CARDS);
+  const recentList = useRef<HTMLUListElement | null>(null);
   const { message } = App.useApp();
   const screens = Grid.useBreakpoint();
+  useLayoutEffect(() => {
+    const list = recentList.current;
+    if (!list) return;
+    const measure = () => {
+      // `auto-fill` resolves the computed track list to the tracks that fit, so
+      // this is the current column count of the grid.
+      const tracks = getComputedStyle(list).gridTemplateColumns.split(' ').filter(Boolean).length;
+      const next = Math.max(1, tracks);
+      setColumns(current => (current === next ? current : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [projects.length]);
+  const visibleProjects = projects.slice(0, recentCardCount(columns));
   async function refreshProjects(id: string, flags: Pick<Project, 'is_favorite' | 'is_pinned'>) {
     // Keep the confirmed flags even if the follow-up read fails. Updating this
     // section in place preserves the user's in-progress creation form.
@@ -36,7 +63,7 @@ export default function Dashboard({ data }: { data: ApiData }) {
     <div className={`dashboard-workspace${data.todos.length ? ' dashboard-workspace--with-tasks' : ''}`}>
       <section className="dashboard-recent" aria-labelledby="recentProjectsTitle">
         <div className="section-heading recent-projects-header"><h2 id="recentProjectsTitle">{projects.some(project => project.is_pinned) ? '置顶与最近项目' : '最近项目'}</h2><Flex gap={4}><Button type="text" href="/projects?favorite=true">我的收藏</Button><Button type="text" className="dashboard-all-projects" href="/projects">所有项目<ArrowRightOutlined aria-hidden /></Button></Flex></div>
-        <div className="dashboard-projects">{projects.length ? <ul>{projects.map(project => <li className="dashboard-project-item" key={project.project_id}>
+        <div className="dashboard-projects">{projects.length ? <ul ref={recentList}>{visibleProjects.map(project => <li className="dashboard-project-item" key={project.project_id}>
           <Card hoverable size="small" cover={<a className="project-cover-link" href={projectPath(project)} aria-label={`打开项目 ${project.title}`}><ProjectCover project={project} /></a>}>
             <Card.Meta title={<ProjectLibraryTitle project={project} organize={organize} />} description={`更新于 ${project.updated}`} />
             <Flex className="dashboard-project-footer" justify="space-between" align="center" gap={8}><ProjectStatus project={project} /><ConfigProvider componentSize={screens.md ? 'small' : undefined}>{actions(project)}</ConfigProvider></Flex>
