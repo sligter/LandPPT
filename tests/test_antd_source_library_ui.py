@@ -297,15 +297,26 @@ def test_existing_material_drawer_preserves_conflict_draft_and_refreshes_after_c
     assert not state["images"]["writes"] and not state["errors"]
 
 
+@pytest.mark.parametrize("refresh", ["immediate", "held", "moved_focus"])
 def test_clear_last_project_on_last_page_returns_to_valid_page_and_restores_focus(
-    ui_page,
+    ui_page, refresh
 ):
     page, load = ui_page
     state = source_setup(page, load)
+    held = []
+    if refresh != "immediate":
+        def hold_corrected_page(route):
+            if parse_qs(urlsplit(route.request.url).query).get("page") == ["3"]:
+                held.append(route)
+                page.evaluate("window.correctedReadHeld = true")
+            else:
+                route.fallback()
+
+        page.route("**/api/source-library?*", hold_corrected_page)
     source_tab(page)
     expect(page.get_by_text("共 19 个项目", exact=True)).to_be_visible()
     page.locator(".source-library .ant-pagination-item").filter(has_text="4").click()
-    page.get_by_role("region", name="资料项目列表").get_by_role(
+    page.locator('[data-source-project="source-18"]').get_by_role(
         "button", name="管理资料", exact=True
     ).click()
     drawer = page.get_by_role("dialog", name="管理参考资料", exact=True)
@@ -319,7 +330,20 @@ def test_clear_last_project_on_last_page_returns_to_valid_page_and_restores_focu
     expect(page.locator(".source-library .ant-pagination-item-active")).to_have_text(
         "3"
     )
-    expect(page.get_by_role("heading", name="项目资料", exact=True)).to_be_focused()
+    destination = page.get_by_role("heading", name="项目资料", exact=True)
+    if refresh != "immediate":
+        page.wait_for_function("window.correctedReadHeld === true")
+        region = page.get_by_role("region", name="资料项目列表", exact=True)
+        expect(region).to_have_attribute("aria-busy", "true")
+        expect(region.get_by_role("button", name="管理资料").first).to_be_disabled()
+        if refresh == "moved_focus":
+            destination = page.get_by_role("link", name="打开项目", exact=True)
+            destination.focus()
+        held[0].fallback()
+    expect(page.get_by_role("region", name="资料项目列表")).to_have_attribute(
+        "aria-busy", "false"
+    )
+    expect(destination).to_be_focused()
     assert state["source_reads"][-1]["page"] == "3"
 
 

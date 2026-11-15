@@ -886,8 +886,10 @@ Management reuses `ProjectSources` and its existing owner/revision/CAS/task
 guards, upload validation and retryable drafts. The list pauses reads while a
 Drawer is open and refreshes only after its close animation, preserving the
 Drawer during a save. Inputs/page are retained, an emptied last page clamps
-back, and focus restores after the refreshed trigger is enabled (or to the
-heading if the project disappeared). The optional `onAfterClose` leaves other
+back, and focus restores in a React effect after the refreshed cards and enabled
+triggers reach the DOM (or to the heading if the project disappeared). Page
+correction keeps loading active through the final read, and a user-selected
+focus target takes precedence. The optional `onAfterClose` leaves other
 source entry points unchanged. Changes mark sources for regeneration without
 rewriting existing slides or automatically starting a task.
 

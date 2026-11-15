@@ -36,6 +36,7 @@ export function SourceLibrary({ active, projectId: fixedProjectId, onSourcesSave
   useEffect(() => {
     if (!active || editing || projectId !== (fixedProjectId ?? (new URLSearchParams(location.search).get('project') || ''))) return;
     const controller = new AbortController();
+    let correctingPage = false;
     setLoading(true); setError('');
     const params = new URLSearchParams({ page: String(page), per_page: '6', search: query, kind, sort });
     if (projectId) params.set('project_id', projectId);
@@ -43,20 +44,24 @@ export function SourceLibrary({ active, projectId: fixedProjectId, onSourcesSave
       if (controller.signal.aborted) return;
       if (!Array.isArray(result.projects) || !Number.isInteger(result.pagination?.total_count) || result.pagination.total_count < 0 || !Number.isInteger(result.pagination?.current_page) || result.pagination.current_page < 1 || result.pagination.current_page > Math.max(1, Math.ceil(result.pagination.total_count / 6)) || !result.projects.every(validProject)) throw new Error('资料列表数据不完整，请重试');
       setProjects(result.projects); setTotal(result.pagination.total_count); setScope(result.project || null);
-      if (result.pagination.current_page !== page) setPage(result.pagination.current_page);
+      if (result.pagination.current_page !== page) { correctingPage = true; setPage(result.pagination.current_page); }
     }).catch(reason => { if (!controller.signal.aborted) { setError(reason.message); setProjects([]); setTotal(0); } }).finally(() => {
       if (controller.signal.aborted) return;
-      setLoading(false);
-      requestAnimationFrame(() => {
-        if (controller.signal.aborted || !returnProject.current) return;
-        const id = returnProject.current; returnProject.current = null;
-        if (document.activeElement !== document.body) return;
-        const card = Array.from(region.current?.querySelectorAll<HTMLElement>('[data-source-project]') || []).find(node => node.dataset.sourceProject === id);
-        (card?.querySelector<HTMLButtonElement>('.source-library-project-heading button') || heading.current)?.focus({ preventScroll: true });
-      });
+      // Keep controls disabled until the corrected page's own read completes.
+      if (!correctingPage) setLoading(false);
     });
     return () => controller.abort();
   }, [active, editing, page, query, kind, sort, projectId, reload]);
+  useEffect(() => {
+    if (!active) { returnProject.current = null; return; }
+    if (loading || !returnProject.current) return;
+    // Effects run after the refreshed cards and enabled triggers reach the DOM.
+    // An animation frame scheduled by the request can precede that commit.
+    const id = returnProject.current; returnProject.current = null;
+    if (document.activeElement !== document.body) return;
+    const card = Array.from(region.current?.querySelectorAll<HTMLElement>('[data-source-project]') || []).find(node => node.dataset.sourceProject === id);
+    (card?.querySelector<HTMLButtonElement>('.source-library-project-heading button') || heading.current)?.focus({ preventScroll: true });
+  }, [active, loading, projects]);
   function clearScope() { setProjectId(''); setScope(null); setPage(1); const url = new URL(location.href); url.searchParams.delete('project'); history.replaceState(history.state, '', url); }
   const clear = () => { setSearch(''); setQuery(''); setKind(''); setSort('newest'); setPage(1); };
   return <div className="source-library settings-stack">
