@@ -333,6 +333,12 @@ uv run --extra dev python -m playwright install chromium
 uv run --extra dev pytest tests/test_app_ui.py tests/test_antd_ui.py tests/test_antd_projects_ui.py tests/test_antd_account_ui.py tests/test_antd_admin_ui.py tests/test_antd_admin_management_ui.py tests/test_antd_community_ui.py tests/test_antd_images_ui.py tests/test_antd_templates_ui.py tests/test_antd_creation_research_ui.py tests/test_antd_home_generator_ui.py tests/test_antd_presentation_ui.py tests/test_antd_todo_ui.py tests/test_antd_editor_ui.py tests/test_antd_remaining_ui.py tests/test_template_package_workspace_ui.py -q
 ```
 
+### 方式六：Railway 一键部署
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/landppt-ai-presentations)
+
+使用官方 `bradleylzh/landppt` 镜像 + PostgreSQL 一键部署（单节点模式，生成的文件保存在 `/app/data` 持久化卷中）。每次部署都会自动生成随机的 `SECRET_KEY` 和管理员密码（见服务变量 `LANDPPT_BOOTSTRAP_ADMIN_PASSWORD`），登录后在 AI 设置中配置提供商即可使用。
+
 ---
 
 ## 使用指南
