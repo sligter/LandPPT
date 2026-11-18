@@ -7,6 +7,7 @@ export const systemDefaults: ApiData = {
   tavily_api_key: '', tavily_base_url: 'https://api.tavily.com', tavily_max_results: 10, tavily_search_depth: 'advanced',
   deepseek_api_key: '', deepseek_base_url: 'https://api.deepseek.com', deepseek_max_results: 10, deepseek_timeout: 30,
   searxng_host: '', searxng_max_results: 10, searxng_language: 'auto', searxng_timeout: 30,
+  keenable_api_key: '', keenable_max_results: 10, keenable_timeout: 20,
   research_max_content_length: 5000, research_extraction_timeout: 30, research_enable_content_extraction: true,
   tts_voice_zh: 'zh-CN-XiaoxiaoNeural', tts_voice_en: 'en-US-JennyNeural', comfyui_base_url: 'http://127.0.0.1:8188',
   comfyui_tts_workflow_path: 'tests/Qwen3-TD-TTS.json', comfyui_tts_timeout_seconds: 600, comfyui_tts_chunk_chars: 120,

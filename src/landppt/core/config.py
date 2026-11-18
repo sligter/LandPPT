@@ -113,8 +113,13 @@ class AIConfig(BaseSettings):
     searxng_language: str = Field(default="auto", env="SEARXNG_LANGUAGE")
     searxng_timeout: int = Field(default=30, env="SEARXNG_TIMEOUT")
 
+    # Keenable Search (opt-in via RESEARCH_PROVIDER=keenable; API key optional)
+    keenable_api_key: Optional[str] = Field(default=None, env="KEENABLE_API_KEY")
+    keenable_max_results: int = Field(default=10, env="KEENABLE_MAX_RESULTS")
+    keenable_timeout: int = Field(default=20, env="KEENABLE_TIMEOUT")
+
     # Research Configuration
-    research_provider: str = Field(default="tavily", env="RESEARCH_PROVIDER")  # tavily, deepseek, searxng, both
+    research_provider: str = Field(default="tavily", env="RESEARCH_PROVIDER")  # tavily, deepseek, searxng, both, keenable
     research_enable_content_extraction: bool = Field(default=True, env="RESEARCH_ENABLE_CONTENT_EXTRACTION")
     research_max_content_length: int = Field(default=5000, env="RESEARCH_MAX_CONTENT_LENGTH")
     research_extraction_timeout: int = Field(default=30, env="RESEARCH_EXTRACTION_TIMEOUT")
@@ -557,6 +562,11 @@ def reload_ai_config():
     ai_config.searxng_max_results = int(os.environ.get('SEARXNG_MAX_RESULTS', str(ai_config.searxng_max_results)))
     ai_config.searxng_language = os.environ.get('SEARXNG_LANGUAGE', ai_config.searxng_language)
     ai_config.searxng_timeout = int(os.environ.get('SEARXNG_TIMEOUT', str(ai_config.searxng_timeout)))
+
+    # Update Keenable configuration
+    ai_config.keenable_api_key = os.environ.get('KEENABLE_API_KEY', ai_config.keenable_api_key)
+    ai_config.keenable_max_results = int(os.environ.get('KEENABLE_MAX_RESULTS', str(ai_config.keenable_max_results)))
+    ai_config.keenable_timeout = int(os.environ.get('KEENABLE_TIMEOUT', str(ai_config.keenable_timeout)))
 
     # Update Research configuration
     ai_config.research_provider = os.environ.get('RESEARCH_PROVIDER', ai_config.research_provider)

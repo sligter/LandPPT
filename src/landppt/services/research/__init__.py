@@ -1,4 +1,5 @@
 from .searxng_provider import SearXNGContentProvider, SearXNGSearchResult, SearXNGSearchResponse
+from .keenable_provider import KeenableContentProvider
 from .deepseek_provider import DeepSeekContentProvider
 from .content_extractor import WebContentExtractor, ExtractedContent
 from .enhanced_research_service import (

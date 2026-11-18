@@ -119,6 +119,10 @@ class ConfigService:
             "searxng_language": {"type": "text", "category": "generation_params", "default": "auto"},
             "searxng_timeout": {"type": "number", "category": "generation_params", "default": "30"},
 
+            "keenable_api_key": {"type": "password", "category": "generation_params"},
+            "keenable_max_results": {"type": "number", "category": "generation_params", "default": "10"},
+            "keenable_timeout": {"type": "number", "category": "generation_params", "default": "20"},
+
             # Research Configuration
             "research_provider": {"type": "select", "category": "generation_params", "default": "tavily"},
             "research_enable_content_extraction": {"type": "boolean", "category": "generation_params", "default": "true"},

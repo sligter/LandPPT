@@ -152,6 +152,10 @@ class DatabaseConfigService:
             "unattended_video_fps": {"type": "number", "category": "generation_params", "default": "30"},
             "unattended_video_render_mode": {"type": "select", "category": "generation_params", "default": "live"},
 
+            "keenable_api_key": {"type": "password", "category": "generation_params"},
+            "keenable_max_results": {"type": "number", "category": "generation_params", "default": "10"},
+            "keenable_timeout": {"type": "number", "category": "generation_params", "default": "20"},
+
             # Research Configuration
             "research_provider": {"type": "select", "category": "generation_params", "default": ai_config.research_provider},
             "research_enable_content_extraction": {"type": "boolean", "category": "generation_params", "default": "true"},
