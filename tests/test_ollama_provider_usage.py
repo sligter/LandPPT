@@ -61,3 +61,41 @@ def test_images_are_sent_as_ollama_images_not_placeholder_text():
     sent = captured["messages"][0]
     assert sent["images"] == ["QUJD"]
     assert sent["content"] == "describe this"
+
+
+def test_tool_calls_are_normalized_to_openai_dicts():
+    import json
+
+    from ollama import Message
+
+    message = Message(
+        role="assistant",
+        content="",
+        tool_calls=[Message.ToolCall(function=Message.ToolCall.Function(name="edit_slide", arguments={"slide": 2}))],
+    )
+    result = _run({"message": message})
+
+    assert result.tool_calls == [
+        {
+            "id": "ollama-tool-call-1",
+            "type": "function",
+            "function": {"name": "edit_slide", "arguments": json.dumps({"slide": 2})},
+        }
+    ]
+
+
+def test_replayed_tool_call_arguments_are_sent_as_objects():
+    captured = {}
+
+    class _Capture:
+        async def chat(self, **kwargs):
+            captured.update(kwargs)
+            return {"message": {"content": "ok"}}
+
+    provider = OllamaProvider({"model": "llama3", "base_url": "http://localhost:11434"})
+    provider.client = _Capture()
+    call = {"id": "c1", "type": "function", "function": {"name": "edit_slide", "arguments": '{"slide": 2}'}}
+    messages = [AIMessage(role=MessageRole.ASSISTANT, content="", tool_calls=[call])]
+    asyncio.run(provider.chat_completion(messages))
+
+    assert captured["messages"][0]["tool_calls"][0]["function"]["arguments"] == {"slide": 2}
