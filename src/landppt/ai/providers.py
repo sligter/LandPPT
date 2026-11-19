@@ -634,8 +634,20 @@ class OpenAIProvider(AIProvider):
                 async def _responses_chunks() -> AsyncGenerator[str, None]:
                     async with self.client.responses.stream(**request_kwargs) as stream:
                         async for event in stream:
-                            if getattr(event, "type", None) == "response.output_text.delta" and getattr(event, "delta", None):
+                            event_type = getattr(event, "type", None)
+                            if event_type == "response.output_text.delta" and getattr(event, "delta", None):
                                 yield event.delta
+                            elif event_type == "response.failed":
+                                error = getattr(getattr(event, "response", None), "error", None)
+                                raise RuntimeError(
+                                    f"OpenAI Responses stream failed: "
+                                    f"{getattr(error, 'code', None)}: {getattr(error, 'message', None)}"
+                                )
+                            elif event_type == "error":
+                                raise RuntimeError(
+                                    f"OpenAI Responses stream error: "
+                                    f"{getattr(event, 'code', None)}: {getattr(event, 'message', None)}"
+                                )
 
                 async for visible_chunk in self._filter_think_chunks(_responses_chunks()):
                     yield visible_chunk
