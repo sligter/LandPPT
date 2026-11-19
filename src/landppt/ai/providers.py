@@ -1895,12 +1895,22 @@ class OllamaProvider(AIProvider):
         
         # Convert messages to Ollama format with multimodal support
         ollama_messages = []
+        call_names: Dict[str, str] = {}
         for msg in messages:
+            for call in msg.tool_calls or []:
+                function = call.get("function") or {}
+                if call.get("id") and function.get("name"):
+                    call_names[call["id"]] = function["name"]
             if isinstance(msg.content, str):
                 # Simple text message
                 message = {"role": msg.role.value, "content": msg.content}
                 if msg.tool_call_id:
                     message["tool_call_id"] = msg.tool_call_id
+                if msg.role == MessageRole.TOOL:
+                    # Ollama identifies the tool that ran by name, not by call id.
+                    tool_name = call_names.get(msg.tool_call_id or "") or msg.name
+                    if tool_name:
+                        message["tool_name"] = tool_name
                 if msg.tool_calls:
                     message["tool_calls"] = self._to_ollama_tool_calls(msg.tool_calls)
                 ollama_messages.append(message)
