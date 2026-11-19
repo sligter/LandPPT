@@ -1854,6 +1854,49 @@ class OllamaProvider(AIProvider):
             logger.warning("Ollama library not installed. Install with: pip install ollama")
             self.client = None
     
+    @staticmethod
+    def _extract_ollama_tool_calls(response_message: Any) -> List[Dict[str, Any]]:
+        """Normalize Ollama ToolCall objects/dicts to OpenAI-style tool call dicts."""
+        if isinstance(response_message, dict):
+            raw_calls = response_message.get("tool_calls")
+        else:
+            raw_calls = getattr(response_message, "tool_calls", None)
+        normalized: List[Dict[str, Any]] = []
+        for index, call in enumerate(raw_calls or [], start=1):
+            function = call.get("function") if isinstance(call, dict) else getattr(call, "function", None)
+            if isinstance(function, dict):
+                name, arguments = function.get("name"), function.get("arguments")
+            else:
+                name, arguments = getattr(function, "name", None), getattr(function, "arguments", None)
+            if not isinstance(arguments, str):
+                arguments = json.dumps(dict(arguments or {}), ensure_ascii=False)
+            call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+            normalized.append(
+                {
+                    "id": call_id or f"ollama-tool-call-{index}",
+                    "type": "function",
+                    "function": {"name": name or "", "arguments": arguments or "{}"},
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _to_ollama_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Replay OpenAI-style tool calls to Ollama, which wants arguments as an object."""
+        converted: List[Dict[str, Any]] = []
+        for call in tool_calls:
+            function = call.get("function") if isinstance(call, dict) else None
+            arguments = function.get("arguments") if isinstance(function, dict) else None
+            if not isinstance(arguments, str):
+                converted.append(call)
+                continue
+            try:
+                parsed = json.loads(arguments or "{}")
+            except json.JSONDecodeError:
+                parsed = {}
+            converted.append({**call, "function": {**function, "arguments": parsed if isinstance(parsed, dict) else {}}})
+        return converted
+
     async def chat_completion(self, messages: List[AIMessage], **kwargs) -> AIResponse:
         """Generate chat completion using Ollama"""
         if not self.client:
@@ -1864,14 +1907,24 @@ class OllamaProvider(AIProvider):
         
         # Convert messages to Ollama format with multimodal support
         ollama_messages = []
+        call_names: Dict[str, str] = {}
         for msg in messages:
+            for call in msg.tool_calls or []:
+                function = call.get("function") or {}
+                if call.get("id") and function.get("name"):
+                    call_names[call["id"]] = function["name"]
             if isinstance(msg.content, str):
                 # Simple text message
                 message = {"role": msg.role.value, "content": msg.content}
                 if msg.tool_call_id:
                     message["tool_call_id"] = msg.tool_call_id
+                if msg.role == MessageRole.TOOL:
+                    # Ollama identifies the tool that ran by name, not by call id.
+                    tool_name = call_names.get(msg.tool_call_id or "") or msg.name
+                    if tool_name:
+                        message["tool_name"] = tool_name
                 if msg.tool_calls:
-                    message["tool_calls"] = msg.tool_calls
+                    message["tool_calls"] = self._to_ollama_tool_calls(msg.tool_calls)
                 ollama_messages.append(message)
             elif isinstance(msg.content, list):
                 # Multimodal message - Ollama takes base64 images in a separate "images" list
@@ -1915,7 +1968,7 @@ class OllamaProvider(AIProvider):
             
             response_message = response.get("message", {}) or {}
             content = response_message.get("content", "") or ""
-            tool_calls = response_message.get("tool_calls") or []
+            tool_calls = self._extract_ollama_tool_calls(response_message)
             
             prompt_tokens = response.get("prompt_eval_count")
             completion_tokens = response.get("eval_count")
