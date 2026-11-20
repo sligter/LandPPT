@@ -669,6 +669,7 @@
                                     <option value="deepseek" {% if _research_provider == 'deepseek' %}selected{% endif %}>DeepSeek</option>
                                     <option value="searxng" {% if _research_provider == 'searxng' %}selected{% endif %}>SearXNG</option>
                                     <option value="both" {% if _research_provider == 'both' %}selected{% endif %}>Tavily + SearXNG</option>
+                                    <option value="keenable" {% if _research_provider == 'keenable' %}selected{% endif %}>Keenable</option>
                                 </select>
                             </div>
                         </div>
@@ -729,6 +730,22 @@
                                         value="{{ current_config.get('searxng_host', '') }}"
                                         style="font-family: ui-monospace, monospace; font-size: 0.9em;">
                                     <span class="field-help">SearXNG 实例的完整 URL 地址</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="field-label">Keenable API Key（可选）</label>
+                                    <input type="password" name="keenable_api_key" autocomplete="off"
+                                        placeholder="{% if current_config.get('keenable_api_key_configured') %}已配置，留空保留{% else %}可选，留空走公开端点{% endif %}">
+                                    <span class="field-help">选择 Keenable 作为研究提供商后生效。可不填 Key，使用公开搜索端点。可在 <a href="https://keenable.ai" target="_blank" rel="noopener noreferrer">keenable.ai</a> 获取 API Key</span>
+                                </div>
+                                <div class="form-group">
+                                    <label class="field-label">Keenable 最大结果数</label>
+                                    <input type="number" name="keenable_max_results" min="1" max="50" step="1"
+                                        value="{{ current_config.get('keenable_max_results', 10) }}">
+                                </div>
+                                <div class="form-group">
+                                    <label class="field-label">Keenable 超时（秒）</label>
+                                    <input type="number" name="keenable_timeout" min="1" max="300" step="1"
+                                        value="{{ current_config.get('keenable_timeout', 20) }}">
                                 </div>
                             </div>
                         </div>

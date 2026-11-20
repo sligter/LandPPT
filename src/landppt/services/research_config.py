@@ -10,7 +10,7 @@ async def redact_inherited_research_keys(
 ) -> Dict[str, Any]:
     """Expose configuration signals while keeping shared API keys on the server."""
     redacted = dict(config)
-    for provider in ("tavily", "deepseek"):
+    for provider in ("tavily", "deepseek", "keenable"):
         key = f"{provider}_api_key"
         value = redacted.get(key)
         if provider == "deepseek" and not value:
