@@ -775,6 +775,17 @@ class AnthropicProvider(AIProvider):
         )
         request_kwargs["output_config"] = {"effort": effort}
 
+    def _split_system_messages(self, messages: List[AIMessage]):
+        """Split messages into (system text, Anthropic messages), joining every system message."""
+        system_parts: List[str] = []
+        claude_messages = []
+        for msg in messages:
+            if msg.role == MessageRole.SYSTEM:
+                system_parts.append(msg.content if isinstance(msg.content, str) else str(msg.content))
+            else:
+                claude_messages.append(self._convert_message_to_anthropic(msg))
+        return ("\n\n".join(system_parts) if system_parts else None), claude_messages
+
     def _convert_message_to_anthropic(self, message: AIMessage) -> Dict[str, Any]:
         """Convert AIMessage to Anthropic format, supporting multimodal content"""
         if message.role == MessageRole.TOOL:
@@ -917,13 +928,7 @@ class AnthropicProvider(AIProvider):
         tool_choice = config.pop("tool_choice", None)
 
         if tools:
-            system_message = None
-            claude_messages = []
-            for msg in messages:
-                if msg.role == MessageRole.SYSTEM:
-                    system_message = msg.content if isinstance(msg.content, str) else str(msg.content)
-                else:
-                    claude_messages.append(self._convert_message_to_anthropic(msg))
+            system_message, claude_messages = self._split_system_messages(messages)
 
             request_kwargs: Dict[str, Any] = {
                 "model": config.get("model", self.model),
@@ -1024,14 +1029,7 @@ class AnthropicProvider(AIProvider):
         temperature = config.get("temperature", 0.7)
 
         # Convert messages to Anthropic format
-        system_message = None
-        claude_messages = []
-
-        for msg in messages:
-            if msg.role == MessageRole.SYSTEM:
-                system_message = msg.content if isinstance(msg.content, str) else str(msg.content)
-            else:
-                claude_messages.append(self._convert_message_to_anthropic(msg))
+        system_message, claude_messages = self._split_system_messages(messages)
 
         try:
             import aiohttp
