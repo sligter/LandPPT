@@ -326,6 +326,25 @@ class BackgroundTaskManager:
         logger.info(f"创建后台任务: {task_id} (类型: {task_type})")
         return task_id
 
+    async def create_task_async(self, task_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+        """异步创建新任务，确保持久化完成后再返回。
+
+        与 create_task 的区别在于：会等待任务元数据写入 Valkey 缓存与数据库后才返回，
+        避免在队列模式下 Worker 先于持久化取到消息而报 "Queued task metadata not found"。
+        """
+        task_id = str(uuid.uuid4())
+        task = BackgroundTask(
+            task_id=task_id,
+            task_type=task_type,
+            metadata=metadata or {}
+        )
+        self.tasks[task_id] = task
+
+        await self._save_task_to_cache(task)
+
+        logger.info(f"创建后台任务: {task_id} (类型: {task_type})")
+        return task_id
+
     def get_task(self, task_id: str) -> Optional[BackgroundTask]:
         """获取任务信息 (同步版本，优先从本地缓存获取)"""
         return self.tasks.get(task_id)
@@ -418,7 +437,8 @@ class BackgroundTaskManager:
         queue_name: Optional[str] = None,
     ) -> str:
         """Create a task and enqueue it when queue mode is enabled."""
-        task_id = self.create_task(task_type, metadata)
+        # 必须先 await 任务元数据持久化，再入队，否则 Worker 可能先取到消息却查不到任务。
+        task_id = await self.create_task_async(task_type, metadata)
         if str(app_config.task_execution_mode or "inline").lower() == "queue":
             from ..tasks.queue import enqueue_task
 
