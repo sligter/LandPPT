@@ -278,6 +278,21 @@
                                                     min="5" max="120" placeholder="30">
                                             </div>
                                             <div class="form-group">
+                                                <label for="system_keenable_api_key">Keenable API Key（可选）</label>
+                                                <input type="password" id="system_keenable_api_key" name="keenable_api_key"
+                                                    placeholder="可选，留空走公开端点" autocomplete="off">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_keenable_max_results">Keenable 最大结果数</label>
+                                                <input type="number" id="system_keenable_max_results"
+                                                    name="keenable_max_results" min="1" max="50" placeholder="10">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="system_keenable_timeout">Keenable 超时（秒）</label>
+                                                <input type="number" id="system_keenable_timeout" name="keenable_timeout"
+                                                    min="1" max="300" placeholder="20">
+                                            </div>
+                                            <div class="form-group">
                                                 <label for="system_research_max_content_length">抽取最大内容长度</label>
                                                 <input type="number" id="system_research_max_content_length"
                                                     name="research_max_content_length" min="1000" max="20000"

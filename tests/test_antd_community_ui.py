@@ -34,6 +34,9 @@ SYSTEM = dict(
     searxng_max_results=10,
     searxng_language="auto",
     searxng_timeout=30,
+    keenable_api_key="",
+    keenable_max_results=10,
+    keenable_timeout=20,
     research_max_content_length=5000,
     research_extraction_timeout=30,
     research_enable_content_extraction=True,
@@ -172,7 +175,7 @@ def test_system_preserves_every_legacy_field_and_saved_fallback(ui_page):
         .content.querySelectorAll('.system-config-block [name]')].map(e=>e.name)"""
     )
     assert set(catalogue) == set(SYSTEM)
-    assert len(catalogue) == 38
+    assert len(catalogue) == 41
     for name in catalogue:
         assert page.locator("#system_" + name).count() == 1, name
     page.locator("#system_max_tokens").fill("")
