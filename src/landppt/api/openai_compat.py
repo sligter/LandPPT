@@ -21,6 +21,20 @@ from ..core.config import ai_config
 router = APIRouter()
 ai_service = AIService()
 
+
+def _apply_stop(text: str, stop) -> str:
+    """Cut ``text`` at the earliest stop sequence (which is not included), as OpenAI does."""
+    if not stop:
+        return text
+    sequences = [stop] if isinstance(stop, str) else stop
+    cut = len(text)
+    for seq in sequences:
+        if seq:
+            idx = text.find(seq)
+            if idx != -1:
+                cut = min(cut, idx)
+    return text[:cut]
+
 @router.post(
     "/chat/completions",
     response_model=ChatCompletionResponse,
@@ -43,6 +57,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
             # Handle general chat request
             response_content = await ai_service.handle_general_chat_request(request)
         
+        response_content = _apply_stop(response_content, request.stop)
+
         if request.stream:
             return StreamingResponse(
                 _chat_completion_chunks(request.model, response_content),
@@ -87,6 +103,8 @@ async def create_completion(request: CompletionRequest):
             # Handle general completion request
             response_text = await ai_service.handle_general_completion_request(request)
         
+        response_text = _apply_stop(response_text, request.stop)
+
         # Calculate token usage (simplified)
         prompt_tokens = len(prompt.split())
         completion_tokens = len(response_text.split())
