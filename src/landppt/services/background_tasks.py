@@ -29,6 +29,13 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TaskPersistenceError(RuntimeError):
+    """当任务无法写入任何 worker 可读的存储（Valkey 与数据库均失败）时抛出。
+
+    抛出时任务绝不应进入队列，否则 worker 取到消息后会因读不到元数据而跳过任务。
+    """
+
+
 @dataclass
 class BackgroundTask:
     """后台任务"""
@@ -157,33 +164,51 @@ class BackgroundTaskManager:
                 self._cache_service = None
         return self._cache_service
     
-    async def _save_task_to_cache(self, task: BackgroundTask):
-        """Save task to Valkey cache"""
+    async def _save_task_to_cache(self, task: BackgroundTask) -> bool:
+        """Save task to Valkey cache and the database.
+
+        Returns True when the task was durably written to at least one
+        worker-readable store (Valkey or the database). Returns False only when
+        both writes failed; in that case a worker would dequeue the message but
+        be unable to find the task metadata.
+        """
+        cache_written = False
         cache = await self._get_cache()
         if cache and cache.is_connected:
             try:
                 key = f"bg_task:{task.task_id}"
                 value = json.dumps(task.to_dict())
-                await cache.set(key, value, self.TASK_TTL)
-                logger.debug(f"Task saved to cache: {task.task_id}")
-                
-                # Also add to active tasks index if task is active
-                if task.status in [TaskStatus.PENDING, TaskStatus.RUNNING]:
-                    await self._add_to_active_index(task)
+                # cache.set returns False when the write failed even though the
+                # client reported as connected; surface that instead of ignoring it.
+                cache_written = bool(await cache.set(key, value, self.TASK_TTL))
+                if cache_written:
+                    logger.debug(f"Task saved to cache: {task.task_id}")
+
+                    # Also add to active tasks index if task is active
+                    if task.status in [TaskStatus.PENDING, TaskStatus.RUNNING]:
+                        await self._add_to_active_index(task)
+                    else:
+                        await self._remove_from_active_index(task.task_id)
                 else:
-                    await self._remove_from_active_index(task.task_id)
+                    logger.warning(f"Valkey reported a failed write for task: {task.task_id}")
             except Exception as e:
                 logger.warning(f"Failed to save task to cache: {e}")
-        await self._save_task_to_db(task)
+                cache_written = False
+        db_written = await self._save_task_to_db(task)
+        return cache_written or db_written
 
-    async def _save_task_to_db(self, task: BackgroundTask):
-        """Persist task state to the database as the durable task source."""
+    async def _save_task_to_db(self, task: BackgroundTask) -> bool:
+        """Persist task state to the database as the durable task source.
+
+        Returns True when the row was written successfully, False on any failure.
+        """
         try:
             from .task_store import get_task_store
 
-            await get_task_store().save_task(task)
+            return bool(await get_task_store().save_task(task))
         except Exception as e:
             logger.debug(f"Failed to save task to database: {e}")
+            return False
     
     async def _add_to_active_index(self, task: BackgroundTask):
         """Add task to active tasks index in Valkey (for multi-worker lookup)"""
@@ -327,10 +352,13 @@ class BackgroundTaskManager:
         return task_id
 
     async def create_task_async(self, task_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
-        """异步创建新任务，确保持久化完成后再返回。
+        """异步创建新任务，并确保至少一个 worker 可读的存储写入成功后才返回。
 
-        与 create_task 的区别在于：会等待任务元数据写入 Valkey 缓存与数据库后才返回，
-        避免在队列模式下 Worker 先于持久化取到消息而报 "Queued task metadata not found"。
+        与 create_task 的区别：
+        1. 会 await 任务元数据写入 Valkey 缓存 / 数据库后才返回，避免队列模式下
+           Worker 先于持久化取到消息而报 "Queued task metadata not found"。
+        2. 若两处存储都写入失败，抛出 TaskPersistenceError；调用方不应获得 task_id，
+           更绝不能将任务入队。
         """
         task_id = str(uuid.uuid4())
         task = BackgroundTask(
@@ -340,7 +368,16 @@ class BackgroundTaskManager:
         )
         self.tasks[task_id] = task
 
-        await self._save_task_to_cache(task)
+        persisted = await self._save_task_to_cache(task)
+        if not persisted:
+            # 两处存储都失败：清理本地缓存，避免返回一个 worker 读不到的任务，
+            # 并向上报错，确保调用方不会将其入队。
+            self.tasks.pop(task_id, None)
+            logger.error(f"任务持久化失败，未入队: {task_id} (类型: {task_type})")
+            raise TaskPersistenceError(
+                f"Failed to persist task {task_id} to any worker-readable store "
+                f"(both Valkey and database writes failed); the task was not queued."
+            )
 
         logger.info(f"创建后台任务: {task_id} (类型: {task_type})")
         return task_id
@@ -437,7 +474,8 @@ class BackgroundTaskManager:
         queue_name: Optional[str] = None,
     ) -> str:
         """Create a task and enqueue it when queue mode is enabled."""
-        # 必须先 await 任务元数据持久化，再入队，否则 Worker 可能先取到消息却查不到任务。
+        # Persist metadata first (awaited) and only then enqueue, so a worker cannot
+        # dequeue the message before the task metadata is readable.
         task_id = await self.create_task_async(task_type, metadata)
         if str(app_config.task_execution_mode or "inline").lower() == "queue":
             from ..tasks.queue import enqueue_task
