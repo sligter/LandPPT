@@ -88,7 +88,11 @@ async def create_chat_completion(request: ChatCompletionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating completion: {str(e)}")
 
-@router.post("/completions", response_model=CompletionResponse)
+@router.post(
+    "/completions",
+    response_model=CompletionResponse,
+    responses={200: {"content": {"text/event-stream": {}}}},
+)
 async def create_completion(request: CompletionRequest):
     """
     Create a text completion (OpenAI compatible)
@@ -104,6 +108,12 @@ async def create_completion(request: CompletionRequest):
             response_text = await ai_service.handle_general_completion_request(request)
         
         response_text = _apply_stop(response_text, request.stop)
+
+        if request.stream:
+            return StreamingResponse(
+                _completion_chunks(request.model, response_text),
+                media_type="text/event-stream",
+            )
 
         # Calculate token usage (simplified)
         prompt_tokens = len(prompt.split())
@@ -179,6 +189,29 @@ async def _chat_completion_chunks(model: str, response_content: str) -> AsyncGen
     for piece in re.findall(r"\S+\s*|\s+", response_content):
         yield chunk({"content": piece})
     yield chunk({}, "stop")
+    yield "data: [DONE]\n\n"
+
+
+async def _completion_chunks(model: str, response_text: str) -> AsyncGenerator[str, None]:
+    """
+    Yield OpenAI-style legacy completion SSE chunks for an already generated response
+    """
+    chunk_id = f"cmpl-{uuid.uuid4().hex}"
+    created = int(time.time())
+
+    def chunk(text: str, finish_reason=None) -> str:
+        data = {
+            "id": chunk_id,
+            "object": "text_completion",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "text": text, "finish_reason": finish_reason}],
+        }
+        return f"data: {json.dumps(data)}\n\n"
+
+    for piece in re.findall(r"\S+\s*|\s+", response_text):
+        yield chunk(piece)
+    yield chunk("", "stop")
     yield "data: [DONE]\n\n"
 
 
