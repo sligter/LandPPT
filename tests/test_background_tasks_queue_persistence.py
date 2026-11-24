@@ -136,3 +136,70 @@ async def test_submit_queued_task_enqueues_when_only_db_write_succeeds(monkeypat
 
     assert task_id
     assert enqueued == [task_id]
+
+
+@pytest.mark.asyncio
+async def test_terminal_task_removes_from_active_index_even_when_cache_write_fails(monkeypatch):
+    """When Valkey SET fails but DB succeeds, the task is still durably persisted
+    so it can be returned; however, for terminal states the active index MUST be
+    cleaned regardless of the SET outcome (otherwise a stale entry causes 409)."""
+    from landppt.services.background_tasks import BackgroundTaskManager, TaskStatus, BackgroundTask
+
+    manager = BackgroundTaskManager()
+    manager._cache_service = _FakeCache(set_ok=False)
+
+    monkeypatch.setattr(
+        "landppt.services.task_store.get_task_store",
+        lambda: _OkTaskStore(),
+    )
+
+    removed_ids = []
+
+    async def spy_remove(task_id):
+        removed_ids.append(task_id)
+
+    monkeypatch.setattr(manager, "_remove_from_active_index", spy_remove)
+
+    # Simulate updating a task to a terminal state.
+    task = BackgroundTask(task_id="t-terminal", task_type="pdf_generation")
+    task.status = TaskStatus.COMPLETED
+    manager.tasks["t-terminal"] = task
+
+    result = await manager._save_task_to_cache(task)
+
+    # DB write succeeded, so overall durable write is True.
+    assert result is True
+    # Critical: _remove_from_active_index was called despite cache_written=False.
+    assert "t-terminal" in removed_ids
+
+
+@pytest.mark.asyncio
+async def test_pending_task_added_to_active_index_even_when_cache_write_fails(monkeypatch):
+    """Symmetrically, a PENDING/RUNNING task should still be added to the active
+    index even when the task metadata SET to Valkey failed (index uses separate
+    Valkey commands hset/expire)."""
+    from landppt.services.background_tasks import BackgroundTaskManager, TaskStatus, BackgroundTask
+
+    manager = BackgroundTaskManager()
+    manager._cache_service = _FakeCache(set_ok=False)
+
+    monkeypatch.setattr(
+        "landppt.services.task_store.get_task_store",
+        lambda: _OkTaskStore(),
+    )
+
+    added_tasks = []
+
+    async def spy_add(task):
+        added_tasks.append(task.task_id)
+
+    monkeypatch.setattr(manager, "_add_to_active_index", spy_add)
+
+    task = BackgroundTask(task_id="t-pending", task_type="pdf_generation")
+    task.status = TaskStatus.PENDING
+    manager.tasks["t-pending"] = task
+
+    result = await manager._save_task_to_cache(task)
+
+    assert result is True
+    assert "t-pending" in added_tasks

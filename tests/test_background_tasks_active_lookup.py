@@ -51,7 +51,7 @@ async def test_find_active_task_async_ignores_local_task_completed_in_cache(monk
 
     assert result is None
     assert manager.tasks["task-1"].status == TaskStatus.COMPLETED
-    assert removed == ["task-1"]
+    assert "task-1" in removed
 
 
 @pytest.mark.asyncio

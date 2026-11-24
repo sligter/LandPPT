@@ -183,17 +183,20 @@ class BackgroundTaskManager:
                 cache_written = bool(await cache.set(key, value, self.TASK_TTL))
                 if cache_written:
                     logger.debug(f"Task saved to cache: {task.task_id}")
-
-                    # Also add to active tasks index if task is active
-                    if task.status in [TaskStatus.PENDING, TaskStatus.RUNNING]:
-                        await self._add_to_active_index(task)
-                    else:
-                        await self._remove_from_active_index(task.task_id)
                 else:
                     logger.warning(f"Valkey reported a failed write for task: {task.task_id}")
             except Exception as e:
                 logger.warning(f"Failed to save task to cache: {e}")
                 cache_written = False
+
+        # Manage active-task index unconditionally: even when the Valkey SET above
+        # failed, terminal-state tasks must be removed from the index so that new
+        # processes do not see a stale "pending" entry (which would cause 409).
+        if task.status in [TaskStatus.PENDING, TaskStatus.RUNNING]:
+            await self._add_to_active_index(task)
+        else:
+            await self._remove_from_active_index(task.task_id)
+
         db_written = await self._save_task_to_db(task)
         return cache_written or db_written
 
