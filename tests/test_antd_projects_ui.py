@@ -243,6 +243,81 @@ def test_library_does_not_turn_missing_progress_into_zero(
         assert "0%" in status.inner_text()
 
 
+def test_library_updates_progress_in_place_and_polls_only_while_visible(
+    ui_page, detail_project
+):
+    page, load = ui_page
+    page.clock.install()
+    path = "/projects?search=示例&sort=updated"
+    load(
+        "pages/project/projects_list.html",
+        path=path,
+        search_query="示例",
+        sort_order="updated",
+        projects=[dict(detail_project, status="in_progress", todo_board={"overall_progress": 20})],
+    )
+    payload = json.loads(page.locator("#antdData").text_content())
+    requests = []
+
+    def respond(route):
+        requests.append((route.request.url, route.request.resource_type))
+        if len(requests) == 2:
+            route.fulfill(status=503, body="暂不可用")
+            return
+        active = len(requests) == 1
+        payload["projects"][0].update(
+            status="in_progress" if active else "completed", progress=55 if active else None
+        )
+        route.fulfill(
+            body=f'<script id="antdData" type="application/json">{json.dumps(payload)}</script>',
+            content_type="text/html",
+        )
+
+    page.route("**/projects?*", respond)
+    original_url = page.url
+    page.evaluate("window.projectPageMarker = true")
+    list_button = page.get_by_role("button", name="列表", exact=True)
+    list_button.click()
+    search = page.get_by_role("searchbox", name="搜索项目")
+    search.fill("尚未提交的查询")
+
+    status = page.locator(".desktop-projects .project-status")
+    page.clock.fast_forward(31_000)
+    status.get_by_text("55%", exact=True).wait_for()
+    assert requests == [(original_url, "fetch")]
+    assert search.input_value() == "尚未提交的查询"
+    assert search.evaluate("element => element === document.activeElement")
+    assert list_button.get_attribute("aria-pressed") == "true"
+
+    page.evaluate(
+        """() => {
+            Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+            document.dispatchEvent(new Event('visibilitychange'));
+        }"""
+    )
+    page.clock.fast_forward(61_000)
+    assert len(requests) == 1
+
+    with page.expect_response(lambda response: response.url == original_url) as resume:
+        page.evaluate(
+            """() => {
+                delete document.hidden;
+                document.dispatchEvent(new Event('visibilitychange'));
+            }"""
+        )
+    assert resume.value.status == 503
+    assert status.get_by_text("55%", exact=True).is_visible()
+
+    page.clock.fast_forward(31_000)
+    status.get_by_text("已完成", exact=True).wait_for()
+    assert page.locator(".desktop-projects").get_by_role("link", name="编辑").is_visible()
+    page.clock.fast_forward(61_000)
+    assert requests == [(original_url, "fetch")] * 3
+    assert page.url == original_url
+    assert page.evaluate("window.projectPageMarker") is True
+    assert search.input_value() == "尚未提交的查询"
+
+
 @pytest.mark.parametrize("template", ["project_dashboard", "projects_list"])
 def test_project_rename_failure_retains_text_and_retry_updates_row(ui_page, template):
     page, load = ui_page
