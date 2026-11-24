@@ -266,13 +266,13 @@ class BackgroundTaskManager:
                 for task_id, task_ref in all_refs.items():
                     try:
                         ref_data = json.loads(task_ref)
-                        # Verify task is still active by checking its actual status
+                        # The index may outlive a failed write of a terminal state to Valkey.
                         ref_task_id = ref_data.get("task_id")
                         if not ref_task_id:
                             await cache._client.hdel(index_key, task_id)
                             continue
 
-                        task = await self._get_task_from_cache(ref_task_id)
+                        task = await self._read_task_state(ref_task_id)
                         if not task:
                             await cache._client.hdel(index_key, task_id)
                             continue
@@ -388,30 +388,24 @@ class BackgroundTaskManager:
     def get_task(self, task_id: str) -> Optional[BackgroundTask]:
         """获取任务信息 (同步版本，优先从本地缓存获取)"""
         return self.tasks.get(task_id)
-    
-    async def get_task_async(self, task_id: str) -> Optional[BackgroundTask]:
-        """获取任务信息 (异步版本，从Valkey获取)"""
-        # In multi-worker setups, local memory is not shared and can become stale.
-        # Prefer the newest available state across Valkey, local memory, and DB.
+
+    async def _read_task_state(self, task_id: str) -> Optional[BackgroundTask]:
         cached = await self._get_task_from_cache(task_id)
+        persisted = await self._get_task_from_db(task_id)
         local = self.tasks.get(task_id)
-        persisted = None
-        if cached is None and local is None:
-            persisted = await self._get_task_from_db(task_id)
+        candidates = [task for task in (persisted, local, cached) if task is not None]
+        # A terminal task cannot return to an active state, even with clock skew.
+        return max(
+            candidates,
+            key=lambda task: (not self._is_task_active(task), self._task_updated_ts(task)),
+            default=None,
+        )
 
-        candidates = [task for task in (cached, local, persisted) if task is not None]
-        if not candidates:
-            return None
-
-        latest = max(candidates, key=self._task_updated_ts)
-        self.tasks[task_id] = latest
-
-        # Propagate the best-known state to cache and DB (best-effort).
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._save_task_to_cache(latest))
-        except RuntimeError:
-            pass
+    async def get_task_async(self, task_id: str) -> Optional[BackgroundTask]:
+        """Read task state without writing it back to shared storage."""
+        latest = await self._read_task_state(task_id)
+        if latest is not None:
+            self.tasks[task_id] = latest
         return latest
 
     def _apply_task_status(
@@ -666,9 +660,8 @@ class BackgroundTaskManager:
         Returns:
             找到的活跃任务，如果没有则返回 None
         """
-        # First check local cache, but refresh each candidate from Valkey before
-        # treating it as active. Local memory can lag behind the worker that
-        # completed the task and wrote the final status.
+        # Confirm the state of local candidates. A different worker may have
+        # persisted the terminal state since this process last saw the task.
         for local_task in list(self.tasks.values()):
             if local_task.task_type != task_type:
                 continue
