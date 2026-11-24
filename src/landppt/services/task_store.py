@@ -46,7 +46,13 @@ def _coerce_int(value: Any) -> int | None:
 class TaskStore:
     """PostgreSQL/SQLite backed task state store."""
 
-    async def save_task(self, task) -> None:
+    async def save_task(self, task) -> bool:
+        """Persist a task row.
+
+        Returns True when the row was committed successfully, False when any
+        step failed. Callers that must gate enqueueing on durability rely on this
+        return value instead of the swallowed exception.
+        """
         payload = task.to_dict()
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         status = str(payload.get("status") or "pending")
@@ -88,8 +94,10 @@ class TaskStore:
                 if status in TERMINAL_STATUSES and existing.finished_at is None:
                     existing.finished_at = now_ts
                 await session.commit()
+            return True
         except Exception as exc:
             logger.warning("Failed to persist task state to database: %s", exc)
+            return False
 
     async def get_task(self, task_id: str):
         try:

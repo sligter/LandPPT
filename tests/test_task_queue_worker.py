@@ -52,4 +52,4 @@ def test_worker_handlers_are_registered():
 
 
 async def _noop():
-    return None
+    return True
