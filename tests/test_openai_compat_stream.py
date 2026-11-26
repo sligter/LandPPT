@@ -87,3 +87,48 @@ def test_completion_stop_truncates_response(monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json()["choices"][0]["text"] == "line one\n\nline "
+
+
+@pytest.fixture
+def completion_client(monkeypatch):
+    async def fake_completion(request):
+        return CONTENT
+
+    monkeypatch.setattr(openai_compat.ai_service, "is_ppt_request", lambda text: False)
+    monkeypatch.setattr(openai_compat.ai_service, "handle_general_completion_request", fake_completion)
+    app = FastAPI()
+    app.include_router(openai_compat.router, prefix="/v1")
+    return TestClient(app)
+
+
+def test_completion_stream_false_returns_json(completion_client):
+    resp = completion_client.post(
+        "/v1/completions", json={"model": "landppt-v1", "prompt": "hi", "stream": False}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["choices"][0]["text"] == CONTENT
+
+
+def test_completion_stream_true_returns_sse(completion_client):
+    resp = completion_client.post(
+        "/v1/completions", json={"model": "landppt-v1", "prompt": "hi", "stream": True}
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    lines = [l[len("data: "):] for l in resp.text.split("\n\n") if l.startswith("data: ")]
+    assert lines[-1] == "[DONE]"
+    chunks = [json.loads(l) for l in lines[:-1]]
+    assert all(c["object"] == "text_completion" for c in chunks)
+    assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
+    assert len({c["id"] for c in chunks}) == 1
+    assert "".join(c["choices"][0]["text"] for c in chunks) == CONTENT
+
+
+def test_completion_stream_respects_stop(completion_client):
+    resp = completion_client.post(
+        "/v1/completions",
+        json={"model": "landppt-v1", "prompt": "hi", "stream": True, "stop": "two"},
+    )
+    lines = [l[len("data: "):] for l in resp.text.split("\n\n") if l.startswith("data: ")]
+    chunks = [json.loads(l) for l in lines[:-1]]
+    assert "".join(c["choices"][0]["text"] for c in chunks) == "line one\n\nline "

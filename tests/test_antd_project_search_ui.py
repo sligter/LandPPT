@@ -1,5 +1,6 @@
 """Project search submits URL filters, retains pagination and fits narrow screens."""
 
+import json
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -118,11 +119,14 @@ def test_enter_empty_result_and_refresh_restore_query(ui_page, width):
     assert "page" not in parse_qs(urlsplit(page.url).query)
 
 
-def test_refresh_timer_does_not_discard_active_search_draft(ui_page):
+def test_background_refresh_preserves_unsubmitted_search_after_blur(ui_page):
     page, load = ui_page
+    page.clock.install()
     library(
         page,
         load,
+        path="/projects?search=demo",
+        search_query="demo",
         projects=[
             dict(
                 project_id="running",
@@ -135,13 +139,21 @@ def test_refresh_timer_does_not_discard_active_search_draft(ui_page):
             )
         ],
     )
-    # Replace interval registration before the next document starts, then invoke
-    # the actual refresh callback without waiting 30 seconds or touching data.
-    page.add_init_script(
-        "const original=setInterval;window.setInterval=(callback,delay,...args)=>delay===30000&&String(callback).includes('.projects-toolbar')?(window.refreshProjects=callback,1):original(callback,delay,...args)"
+    committed_url = page.url
+    payload = json.loads(page.locator("#antdData").text_content())
+    payload["projects"][0]["progress"] = 50
+    page.route(
+        committed_url,
+        lambda route: route.fulfill(
+            body=f'<script id="antdData" type="application/json">{json.dumps(payload)}</script>',
+            content_type="text/html",
+        ),
     )
-    page.reload(wait_until="networkidle")
     field = page.get_by_role("searchbox", name="搜索项目", exact=True)
     field.fill("unsaved draft")
-    page.evaluate("window.refreshProjects()")
+    field.blur()
+
+    page.clock.fast_forward(31_000)
+    expect(page.locator(".project-status:visible").get_by_text("50%", exact=True)).to_be_visible()
     expect(field).to_have_value("unsaved draft")
+    assert page.url == committed_url

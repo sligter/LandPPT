@@ -29,6 +29,13 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TaskPersistenceError(RuntimeError):
+    """当任务无法写入任何 worker 可读的存储（Valkey 与数据库均失败）时抛出。
+
+    抛出时任务绝不应进入队列，否则 worker 取到消息后会因读不到元数据而跳过任务。
+    """
+
+
 @dataclass
 class BackgroundTask:
     """后台任务"""
@@ -157,33 +164,54 @@ class BackgroundTaskManager:
                 self._cache_service = None
         return self._cache_service
     
-    async def _save_task_to_cache(self, task: BackgroundTask):
-        """Save task to Valkey cache"""
+    async def _save_task_to_cache(self, task: BackgroundTask) -> bool:
+        """Save task to Valkey cache and the database.
+
+        Returns True when the task was durably written to at least one
+        worker-readable store (Valkey or the database). Returns False only when
+        both writes failed; in that case a worker would dequeue the message but
+        be unable to find the task metadata.
+        """
+        cache_written = False
         cache = await self._get_cache()
         if cache and cache.is_connected:
             try:
                 key = f"bg_task:{task.task_id}"
                 value = json.dumps(task.to_dict())
-                await cache.set(key, value, self.TASK_TTL)
-                logger.debug(f"Task saved to cache: {task.task_id}")
-                
-                # Also add to active tasks index if task is active
-                if task.status in [TaskStatus.PENDING, TaskStatus.RUNNING]:
-                    await self._add_to_active_index(task)
+                # cache.set returns False when the write failed even though the
+                # client reported as connected; surface that instead of ignoring it.
+                cache_written = bool(await cache.set(key, value, self.TASK_TTL))
+                if cache_written:
+                    logger.debug(f"Task saved to cache: {task.task_id}")
                 else:
-                    await self._remove_from_active_index(task.task_id)
+                    logger.warning(f"Valkey reported a failed write for task: {task.task_id}")
             except Exception as e:
                 logger.warning(f"Failed to save task to cache: {e}")
-        await self._save_task_to_db(task)
+                cache_written = False
 
-    async def _save_task_to_db(self, task: BackgroundTask):
-        """Persist task state to the database as the durable task source."""
+        # Manage active-task index unconditionally: even when the Valkey SET above
+        # failed, terminal-state tasks must be removed from the index so that new
+        # processes do not see a stale "pending" entry (which would cause 409).
+        if task.status in [TaskStatus.PENDING, TaskStatus.RUNNING]:
+            await self._add_to_active_index(task)
+        else:
+            await self._remove_from_active_index(task.task_id)
+
+        db_written = await self._save_task_to_db(task)
+        return cache_written or db_written
+
+    async def _save_task_to_db(self, task: BackgroundTask) -> bool:
+        """Persist task state to the database as the durable task source.
+
+        Returns True when the row was written successfully, False on any failure.
+        """
         try:
             from .task_store import get_task_store
 
-            await get_task_store().save_task(task)
+            return bool(await get_task_store().save_task(task))
         except Exception as e:
             logger.debug(f"Failed to save task to database: {e}")
+            return False
     
     async def _add_to_active_index(self, task: BackgroundTask):
         """Add task to active tasks index in Valkey (for multi-worker lookup)"""
@@ -238,13 +266,13 @@ class BackgroundTaskManager:
                 for task_id, task_ref in all_refs.items():
                     try:
                         ref_data = json.loads(task_ref)
-                        # Verify task is still active by checking its actual status
+                        # The index may outlive a failed write of a terminal state to Valkey.
                         ref_task_id = ref_data.get("task_id")
                         if not ref_task_id:
                             await cache._client.hdel(index_key, task_id)
                             continue
 
-                        task = await self._get_task_from_cache(ref_task_id)
+                        task = await self._read_task_state(ref_task_id)
                         if not task:
                             await cache._client.hdel(index_key, task_id)
                             continue
@@ -326,33 +354,58 @@ class BackgroundTaskManager:
         logger.info(f"创建后台任务: {task_id} (类型: {task_type})")
         return task_id
 
+    async def create_task_async(self, task_type: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+        """异步创建新任务，并确保至少一个 worker 可读的存储写入成功后才返回。
+
+        与 create_task 的区别：
+        1. 会 await 任务元数据写入 Valkey 缓存 / 数据库后才返回，避免队列模式下
+           Worker 先于持久化取到消息而报 "Queued task metadata not found"。
+        2. 若两处存储都写入失败，抛出 TaskPersistenceError；调用方不应获得 task_id，
+           更绝不能将任务入队。
+        """
+        task_id = str(uuid.uuid4())
+        task = BackgroundTask(
+            task_id=task_id,
+            task_type=task_type,
+            metadata=metadata or {}
+        )
+        self.tasks[task_id] = task
+
+        persisted = await self._save_task_to_cache(task)
+        if not persisted:
+            # 两处存储都失败：清理本地缓存，避免返回一个 worker 读不到的任务，
+            # 并向上报错，确保调用方不会将其入队。
+            self.tasks.pop(task_id, None)
+            logger.error(f"任务持久化失败，未入队: {task_id} (类型: {task_type})")
+            raise TaskPersistenceError(
+                f"Failed to persist task {task_id} to any worker-readable store "
+                f"(both Valkey and database writes failed); the task was not queued."
+            )
+
+        logger.info(f"创建后台任务: {task_id} (类型: {task_type})")
+        return task_id
+
     def get_task(self, task_id: str) -> Optional[BackgroundTask]:
         """获取任务信息 (同步版本，优先从本地缓存获取)"""
         return self.tasks.get(task_id)
-    
-    async def get_task_async(self, task_id: str) -> Optional[BackgroundTask]:
-        """获取任务信息 (异步版本，从Valkey获取)"""
-        # In multi-worker setups, local memory is not shared and can become stale.
-        # Prefer the newest available state across Valkey, local memory, and DB.
+
+    async def _read_task_state(self, task_id: str) -> Optional[BackgroundTask]:
         cached = await self._get_task_from_cache(task_id)
+        persisted = await self._get_task_from_db(task_id)
         local = self.tasks.get(task_id)
-        persisted = None
-        if cached is None and local is None:
-            persisted = await self._get_task_from_db(task_id)
+        candidates = [task for task in (persisted, local, cached) if task is not None]
+        # A terminal task cannot return to an active state, even with clock skew.
+        return max(
+            candidates,
+            key=lambda task: (not self._is_task_active(task), self._task_updated_ts(task)),
+            default=None,
+        )
 
-        candidates = [task for task in (cached, local, persisted) if task is not None]
-        if not candidates:
-            return None
-
-        latest = max(candidates, key=self._task_updated_ts)
-        self.tasks[task_id] = latest
-
-        # Propagate the best-known state to cache and DB (best-effort).
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._save_task_to_cache(latest))
-        except RuntimeError:
-            pass
+    async def get_task_async(self, task_id: str) -> Optional[BackgroundTask]:
+        """Read task state without writing it back to shared storage."""
+        latest = await self._read_task_state(task_id)
+        if latest is not None:
+            self.tasks[task_id] = latest
         return latest
 
     def _apply_task_status(
@@ -418,7 +471,9 @@ class BackgroundTaskManager:
         queue_name: Optional[str] = None,
     ) -> str:
         """Create a task and enqueue it when queue mode is enabled."""
-        task_id = self.create_task(task_type, metadata)
+        # Persist metadata first (awaited) and only then enqueue, so a worker cannot
+        # dequeue the message before the task metadata is readable.
+        task_id = await self.create_task_async(task_type, metadata)
         if str(app_config.task_execution_mode or "inline").lower() == "queue":
             from ..tasks.queue import enqueue_task
 
@@ -605,9 +660,8 @@ class BackgroundTaskManager:
         Returns:
             找到的活跃任务，如果没有则返回 None
         """
-        # First check local cache, but refresh each candidate from Valkey before
-        # treating it as active. Local memory can lag behind the worker that
-        # completed the task and wrote the final status.
+        # Confirm the state of local candidates. A different worker may have
+        # persisted the terminal state since this process last saw the task.
         for local_task in list(self.tasks.values()):
             if local_task.task_type != task_type:
                 continue
