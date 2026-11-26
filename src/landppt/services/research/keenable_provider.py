@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 PUBLIC_SEARCH_URL = "https://api.keenable.ai/v1/search/public"
 KEYED_SEARCH_URL = "https://api.keenable.ai/v1/search"
 APP_TITLE = "LandPPT"
+_MASKED_KEYS = {"********", "••••••••", "***"}
 
 
 class KeenableContentProvider:
@@ -29,28 +30,52 @@ class KeenableContentProvider:
         self._config_initialized = False
 
     async def _load_user_config(self) -> Dict[str, Any]:
-        if self.user_id is None:
-            return {}
+        """Saved settings for this scope: the user's values over the system values.
+
+        With no user (the standalone research API) this reads the system settings an
+        admin saved, so a saved key is used instead of the public endpoint.
+        """
         try:
             from ..db_config_service import get_db_config_service
 
             db_config_service = get_db_config_service()
             return await db_config_service.get_all_config(user_id=self.user_id) or {}
         except Exception as e:
-            logger.warning("Failed to load user Keenable config: %s", e)
+            logger.warning("Failed to load Keenable config: %s", e)
             return {}
 
+    def _load_user_config_sync(self) -> Dict[str, Any]:
+        try:
+            from ..db_config_service import get_db_config_service
+
+            return get_db_config_service().get_all_config_sync(user_id=self.user_id) or {}
+        except Exception as e:
+            logger.warning("Failed to load Keenable config: %s", e)
+            return {}
+
+    @staticmethod
+    def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+        try:
+            return max(minimum, min(maximum, int(value)))
+        except (TypeError, ValueError):
+            return default
+
     def _settings(self, user_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Saved value (user, then system), then the environment, then the built-in default.
+
+        Same order as the DeepSeek provider. The schema defaults for count and timeout
+        come from the environment, so an unsaved value never overrides it.
+        """
         user_config = user_config or {}
-        api_key = (user_config.get("keenable_api_key") or ai_config.keenable_api_key or "").strip()
-        try:
-            max_results = int(user_config.get("keenable_max_results") or ai_config.keenable_max_results or 10)
-        except (TypeError, ValueError):
-            max_results = 10
-        try:
-            timeout = int(user_config.get("keenable_timeout") or ai_config.keenable_timeout or 20)
-        except (TypeError, ValueError):
-            timeout = 20
+        api_key = str(user_config.get("keenable_api_key") or ai_config.keenable_api_key or "").strip()
+        if api_key in _MASKED_KEYS:
+            api_key = str(ai_config.keenable_api_key or "").strip()
+        max_results = self._bounded_int(
+            user_config.get("keenable_max_results") or ai_config.keenable_max_results, 10, 1, 50
+        )
+        timeout = self._bounded_int(
+            user_config.get("keenable_timeout") or ai_config.keenable_timeout, 20, 1, 300
+        )
         return {"api_key": api_key, "max_results": max_results, "timeout": timeout}
 
     def is_available(self) -> bool:
@@ -58,7 +83,7 @@ class KeenableContentProvider:
         return True
 
     def get_status(self) -> Dict[str, Any]:
-        settings = self._settings()
+        settings = self._settings(self._load_user_config_sync())
         return {
             "provider": "keenable",
             "available": self.is_available(),
