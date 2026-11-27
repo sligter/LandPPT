@@ -47,7 +47,7 @@ def test_four_primary_destinations_keep_creation_and_settings_accessible(
     advanced = page.get_by_role("button", name="高级参数", exact=True)
     expect(advanced).to_be_in_viewport()
     expect(page.locator("#creationAdvancedSummary")).to_have_text(
-        "中文 · AI 智能页数 · 通用风格"
+        "中文 · AI 智能页数 · 通用场景"
     )
     assert advanced.bounding_box()["height"] >= (44 if width <= 600 else 32)
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
@@ -133,7 +133,7 @@ def test_collapsed_required_field_reopens_before_focusing_validation_error(ui_pa
     select(page, "语言", "English")
     page.locator(".create-advanced-trigger").click()
     expect(page.locator("#creationAdvancedSummary")).to_have_text(
-        "English · AI 智能页数 · 通用风格"
+        "English · AI 智能页数 · 通用场景"
     )
     page.get_by_role("button", name="开始生成", exact=True).click()
     expect(
