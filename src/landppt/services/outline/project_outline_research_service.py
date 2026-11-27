@@ -32,6 +32,7 @@ from ..runtime.ai_execution import (
 )
 from ..prompts import prompts_manager
 from ..research.enhanced_research_service import EnhancedResearchService
+from ..research.keenable_provider import KeenableSearchError
 from ..research.enhanced_report_generator import EnhancedReportGenerator
 from ..pyppeteer_pdf_converter import get_pdf_converter
 from ..image.image_service import ImageService
@@ -127,6 +128,8 @@ class ProjectOutlineResearchService:
                     language=request.language,
                     context=research_input_context,
                 )
+        except KeenableSearchError:
+            raise
         except Exception as research_error:
             if is_provider_protocol_error(research_error):
                 raise

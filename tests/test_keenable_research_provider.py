@@ -6,11 +6,16 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import pytest
+from fastapi import FastAPI
+
 from landppt.services.research.keenable_provider import (
     APP_TITLE,
     KEYED_SEARCH_URL,
     PUBLIC_SEARCH_URL,
     KeenableContentProvider,
+    KeenableSearchError,
 )
 
 
@@ -18,9 +23,6 @@ class _FakeResponse:
     def __init__(self, payload, status=200):
         self._payload = payload
         self.status = status
-
-    async def text(self):
-        return "ok"
 
     async def json(self, content_type=None):
         return self._payload
@@ -125,7 +127,7 @@ def test_enhanced_research_keenable_is_available_without_tavily(monkeypatch):
 
 
 def test_settings_use_saved_system_key_without_a_user(monkeypatch):
-    """The standalone research API has no user; it must still read the admin's saved settings."""
+    """A system-scope research service must read the admin's saved settings."""
     from landppt.core.config import ai_config
 
     monkeypatch.setattr(ai_config, "keenable_api_key", None)
@@ -175,29 +177,45 @@ def _report():
     )
 
 
-def test_research_page_endpoints_honor_keenable(monkeypatch):
+@pytest.mark.asyncio
+async def test_research_page_endpoints_honor_the_current_users_keenable_choice(monkeypatch):
     from landppt.api import landppt_api
+    from landppt.auth.request_context import current_user_id
+    from landppt.services import db_config_service
 
     enhanced = MagicMock()
-    enhanced.is_available.return_value = True
-    enhanced.get_status.return_value = {"service": "enhanced_research"}
+    enhanced.get_ai_provider_async = AsyncMock(return_value=object())
+    enhanced.keenable_provider.get_status = AsyncMock(return_value={"max_results": 7, "has_api_key": True})
     enhanced.conduct_enhanced_research = AsyncMock(return_value=_report())
-    legacy = MagicMock()
-    legacy._get_research_provider_sync.return_value = "keenable"
-    legacy.is_available.return_value = False
+    settings = MagicMock()
+    settings.get_config_value = AsyncMock(side_effect=lambda key, user_id: "keenable" if user_id == 42 else "tavily")
+    get_enhanced_service = MagicMock(return_value=enhanced)
     generator = MagicMock()
     generator.save_report_to_file.return_value = "research_reports/t.md"
-    monkeypatch.setattr(landppt_api, "get_research_service", lambda: legacy)
-    monkeypatch.setattr(landppt_api, "get_enhanced_research_service", lambda: enhanced)
+    monkeypatch.setattr(db_config_service, "get_db_config_service", lambda: settings)
+    monkeypatch.setattr(landppt_api, "get_enhanced_research_service", get_enhanced_service)
     monkeypatch.setattr(landppt_api, "get_enhanced_report_generator", lambda: generator)
 
-    status = asyncio.run(landppt_api.get_research_status())
-    assert status["available"] is True
-    assert status["research_provider"] == "keenable"
+    app = FastAPI()
+    app.include_router(landppt_api.router, prefix="/api")
+    token = current_user_id.set(42)
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            status_response = await client.get("/api/research/status")
+            run_response = await client.post("/api/research/conduct", params={"topic": "t"})
+    finally:
+        current_user_id.reset(token)
 
-    result = asyncio.run(landppt_api.conduct_research("t", "zh"))
-    enhanced.conduct_enhanced_research.assert_awaited_once_with("t", "zh")
-    legacy.conduct_deep_research.assert_not_called()
+    assert status_response.status_code == 200
+    status = status_response.json()
+    assert status["available"] is True
+    assert status["status"] == {"research_provider": "keenable", "max_results": 7}
+    assert status["keenable_configured"] is True
+
+    assert run_response.status_code == 200
+    result = run_response.json()
+    assert [call.args for call in get_enhanced_service.call_args_list] == [(42,), (42,)]
+    enhanced.conduct_enhanced_research.assert_awaited_once_with("t", "zh", research_provider="keenable")
     assert result["report"]["sources_count"] == 1
     assert result["report"]["steps_count"] == 2
     assert result["report_path"] == "research_reports/t.md"
@@ -207,14 +225,66 @@ def test_research_page_keeps_the_legacy_service_for_other_providers(monkeypatch)
     from landppt.api import landppt_api
 
     legacy = MagicMock()
-    legacy._get_research_provider_sync.return_value = "tavily"
+    legacy._get_research_provider_async = AsyncMock(return_value="tavily")
     legacy.is_available.return_value = True
     legacy.get_status.return_value = {"deepseek_available": False}
-    enhanced = MagicMock()
-    monkeypatch.setattr(landppt_api, "get_research_service", lambda: legacy)
-    monkeypatch.setattr(landppt_api, "get_enhanced_research_service", lambda: enhanced)
+    get_enhanced_service = MagicMock()
+    monkeypatch.setattr(landppt_api, "get_research_service", lambda user_id=None: legacy)
+    monkeypatch.setattr(landppt_api, "get_enhanced_research_service", get_enhanced_service)
 
     status = asyncio.run(landppt_api.get_research_status())
     assert status["available"] is True
     assert "research_provider" not in status
-    enhanced.is_available.assert_not_called()
+    get_enhanced_service.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [KeenableSearchError("Keenable search returned HTTP 401"), TimeoutError()])
+async def test_research_page_fails_when_every_keenable_search_fails(monkeypatch, error):
+    from landppt.api import landppt_api
+    from landppt.services.research.enhanced_research_service import EnhancedResearchService
+
+    service = EnhancedResearchService()
+    service.get_ai_provider_async = AsyncMock(return_value=object())
+    service._generate_research_plan = AsyncMock(return_value=[{"query": "example", "description": "example"}])
+    service.keenable_provider.search = AsyncMock(side_effect=error)
+    service._collect_llm_response = AsyncMock()
+    legacy = MagicMock()
+    legacy._get_research_provider_async = AsyncMock(return_value="keenable")
+    report_generator = MagicMock()
+    monkeypatch.setattr(landppt_api, "get_research_service", lambda user_id=None: legacy)
+    monkeypatch.setattr(landppt_api, "get_enhanced_research_service", lambda user_id=None: service)
+    monkeypatch.setattr(landppt_api, "get_enhanced_report_generator", report_generator)
+
+    app = FastAPI()
+    app.include_router(landppt_api.router, prefix="/api")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/research/conduct", params={"topic": "t"})
+
+    assert response.status_code == 502
+    assert "Keenable 搜索失败" in response.json()["detail"]
+    service._collect_llm_response.assert_not_awaited()
+    legacy.conduct_deep_research.assert_not_called()
+    report_generator.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_keenable_research_keeps_results_from_successful_searches(monkeypatch):
+    from landppt.core.config import ai_config
+    from landppt.services.research.enhanced_research_service import EnhancedResearchService
+
+    monkeypatch.setattr(ai_config, "research_enable_content_extraction", False)
+    service = EnhancedResearchService()
+    service._generate_research_plan = AsyncMock(return_value=[
+        {"query": "one", "description": "example"},
+        {"query": "two", "description": "example"},
+    ])
+    service.keenable_provider.search = AsyncMock(side_effect=[
+        TimeoutError(), [{"url": "https://a.example", "title": "source", "content": "snippet"}],
+    ])
+    service._collect_llm_response = AsyncMock(return_value="research summary")
+
+    report = await service.conduct_enhanced_research("t", research_provider="keenable")
+
+    assert report.sources == ["https://a.example"]
+    assert report.provider_stats["keenable"] == 1

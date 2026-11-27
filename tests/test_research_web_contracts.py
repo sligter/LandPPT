@@ -25,7 +25,7 @@ async def test_research_query_parameters_and_display_result(monkeypatch):
     service = SimpleNamespace(
         is_available=lambda: True, conduct_deep_research=AsyncMock(return_value=report)
     )
-    monkeypatch.setattr(routes, "get_research_service", lambda: service)
+    monkeypatch.setattr(routes, "get_research_service", lambda user_id=None: service)
     monkeypatch.setattr(routes, "get_report_generator", lambda: None)
     app = FastAPI()
     app.include_router(routes.router, prefix="/api")

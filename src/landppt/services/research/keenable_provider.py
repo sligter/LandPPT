@@ -22,33 +22,26 @@ APP_TITLE = "LandPPT"
 _MASKED_KEYS = {"********", "••••••••", "***"}
 
 
+class KeenableSearchError(RuntimeError):
+    """Keenable could not complete a research search."""
+
+
 class KeenableContentProvider:
     """Keenable content search provider for research functionality."""
 
     def __init__(self, user_id: Optional[int] = None):
         self.user_id = user_id
-        self._config_initialized = False
 
     async def _load_user_config(self) -> Dict[str, Any]:
         """Saved settings for this scope: the user's values over the system values.
 
-        With no user (the standalone research API) this reads the system settings an
-        admin saved, so a saved key is used instead of the public endpoint.
+        A system-scope caller reads the defaults saved by an admin.
         """
         try:
             from ..db_config_service import get_db_config_service
 
             db_config_service = get_db_config_service()
             return await db_config_service.get_all_config(user_id=self.user_id) or {}
-        except Exception as e:
-            logger.warning("Failed to load Keenable config: %s", e)
-            return {}
-
-    def _load_user_config_sync(self) -> Dict[str, Any]:
-        try:
-            from ..db_config_service import get_db_config_service
-
-            return get_db_config_service().get_all_config_sync(user_id=self.user_id) or {}
         except Exception as e:
             logger.warning("Failed to load Keenable config: %s", e)
             return {}
@@ -82,8 +75,8 @@ class KeenableContentProvider:
         """Keyless search works without a key; availability is not a credential check."""
         return True
 
-    def get_status(self) -> Dict[str, Any]:
-        settings = self._settings(self._load_user_config_sync())
+    async def get_status(self) -> Dict[str, Any]:
+        settings = self._settings(await self._load_user_config())
         return {
             "provider": "keenable",
             "available": self.is_available(),
@@ -132,11 +125,12 @@ class KeenableContentProvider:
                 json={"query": query, "max_results": settings["max_results"]},
                 headers=headers,
             ) as resp:
-                body = await resp.text()
                 if resp.status >= 400:
-                    raise RuntimeError(f"Keenable search HTTP {resp.status}: {body[:300]}")
+                    raise KeenableSearchError(f"Keenable search returned HTTP {resp.status}")
                 try:
                     payload = await resp.json(content_type=None)
-                except Exception as e:
-                    raise RuntimeError(f"Keenable returned a non-JSON body: {body[:300]}") from e
+                except (ValueError, aiohttp.ClientError):
+                    raise KeenableSearchError("Keenable returned an unreadable response") from None
+        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+            raise KeenableSearchError("Keenable returned an invalid search response")
         return self._normalize_results(payload, settings["max_results"])

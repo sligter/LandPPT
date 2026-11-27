@@ -22,6 +22,18 @@ function useResearchRead(endpoint: string) {
 const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
 const text = (value: unknown) => typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value);
 
+function researchProviderLabel(data: ApiData) {
+  const provider = data.research_provider ?? data.status?.research_provider;
+  switch (provider) {
+    case 'keenable':
+      return data.keenable_configured ? 'Keenable 已配置' : 'Keenable 公开搜索';
+    case 'deepseek':
+      return data.deepseek_configured ? 'DeepSeek 已配置' : 'DeepSeek 未配置';
+    default:
+      return data.tavily_configured ? 'Tavily 已配置' : 'Tavily 未配置';
+  }
+}
+
 export default function Research() {
   const status = useResearchRead('/api/research/status'); const reports = useResearchRead('/api/research/reports'); const actions = useAdminActions();
   const [pending, setPending] = useState(false); const locked = useRef(false); const [error, setError] = useState(''); const [result, setResult] = useState<ApiData>(); const [elapsed, setElapsed] = useState(0);
@@ -59,7 +71,7 @@ export default function Research() {
       <Card size="small" title="服务状态" extra={<Button icon={<ReloadOutlined aria-hidden />} loading={status.loading} onClick={status.refresh}>刷新状态</Button>}>
         {status.error && <Alert type="error" title={status.error} action={<Button onClick={status.refresh}>重试</Button>} className="page-error" />}
         {status.loading && !status.data ? <div role="status"><Spin /> 正在检查研究服务…</div> : status.data && <>
-          <Space wrap className="research-service-tags"><Tag color={status.data.available ? 'success' : 'default'}>{status.data.available ? '服务可用' : '服务不可用'}</Tag><Tag>{status.data.status?.research_provider === 'deepseek' ? (status.data.deepseek_configured ? 'DeepSeek 已配置' : 'DeepSeek 未配置') : (status.data.tavily_configured ? 'Tavily 已配置' : 'Tavily 未配置')}</Tag></Space>
+          <Space wrap className="research-service-tags"><Tag color={status.data.available ? 'success' : 'default'}>{status.data.available ? '服务可用' : '服务不可用'}</Tag><Tag>{researchProviderLabel(status.data)}</Tag></Space>
           <Descriptions size="small" column={1} items={[
             { key: 'provider', label: 'AI 提供商', children: text(status.data.status?.ai_provider_type) || '—' },
             { key: 'results', label: '最大搜索结果', children: status.data.status?.max_results ?? '—' },

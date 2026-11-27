@@ -254,6 +254,7 @@ def test_default_payload_and_failed_creation_preserve_draft(ui_page):
         include_page_numbers="true",
         ppt_style="general",
         custom_style_prompt="",
+        content_mode="presentation",
         content_source="manual",
         file_processing_mode="markitdown",
         content_analysis_depth="fast",
@@ -571,6 +572,34 @@ def test_research_unavailable_failed_status_retry_and_empty_reports(ui_page):
     assert not state["writes"]
 
 
+def test_keenable_status_and_search_error(ui_page):
+    page, load = ui_page
+    state = api(page)
+    state["status"] = dict(
+        available=True,
+        research_provider="keenable",
+        keenable_configured=False,
+        status=dict(research_provider="keenable", max_results=7),
+    )
+    research(page, load)
+    expect(page.get_by_text("Keenable 公开搜索", exact=True)).to_be_visible()
+    expect(page.get_by_text("Tavily 未配置", exact=True)).to_have_count(0)
+
+    state["status"]["keenable_configured"] = True
+    page.get_by_role("button", name="刷新状态").click()
+    expect(page.get_by_text("Keenable 已配置", exact=True)).to_be_visible()
+
+    message = "Keenable 搜索失败，请检查 API Key 或稍后重试。"
+    page.route(
+        "**/api/research/conduct?**",
+        lambda route: route.fulfill(status=502, json={"detail": message}),
+    )
+    page.get_by_role("textbox", name="研究主题").fill("测试检索失败")
+    page.get_by_role("button", name="开始研究", exact=True).click()
+    expect(page.get_by_text(message, exact=True)).to_be_visible()
+    expect(page.get_by_text("研究结果", exact=True)).to_have_count(0)
+
+
 def test_report_pagination_refresh_failure_keep_rows_delete_retry_and_focus(ui_page):
     page, load = ui_page
     state = api(page)
@@ -740,7 +769,8 @@ def readable_select(element):
         ("场景", "科技技术", "通用", "ArrowDown", 1),
         ("目标受众", "普通大众", "自定义", "ArrowUp", 1),
         ("页数", "AI 智能决定", "自定义范围", "ArrowUp", 1),
-        ("PPT 风格", "通用场景", "自定义风格", "ArrowUp", 2),
+        ("PPT 风格", "通用场景", "技术图解视频", "ArrowUp", 2),
+        ("PPT 风格", "通用场景", "自定义风格", "ArrowUp", 3),
         ("语言", "中文", "English", "ArrowUp", 1),
         ("页面绘制方式", "HTML（默认）", "SVG（实验）", "ArrowUp", 1),
     ],

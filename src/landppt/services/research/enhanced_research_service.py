@@ -20,7 +20,7 @@ from ...core.config import ai_config
 from ..deep_research_service import DEEPResearchService, ResearchReport, ResearchStep
 from ..prompts.system_prompts import SystemPrompts
 from .searxng_provider import SearXNGContentProvider, SearXNGSearchResponse
-from .keenable_provider import KeenableContentProvider
+from .keenable_provider import KeenableContentProvider, KeenableSearchError
 from .content_extractor import WebContentExtractor, ExtractedContent
 from ..runtime.ai_execution import scoped_ai_conversation
 
@@ -385,6 +385,8 @@ class EnhancedResearchService:
         language: str = "zh",
         context: Optional[Dict[str, Any]] = None,
         event_callback=None,
+        *,
+        research_provider: Optional[str] = None,
     ) -> EnhancedResearchReport:
         """
         Conduct comprehensive enhanced research with multiple providers
@@ -401,6 +403,7 @@ class EnhancedResearchService:
         logger.info(f"Starting enhanced research for topic: {topic}")
 
         try:
+            research_provider = research_provider or await self._get_research_provider_async()
             # Step 1: Generate research plan with context
             research_plan = await self._generate_research_plan(
                 topic,
@@ -420,6 +423,7 @@ class EnhancedResearchService:
 
             # Step 2: Execute research steps with multiple providers
             research_steps = []
+            keenable_failure = None
             provider_stats = {'tavily': 0, 'deepseek': 0, 'searxng': 0, 'keenable': 0, 'content_extraction': 0}
 
             for i, step_plan in enumerate(research_plan, 1):
@@ -433,19 +437,27 @@ class EnhancedResearchService:
                         "description": step_plan.get("description", ""),
                     },
                 )
-                step = await self._execute_enhanced_research_step(
-                    i,
-                    step_plan,
-                    topic,
-                    language,
-                    provider_stats,
-                    event_callback=event_callback,
-                )
-                research_steps.append(step)
+                try:
+                    step = await self._execute_enhanced_research_step(
+                        i,
+                        step_plan,
+                        topic,
+                        language,
+                        provider_stats,
+                        event_callback=event_callback,
+                        research_provider=research_provider,
+                    )
+                    research_steps.append(step)
+                except KeenableSearchError as error:
+                    keenable_failure = error
+                    logger.warning("Keenable search failed at step %s: %s", i, error)
 
                 # Add delay between steps
                 if i < len(research_plan):
                     await asyncio.sleep(1)
+
+            if keenable_failure is not None and not research_steps:
+                raise KeenableSearchError("All Keenable searches failed.") from keenable_failure
 
             # Step 3: Analyze all collected content
             content_analysis = await self._analyze_collected_content(
@@ -576,6 +588,7 @@ class EnhancedResearchService:
         provider_stats: Dict[str, int],
         *,
         event_callback=None,
+        research_provider: Optional[str] = None,
     ) -> EnhancedResearchStep:
         """Execute a single enhanced research step with multiple providers"""
         step_start_time = time.time()
@@ -588,7 +601,7 @@ class EnhancedResearchService:
         )
         
         # Determine which providers to use based on configuration
-        research_provider = await self._get_research_provider_async()
+        research_provider = research_provider or await self._get_research_provider_async()
         use_tavily = research_provider in ['tavily', 'both']
         use_searxng = research_provider in ['searxng', 'both'] and self.searxng_provider.is_available()
         use_deepseek = research_provider == 'deepseek'
@@ -605,7 +618,7 @@ class EnhancedResearchService:
         if use_deepseek:
             search_tasks.append(self.deepseek_provider.search(step_plan['query'], ori_question=topic))
         if use_keenable:
-            search_tasks.append(self._search_with_keenable(step_plan['query'], language))
+            search_tasks.append(self.keenable_provider.search(step_plan['query'], language))
         
         # Execute searches concurrently
         search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
@@ -638,9 +651,15 @@ class EnhancedResearchService:
             result_index += 1
 
         if use_keenable:
-            if result_index < len(search_results) and not isinstance(search_results[result_index], Exception):
-                keenable_results = search_results[result_index]
-                provider_stats['keenable'] = provider_stats.get('keenable', 0) + 1
+            result = search_results[result_index]
+            if isinstance(result, KeenableSearchError):
+                raise result
+            if isinstance(result, Exception):
+                raise KeenableSearchError(f"Keenable request failed ({type(result).__name__})") from result
+            if isinstance(result, BaseException):
+                raise result
+            keenable_results = result
+            provider_stats['keenable'] = provider_stats.get('keenable', 0) + 1
         
         step.tavily_results = tavily_results
         step.searxng_results = searxng_results
@@ -721,14 +740,6 @@ class EnhancedResearchService:
             return await self.searxng_provider.search(query, language)
         except Exception as e:
             logger.warning(f"SearXNG search failed: {e}")
-            return None
-
-    async def _search_with_keenable(self, query: str, language: str) -> Optional[List[Dict[str, Any]]]:
-        """Search using Keenable provider"""
-        try:
-            return await self.keenable_provider.search(query, language)
-        except Exception as e:
-            logger.warning(f"Keenable search failed: {e}")
             return None
 
     def _collect_urls_from_results(self, tavily_results: Optional[List[Dict[str, Any]]],
