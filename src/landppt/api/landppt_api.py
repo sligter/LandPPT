@@ -1162,10 +1162,31 @@ async def cleanup_file_cache():
 
 # DEEP Research Endpoints
 
+def _selected_research_provider() -> str:
+    """The research provider picked in the settings (saved value, then RESEARCH_PROVIDER)."""
+    research_service = get_research_service()
+    if research_service is not None:
+        try:
+            return research_service._get_research_provider_sync()
+        except Exception as e:
+            logger.warning(f"Failed to read the selected research provider: {e}")
+    return str(ai_config.research_provider or "tavily").strip().lower()
+
+
 @router.get("/research/status")
 async def get_research_status():
     """Get research service status"""
     try:
+        if _selected_research_provider() == "keenable":
+            enhanced_service = get_enhanced_research_service()
+            return {
+                "available": bool(enhanced_service and enhanced_service.is_available()),
+                "status": enhanced_service.get_status() if enhanced_service else {},
+                "research_provider": "keenable",
+                "tavily_configured": bool(ai_config.tavily_api_key),
+                "deepseek_configured": bool(ai_config.deepseek_api_key),
+            }
+
         research_service = get_research_service()
         if not research_service:
             return {
@@ -1190,6 +1211,9 @@ async def get_research_status():
 async def conduct_research(topic: str, language: str = "zh"):
     """Conduct DEEP research on a topic"""
     try:
+        if _selected_research_provider() == "keenable":
+            return await _conduct_keenable_research(topic, language)
+
         research_service = get_research_service()
         if not research_service or not research_service.is_available():
             raise HTTPException(
@@ -1230,6 +1254,41 @@ async def conduct_research(topic: str, language: str = "zh"):
     except Exception as e:
         logger.error(f"Error conducting research: {e}")
         raise HTTPException(status_code=500, detail=f"Research failed: {str(e)}")
+
+async def _conduct_keenable_research(topic: str, language: str):
+    """Run the standalone research page on the enhanced service when Keenable is selected."""
+    enhanced_service = get_enhanced_research_service()
+    if not enhanced_service or not enhanced_service.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Research service not available. Please check the selected research provider configuration."
+        )
+
+    report = await enhanced_service.conduct_enhanced_research(topic, language)
+
+    report_path = None
+    report_generator = get_enhanced_report_generator()
+    if report_generator:
+        try:
+            report_path = report_generator.save_report_to_file(report)
+        except Exception as save_error:
+            logger.warning(f"Failed to save research report: {save_error}")
+
+    return {
+        "success": True,
+        "report": {
+            "topic": report.topic,
+            "language": report.language,
+            "executive_summary": report.executive_summary,
+            "key_findings": report.key_findings,
+            "recommendations": report.recommendations,
+            "total_duration": report.total_duration,
+            "sources_count": len(report.sources),
+            "steps_count": len(report.steps)
+        },
+        "report_path": report_path,
+        "message": "Research completed successfully"
+    }
 
 @router.get("/research/reports")
 async def list_research_reports():
