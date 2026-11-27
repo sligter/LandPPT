@@ -37,7 +37,7 @@ from ..prompts import prompts_manager
 from ..template_package.outline_reference import with_package_reference
 from ..video_explainer import is_video_explainer
 from ..research.enhanced_research_service import EnhancedResearchService
-from ..research.keenable_provider import KeenableSearchError
+from ..research.keenable_provider import KeenableAccessError, KeenableSearchError
 from ..research.enhanced_report_generator import EnhancedReportGenerator
 from ..pyppeteer_pdf_converter import get_pdf_converter
 from ..image.image_service import ImageService
@@ -218,8 +218,17 @@ class ProjectOutlineStreamingService:
                     yield f"data: {json.dumps({'ping': True})}\n\n"
                     last_ping_at = now
             research_report = await research_task
-        except KeenableSearchError:
-            raise
+        except KeenableSearchError as research_error:
+            logger.warning('Skipping Keenable research for project %s: %s', project_id, research_error)
+            reason = (
+                str(research_error)
+                if isinstance(research_error, KeenableAccessError)
+                else 'Keenable 联网检索失败'
+            )
+            yield await self._build_streaming_research_status_event(
+                'research_skip', f'{reason}，已跳过联网研究', 0.08
+            )
+            return
         except Exception as research_error:
             if is_provider_protocol_error(research_error):
                 raise

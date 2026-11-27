@@ -14,6 +14,7 @@ from landppt.services.research.keenable_provider import (
     APP_TITLE,
     KEYED_SEARCH_URL,
     PUBLIC_SEARCH_URL,
+    KeenableAccessError,
     KeenableContentProvider,
     KeenableSearchError,
 )
@@ -288,3 +289,28 @@ async def test_keenable_research_keeps_results_from_successful_searches(monkeypa
 
     assert report.sources == ["https://a.example"]
     assert report.provider_stats["keenable"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403])
+async def test_keenable_research_stops_after_access_denial(monkeypatch, status):
+    from landppt.services.research.enhanced_research_service import EnhancedResearchService
+
+    service = EnhancedResearchService()
+    service.get_ai_provider_async = AsyncMock(return_value=object())
+    service._generate_research_plan = AsyncMock(return_value=[
+        {"query": "first", "description": "example"},
+        {"query": "second", "description": "example"},
+    ])
+    service.keenable_provider._load_user_config = AsyncMock(
+        return_value={"keenable_api_key": "test-key"}
+    )
+    service._collect_llm_response = AsyncMock()
+    session = _session(_FakeResponse({"error": "credential should not be surfaced"}, status))
+    monkeypatch.setattr("landppt.services.research.keenable_provider.aiohttp.ClientSession", lambda **_: session)
+
+    with pytest.raises(KeenableAccessError, match=f"鉴权失败（HTTP {status}）"):
+        await service.conduct_enhanced_research("topic", research_provider="keenable")
+
+    session.post.assert_called_once()
+    service._collect_llm_response.assert_not_awaited()

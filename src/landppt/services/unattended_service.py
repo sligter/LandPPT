@@ -592,6 +592,7 @@ class UnattendedPipelineRunner:
             )
 
         stream_error: Optional[str] = None
+        research_skip_message: Optional[str] = None
         done = False
         llm_call_count = 0
         # Own the stream: an abandoned generator would unwind the conversation
@@ -615,6 +616,9 @@ class UnattendedPipelineRunner:
                             llm_call_count = 1
                     elif isinstance(payload.get("status"), dict):
                         status_payload = payload["status"]
+                        message = str(status_payload.get("message") or "生成大纲中…")
+                        if status_payload.get("step") == "research_skip":
+                            research_skip_message = message
                         raw_progress = status_payload.get("progress")
                         try:
                             # The outline stream reports 0..1, not 0..100.
@@ -624,7 +628,7 @@ class UnattendedPipelineRunner:
                         await self._set_stage(
                             "outline",
                             progress=progress,
-                            message=str(status_payload.get("message") or "生成大纲中…"),
+                            message=message,
                         )
 
         if stream_error:
@@ -639,10 +643,13 @@ class UnattendedPipelineRunner:
             "outline_generation", llm_call_count, outline_provider, f"大纲生成(无人值守): {self.topic}"
         )
 
+        completion_message = f"大纲完成，共 {len(slides)} 页"
+        if research_skip_message:
+            completion_message = f"{completion_message}。{research_skip_message}"
         await self._set_stage(
             "outline",
             status="completed",
-            message=f"大纲完成，共 {len(slides)} 页",
+            message=completion_message,
             detail={"slide_count": len(slides), "stream_completed": done},
         )
 

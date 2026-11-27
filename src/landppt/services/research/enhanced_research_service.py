@@ -20,7 +20,7 @@ from ...core.config import ai_config
 from ..deep_research_service import DEEPResearchService, ResearchReport, ResearchStep
 from ..prompts.system_prompts import SystemPrompts
 from .searxng_provider import SearXNGContentProvider, SearXNGSearchResponse
-from .keenable_provider import KeenableContentProvider, KeenableSearchError
+from .keenable_provider import KeenableAccessError, KeenableContentProvider, KeenableSearchError
 from .content_extractor import WebContentExtractor, ExtractedContent
 from ..runtime.ai_execution import scoped_ai_conversation
 
@@ -448,6 +448,8 @@ class EnhancedResearchService:
                         research_provider=research_provider,
                     )
                     research_steps.append(step)
+                except KeenableAccessError:
+                    raise
                 except KeenableSearchError as error:
                     keenable_failure = error
                     logger.warning("Keenable search failed at step %s: %s", i, error)

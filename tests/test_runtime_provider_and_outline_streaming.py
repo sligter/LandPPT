@@ -1,8 +1,10 @@
+import json
 import sys
 import types
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -23,6 +25,7 @@ if "langchain_core.documents" not in sys.modules and importlib.util.find_spec("l
 from landppt.ai.base import AIResponse, MessageRole
 from landppt.services.outline.project_outline_research_service import ProjectOutlineResearchService
 from landppt.services.outline.project_outline_streaming_service import ProjectOutlineStreamingService
+from landppt.services.research.keenable_provider import KeenableAccessError, KeenableSearchError
 from landppt.services.runtime import runtime_research_service as runtime_research_module
 from landppt.services.runtime.runtime_provider_service import RuntimeProviderService
 from landppt.services.runtime.runtime_research_service import RuntimeResearchService
@@ -421,6 +424,60 @@ async def test_video_outline_stream_receives_research_and_visual_direction(monke
     assert project.outline["metadata"]["research_sources"] == 1
     assert all('"content":' not in event for event in events)
     assert any('"done": true' in event for event in events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (KeenableAccessError(401), "HTTP 401"),
+        (KeenableSearchError("All Keenable searches failed."), "Keenable 联网检索失败"),
+    ],
+)
+async def test_outline_stream_continues_after_keenable_research_fails(monkeypatch, failure, reason):
+    project = SimpleNamespace(
+        topic="缓存一致性",
+        scenario="technology",
+        requirements="从库存读写讲起",
+        outline=None,
+        confirmed_requirements={"topic": "缓存一致性"},
+        project_metadata={"network_mode": True},
+        todo_board=None,
+    )
+    stub = _OutlineStreamingFreshGenerationStubService(project)
+    stub.enhanced_research_service = SimpleNamespace(conduct_enhanced_research=AsyncMock(side_effect=failure))
+    stub.research_service = SimpleNamespace(conduct_deep_research=AsyncMock())
+    stub._get_preferred_outline_research_runtime = lambda: {
+        "service": stub.enhanced_research_service,
+        "provider": "enhanced",
+        "is_enhanced": True,
+    }
+    stub.iter_research_stream_payloads = lambda event: []
+    service = ProjectOutlineStreamingService(stub)
+    outline = {"title": project.topic, "slides": [{"page_number": 1, "title": "封面"}]}
+
+    async def stream(*args, **kwargs):
+        yield json.dumps(outline, ensure_ascii=False)
+
+    save = AsyncMock(return_value=True)
+    monkeypatch.setattr(service, "_stream_text_completion_for_role", stream, raising=False)
+    monkeypatch.setattr(service, "_get_outline_streaming_system_prompt", lambda: "system", raising=False)
+    monkeypatch.setattr(service, "_parse_streaming_outline_content", AsyncMock(return_value=(outline, False)))
+    monkeypatch.setattr(
+        "landppt.services.db_project_manager.DatabaseProjectManager",
+        lambda: SimpleNamespace(save_project_outline=save),
+    )
+
+    events = [json.loads(event[6:]) async for event in service.generate_outline_streaming("project-1")]
+
+    skipped = next(event["status"] for event in events if event.get("status", {}).get("step") == "research_skip")
+    assert reason in skipped["message"]
+    assert "已跳过联网研究" in skipped["message"]
+    assert not any("error" in event for event in events)
+    assert events[-1]["done"] is True
+    assert project.outline["slides"] == outline["slides"]
+    save.assert_awaited_once_with("project-1", project.outline)
+    stub.research_service.conduct_deep_research.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -765,11 +765,16 @@ def _wire(runner, service, project):
 
 
 @pytest.mark.asyncio
-async def test_outline_stage_consumes_the_stream_and_verifies_persistence():
+@pytest.mark.parametrize("research_skip", [None, "Keenable 联网检索失败，已跳过联网研究"])
+async def test_outline_stage_consumes_the_stream_and_verifies_persistence(research_skip):
     project = _FakeProject()
+    research_events = []
+    if research_skip:
+        research_events.append(_sse({"status": {"step": "research_skip", "message": research_skip, "progress": 0.08}}))
     service = _FakeService(
         project,
         outline_events=[
+            *research_events,
             _sse({"status": {"step": "generating", "message": "生成中", "progress": 0.5}}),
             _sse({"outline": {"slides": [{"page_number": 1}]}}),
             _sse({"done": True, "llm_call_count": 2}),
@@ -789,6 +794,8 @@ async def test_outline_stage_consumes_the_stream_and_verifies_persistence():
 
     assert runner.stages["outline"].status == "completed"
     assert runner.stages["outline"].detail["slide_count"] == 2
+    expected_message = f"大纲完成，共 2 页。{research_skip}" if research_skip else "大纲完成，共 2 页"
+    assert runner.stages["outline"].message == expected_message
     assert ("generate_outline_streaming", "project-1", False) in service.calls
 
 

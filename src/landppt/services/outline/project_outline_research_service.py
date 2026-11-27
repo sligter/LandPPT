@@ -128,8 +128,9 @@ class ProjectOutlineResearchService:
                     language=request.language,
                     context=research_input_context,
                 )
-        except KeenableSearchError:
-            raise
+        except KeenableSearchError as research_error:
+            logger.warning('Skipping Keenable research for outline generation: %s', research_error)
+            return None
         except Exception as research_error:
             if is_provider_protocol_error(research_error):
                 raise

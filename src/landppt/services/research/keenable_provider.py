@@ -26,6 +26,13 @@ class KeenableSearchError(RuntimeError):
     """Keenable could not complete a research search."""
 
 
+class KeenableAccessError(KeenableSearchError):
+    """The search endpoint rejected the request's credentials or permissions."""
+
+    def __init__(self, status: int) -> None:
+        super().__init__(f"Keenable 联网检索鉴权失败（HTTP {status}），请检查研究服务的 API Key 或访问权限")
+
+
 class KeenableContentProvider:
     """Keenable content search provider for research functionality."""
 
@@ -125,6 +132,8 @@ class KeenableContentProvider:
                 json={"query": query, "max_results": settings["max_results"]},
                 headers=headers,
             ) as resp:
+                if resp.status in {401, 403}:
+                    raise KeenableAccessError(resp.status)
                 if resp.status >= 400:
                     raise KeenableSearchError(f"Keenable search returned HTTP {resp.status}")
                 try:
