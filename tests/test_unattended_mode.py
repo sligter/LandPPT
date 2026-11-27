@@ -161,6 +161,40 @@ async def test_runner_executes_planned_stages_in_order_and_skips_the_rest():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("available", [True, False])
+async def test_video_only_reads_saved_narration_and_never_synthesizes(monkeypatch, available):
+    from landppt.services import saved_narration, video_export_service
+
+    runner = _runner("video", start_from="video")
+    project = SimpleNamespace(
+        topic="Test", outline={"slides": [{"title": "A"}]},
+        slides_data=[{"html_content": "<p>A</p>"}],
+    )
+    monkeypatch.setattr(runner, "_load_project", AsyncMock(return_value=project))
+    audio = [object()]
+    loader = AsyncMock(return_value=audio, side_effect=None if available else RuntimeError("配音缺失"))
+    monkeypatch.setattr(saved_narration, "load_saved_narration", loader)
+    export = AsyncMock(return_value={"success": False, "error": "test export boundary"})
+    monkeypatch.setattr(video_export_service.NarrationVideoExportService, "export_project_video", export)
+    speech = AsyncMock()
+    synthesis = AsyncMock()
+    monkeypatch.setattr(runner, "_run_speech_script", speech)
+    monkeypatch.setattr(runner, "_run_narration_audio", synthesis)
+
+    result = await runner.run()
+    assert result["status"] == "failed"
+    assert runner.planned == ["video"]
+    speech.assert_not_awaited()
+    synthesis.assert_not_awaited()
+    loader.assert_awaited_once_with(runner.project_id, runner.language, 1)
+    if available:
+        assert export.await_args.kwargs["narration_audio"] is audio
+    else:
+        assert "配音缺失" in result["error"]
+        export.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_speech_restart_skips_outline_template_and_ppt(monkeypatch):
     runner = _runner("video", start_from="speech_script", request_id="rewrite-1")
     project = SimpleNamespace(

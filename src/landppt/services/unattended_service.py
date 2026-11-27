@@ -284,6 +284,8 @@ class UnattendedPipelineRunner:
         self.planned = planned_stage_ids(self.stop_after)
         if self.config["start_from"] == "speech_script":
             self.planned = [stage for stage in self.planned if stage in STAGE_IDS[3:]]
+        elif self.config["start_from"] == "video":
+            self.planned = ["video"]
         self.stages: Dict[str, StageState] = {
             spec.id: StageState(
                 id=spec.id,
@@ -491,7 +493,7 @@ class UnattendedPipelineRunner:
     # ------------------------------------------------------------ stage impls
 
     @staticmethod
-    def _verify_rendered_pages(project) -> None:
+    def _verify_rendered_pages(project, *, purpose: str = "从讲稿重做") -> None:
         outline = project.outline if isinstance(project.outline, dict) else {}
         expected = len(outline.get("slides") or [])
         rendered = project.slides_data or []
@@ -499,7 +501,7 @@ class UnattendedPipelineRunner:
             not slide.get("html_content") or slide.get("generation_failed")
             for slide in rendered
         ):
-            raise RuntimeError("从讲稿重做需要完整的已生成幻灯片")
+            raise RuntimeError(f"{purpose}需要完整的已生成幻灯片")
 
     def _service(self):
         from .service_instances import get_ppt_service_for_user
@@ -1075,6 +1077,13 @@ class UnattendedPipelineRunner:
         from .video_export_service import NarrationVideoExportService
 
         project = await self._load_project()
+        if self.config["start_from"] == "video":
+            from .saved_narration import load_saved_narration
+
+            self._verify_rendered_pages(project, purpose="仅渲染成片")
+            self._narration_audio = await load_saved_narration(
+                self.project_id, self.language, len(project.slides_data)
+            )
         await self._set_stage("video", progress=5.0, message="正在合成视频…")
 
         result = await NarrationVideoExportService().export_project_video(

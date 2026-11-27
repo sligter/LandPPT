@@ -52,7 +52,7 @@ class UnattendedStartRequest(BaseModel):
     speech_requirements: str = Field(default="", max_length=1600)
     target_duration_seconds: int | None = Field(default=None, ge=1, le=7200)
     max_duration_seconds: int | None = Field(default=None, ge=1, le=7200)
-    start_from: Literal["speech_script"] | None = None
+    start_from: Literal["speech_script", "video"] | None = None
     request_id: str | None = Field(default=None, max_length=80)
 
 
@@ -83,7 +83,9 @@ async def start_unattended_run(
             raise HTTPException(status_code=404, detail="Project not found")
         if not project.confirmed_requirements:
             raise HTTPException(status_code=400, detail="项目需求尚未确认，无法启动无人值守任务")
-        if request.start_from and normalize_stop_after(request.stop_after) not in {
+        if request.start_from == "video" and normalize_stop_after(request.stop_after) != "video":
+            raise HTTPException(status_code=422, detail="仅渲染成片时请选择视频终点")
+        if request.start_from == "speech_script" and normalize_stop_after(request.stop_after) not in {
             "speech_script", "narration_audio", "video",
         }:
             raise HTTPException(status_code=422, detail="从讲稿重做时请选择讲稿或更后阶段")
