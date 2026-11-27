@@ -3040,6 +3040,11 @@ class PlaywrightPDFConverter:
             # Extra stability wait before we start counting the "usable" segment.
             # (Video recording already started with the context; we will trim later using trim_at_ms.)
             await asyncio.sleep(0.2)
+
+            # 图解时间轴和最终裁剪使用同一个起点，预热阶段保持首帧。
+            explainer_start_ms = await page.evaluate("window.__lpStartExplainerReveals?.() ?? 0")
+            if explainer_start_ms > 0:
+                trim_at_ms = int(explainer_start_ms)
             
             # Record for specified duration
             await asyncio.sleep(max(0.25, duration_ms / 1000.0))

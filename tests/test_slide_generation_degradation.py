@@ -41,6 +41,33 @@ async def test_html_retry_exhaustion_marks_fallback_and_success_clears_it():
 
 
 @pytest.mark.asyncio
+async def test_slide_with_rendered_production_directions_is_retried():
+    clean = (
+        "<!DOCTYPE html><html><head><style>/* 制作说明：背景 */</style></head>"
+        "<body><h1>收入按什么事件统计？</h1></body></html>"
+    )
+    leaked = clean.replace("</body>", "<p><b>制作说明：</b>绘制两条带箭头的连线。</p></body>")
+    owner = SimpleNamespace(
+        _text_completion_for_role=AsyncMock(side_effect=[
+            SimpleNamespace(content=leaked),
+            SimpleNamespace(content=clean),
+        ]),
+        _clean_html_response=lambda content: content,
+        _inject_anti_overflow_css=lambda content: content,
+        _apply_auto_layout_repair=AsyncMock(side_effect=lambda html, *args: html),
+        _validate_html_completeness=lambda html: {
+            "is_complete": True, "missing_elements": [], "errors": [],
+        },
+    )
+    result = await SlideHtmlRecoveryService(owner)._generate_html_with_retry(
+        "prompt", "system", {}, 1, 2,
+    )
+    assert result == clean
+    assert owner._text_completion_for_role.await_count == 2
+    assert "上次画面出现了制作说明" in owner._text_completion_for_role.await_args.kwargs["prompt"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("parallel", [False, True])
 async def test_degraded_slides_are_persisted_reported_and_retryable(
     tmp_path, monkeypatch, parallel

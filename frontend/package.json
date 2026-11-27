@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "dev": "vite build --watch",
     "check": "tsc --noEmit",
-    "test:controllers": "node --experimental-strip-types --test tests/outline-controller.test.mjs tests/generator-controller.test.mjs tests/template-wizard-controller.test.mjs tests/editor-controller.test.mjs tests/editor-outline-tree.test.mjs"
+    "test:controllers": "node --experimental-strip-types --test tests/outline-controller.test.mjs tests/generator-controller.test.mjs tests/template-wizard-controller.test.mjs tests/editor-controller.test.mjs tests/editor-outline-tree.test.mjs tests/creation-content-mode.test.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "6.3.4",

@@ -18,7 +18,7 @@ const urls = (value: unknown) => String(value || '').split(/[\n,;\t ]+/).map(ite
 type Props = {
   form: FormInstance; files: File[]; disabled: boolean;
   draft: MutableRefObject<{ chat?: ChatTurn[] }>;
-  addFile: (file: File) => boolean; onChange: () => void;
+  addFile?: (file: File) => boolean; onChange: () => void;
 };
 
 export default function CreationAssistant({ form, files, disabled, draft, addFile, onChange }: Props) {
@@ -36,14 +36,14 @@ export default function CreationAssistant({ form, files, disabled, draft, addFil
     try {
       const current = form.getFieldsValue(true);
       const fields = Object.fromEntries(Object.keys(labels).map(key => [key, current[key]]).filter(([, item]) => item !== undefined && item !== ''));
-      const links = urls(current.content_urls);
+      const links = addFile ? urls(current.content_urls) : [];
       const messages = next.slice(-20).map(({ role, content }) => ({ role, content }));
-      const result = await request('/api/ai/creation-assistant', 'POST', { messages, fields, attachments: files.map(file => file.name), links }, signal);
+      const result = await request('/api/ai/creation-assistant', 'POST', { messages, fields, attachments: addFile ? files.map(file => file.name) : [], links }, signal);
       const changes = result.fields && typeof result.fields === 'object' ? result.fields : {};
       // Links the user typed in chat are owned by the conversation; links added by hand stay untouched.
       const mentioned: string[] = Array.isArray(result.mentioned_urls) ? result.mentioned_urls : [];
       const nextLinks = [...new Set([...links.filter(link => !mentioned.includes(link)), ...(Array.isArray(result.content_urls) ? result.content_urls : [])])];
-      const linksChanged = nextLinks.join('\n') !== links.join('\n');
+      const linksChanged = !!addFile && nextLinks.join('\n') !== links.join('\n');
       form.setFieldsValue({ ...changes, ...(linksChanged ? { content_urls: nextLinks.join('\n') } : {}) });
       onChange();
       const applied = [...new Set([...Object.keys(changes).map(key => labels[key]).filter(Boolean), ...(linksChanged ? ['网页链接'] : [])])];
@@ -59,8 +59,8 @@ export default function CreationAssistant({ form, files, disabled, draft, addFil
     <div className="creation-assistant-log" ref={log} role="log" aria-live="polite">
       {!chat.length && <div className="creation-assistant-welcome">
         <Typography.Text strong>说说你想做一份什么样的演示</Typography.Text>
-        <Typography.Text type="secondary">我会追问关键信息，自动拟定标题、整理需求并设置参数。可以直接粘贴网页链接，或用回形针添加文件。</Typography.Text>
-        <div className="creation-assistant-examples">{examples.map(example => <Button key={example} size="small" disabled={disabled} onClick={() => void send(example)}>{example}</Button>)}</div>
+        <Typography.Text type="secondary">我会追问关键信息，自动拟定标题、整理需求并设置参数。{addFile && '可以直接粘贴网页链接，或用回形针添加文件。'}</Typography.Text>
+        <div className="creation-assistant-examples">{(addFile ? examples : examples.slice(0, 2)).map(example => <Button key={example} size="small" disabled={disabled} onClick={() => void send(example)}>{example}</Button>)}</div>
       </div>}
       {chat.map((turn, index) => turn.role === 'user'
         ? <div key={index} className="creation-assistant-turn is-user"><div className="creation-assistant-bubble">{turn.content}</div></div>
@@ -82,9 +82,9 @@ export default function CreationAssistant({ form, files, disabled, draft, addFil
     </div>
     {error && <Alert type="error" showIcon title={error} closable onClose={() => setError('')} />}
     <div className="creation-assistant-input">
-      <Upload multiple showUploadList={false} disabled={disabled} accept={sourceExtensions.map(ext => '.' + ext).join(',')} beforeUpload={addFile}>
+      {addFile && <Upload multiple showUploadList={false} disabled={disabled} accept={sourceExtensions.map(ext => '.' + ext).join(',')} beforeUpload={addFile}>
         <Tooltip title="添加文件资料"><Button type="text" shape="circle" icon={<PaperClipOutlined aria-hidden />} aria-label="添加文件资料" disabled={disabled} /></Tooltip>
-      </Upload>
+      </Upload>}
       <Input.TextArea aria-label="描述你的演示需求" variant="borderless" value={input} maxLength={4000} disabled={disabled} autoSize={{ minRows: 1, maxRows: 5 }}
         placeholder={chat.length ? '继续补充或回答问题，回复“你决定”也可以' : '描述你的演示需求，Enter 发送，Shift + Enter 换行'}
         onChange={event => setInput(event.target.value)}

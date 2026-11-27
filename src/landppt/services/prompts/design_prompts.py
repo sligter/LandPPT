@@ -10,6 +10,8 @@ import logging
 from .system_prompts import SystemPrompts
 from .prompt_utils import apply_page_number_prompt_filter
 from ..prompt_asset_service import strip_base64_image_payloads_for_prompt
+from ..video_explainer import is_video_explainer
+from ..audience_content import audience_slide_copy, is_production_direction
 
 logger = logging.getLogger(__name__)
 
@@ -115,13 +117,17 @@ class DesignPrompts:
         return SystemPrompts.get_resource_performance_prompt()
 
     @staticmethod
-    def _build_design_system_spec() -> str:
-        return """只输出以下五项，每项 1–2 行，总计不超过 500 字：
+    def _build_design_system_spec(video_mode: bool = False) -> str:
+        anchors = (
+            "所有镜头共享标题、主图和字幕安全区锚点。"
+            if video_mode else "普通内容页标题区的位置和预留空间；首尾页、目录页的例外。"
+        )
+        return f"""只输出以下五项，每项 1–2 行，总计不超过 500 字：
 - palette：背景、正文、弱化文字、强调色，写出 CSS 色值及用途。
 - typography：实际可用的字体栈；标题、正文、辅助文字的字号和行高，用 px/倍数表达。
   面向投影阅读选择字号，不机械照搬模板小字；默认正文 22–28px、辅助文字至少 14px。
 - spacing：画布安全边距、常用间距，给出 px 值。
-- anchors：普通内容页标题区的位置和预留空间；首尾页、目录页的例外。
+- anchors：{anchors}
 - components：边框、圆角、材质等可复用特征，简短列出。
 页码启用时，在 anchors 中补充页码位置；首页和尾页不显示页码。
 从模板提取稳定值；未提供模板或未定义的值由你选择，并标记为默认值。未加载的字体使用系统字体栈。
@@ -144,6 +150,13 @@ class DesignPrompts:
             '自定义风格补充': confirmed_requirements.get('custom_style_prompt'),
         }
         lines = [f"- {k}：{v}" for k, v in field_map.items() if v]
+        if is_video_explainer(confirmed_requirements):
+            lines.append(
+                "- 将每页设计成技术图解视频的一个镜头。底图和固定标题始终可见，画面留出字幕区。"
+                "需要逐步揭示时，把新增的图元或连线标为 data-video-step=\"1\" 到 \"4\"，同组共用序号。"
+                "每组可在首个元素标注 data-video-cue=\"对应的简短口播词\"，由视频录制器安排露出。"
+                "HTML 本身保持所有图元可见以供静态阅读，避免另写自动播放脚本。"
+            )
         return "\n".join(lines) if lines else "- 未提供项目背景，请根据内容自行建立设计主张。"
 
     @staticmethod
@@ -251,7 +264,7 @@ class DesignPrompts:
 {template_context}
 
 画布：1280×720。用户明确要求优先于模板示例。
-{DesignPrompts._build_design_system_spec()}"""
+{DesignPrompts._build_design_system_spec(is_video_explainer(confirmed_requirements))}"""
         return DesignPrompts._finalize_prompt(prompt, confirmed_requirements)
 
     # ================================================================
@@ -321,6 +334,11 @@ class DesignPrompts:
     ) -> str:
         outline = json.dumps(all_slides, ensure_ascii=False, default=str)
         template = DesignPrompts._build_template_html_context(template_html)
+        intent, relation, layout = (
+            ("展示读到旧库存的矛盾", "库存接口与缓存之间的读取关系", "逐步展开同一张图")
+            if is_video_explainer(confirmed_requirements)
+            else ("开场介绍主题", "主题与副标题", "焦点排版")
+        )
         return f"""为整套 {total_pages} 页 PPT 制定逐页构图计划，供后续并行生成使用。
 
 项目简报：{DesignPrompts._build_project_brief(confirmed_requirements)}
@@ -346,7 +364,7 @@ composition_brief 的六个字段均为非空字符串：
 - focal：第一视觉落点，引用当前页已有内容
 - content_sufficiency：只选 sufficient（信息足够）、focus（适合简洁焦点页）、missing_evidence（缺证据）
 - rhythm：与前后页的呼应、差异或保持一致的理由
-格式示例：{{"slides":[{{"page":1,"composition_brief":{{"intent":"开场介绍主题","relation":"主题与副标题","layout_family":"焦点排版","focal":"本页标题","content_sufficiency":"focus","rhythm":"简洁开场，为后续展开建立节奏"}}}}]}}
+格式示例：{{"slides":[{{"page":1,"composition_brief":{{"intent":"{intent}","relation":"{relation}","layout_family":"{layout}","focal":"本页标题","content_sufficiency":"focus","rhythm":"简洁开场，为后续展开建立节奏"}}}}]}}
 """
 
     # 向后兼容别名
@@ -383,7 +401,7 @@ composition_brief 的六个字段均为非空字符串：
 {template_context}
 
 画布：1280×720。用户明确要求优先于模板示例。
-{DesignPrompts._build_design_system_spec()}"""
+{DesignPrompts._build_design_system_spec(is_video_explainer(confirmed_requirements))}"""
         return DesignPrompts._finalize_prompt(prompt, confirmed_requirements)
 
     @staticmethod
@@ -443,6 +461,18 @@ composition_brief 的六个字段均为非空字符串：
         images_info = ""
         if _is_image_service_enabled() and 'images_summary' in slide_data:
             images_info = DesignPrompts._build_image_usage_context()
+        public_copy = json.dumps(audience_slide_copy(slide_data), ensure_ascii=False)
+        internal_context = {
+            key: value for key, value in slide_data.items()
+            if key in {
+                "production_notes", "composition_brief", "chart_config", "chart_data",
+                "image_suggestions", "images_info", "images_summary", "layout",
+            } and value
+        }
+        description = slide_data.get("description")
+        if isinstance(description, str) and is_production_direction(description):
+            internal_context["旧版绘图备注"] = description
+        layout_data = json.dumps(internal_context, ensure_ascii=False, default=str)
 
         return f"""为第 {page_number} / {total_pages} 页生成完整 PPT HTML：{slide_title}（{slide_type}）。
 
@@ -457,14 +487,19 @@ composition_brief 的六个字段均为非空字符串：
 {DesignPrompts._build_template_guidance_context()}
 {locked_zones}
 
-**本页内容与构图计划**
-{slide_data}
+**观众看到的内容**
+{public_copy}
+
+**仅供生成画面的制作备注**
+{layout_data}
 {images_info}
 {brief_block}
 {context_info}
 
 **职责与取舍**
 用户明确要求优先；整套设计系统负责视觉规范，composition_brief 负责本页意图、已有信息关系和跨页节奏，具体布局由你决定。版式建议可调整，关键事实不可丢失。
+可见标题、图例、短标签和正文都来自观众内容及有材料依据的图表数据。把机制画出来，禁止把制作备注、提示词、
+布局参数、绘制动作或推理过程转成任何观众可见的文字。图解节拍只用 HTML 属性表达。
 
 {DesignPrompts._build_design_quality_context()}
 {DesignPrompts._build_canvas_system_context()}
@@ -484,12 +519,16 @@ composition_brief 的六个字段均为非空字符串：
         global_constitution: str = "",
         current_page_brief: str = "",
         include_page_numbers: bool = True,
+        content_mode: str = "presentation",
+        custom_style_prompt: str = "",
     ) -> str:
         requirements = {
             "topic": project_topic,
             "type": project_type,
             "target_audience": project_audience,
             "ppt_style": project_style,
+            "content_mode": content_mode,
+            "custom_style_prompt": custom_style_prompt,
             "include_page_numbers": include_page_numbers,
         }
         prompt = DesignPrompts._build_slide_html_prompt(

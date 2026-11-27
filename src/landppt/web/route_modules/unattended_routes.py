@@ -8,15 +8,16 @@ handlers only own auth, dedupe, and the inline-vs-queue dispatch decision.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...auth.middleware import get_current_user_required
 from ...database.models import User
 from ...services.service_instances import ppt_service
+from ...services.video_explainer import is_video_explainer
 from ...services.unattended_service import (
     STAGE_SPECS,
     UNATTENDED_TASK_TYPE,
@@ -39,6 +40,7 @@ class UnattendedStartRequest(BaseModel):
     stop_after: Optional[str] = None
     language: Optional[str] = None
     template_id: Optional[int] = None
+    template_mode: Literal["auto", "global", "free"] | None = None
     tts_provider: Optional[str] = None
     tts_voice: Optional[str] = None
     tts_rate: Optional[str] = None
@@ -47,6 +49,11 @@ class UnattendedStartRequest(BaseModel):
     embed_subtitles: Optional[bool] = None
     notify_in_app: Optional[bool] = None
     notify_email: Optional[bool] = None
+    speech_requirements: str = Field(default="", max_length=1600)
+    target_duration_seconds: int | None = Field(default=None, ge=1, le=7200)
+    max_duration_seconds: int | None = Field(default=None, ge=1, le=7200)
+    start_from: Literal["speech_script"] | None = None
+    request_id: str | None = Field(default=None, max_length=80)
 
 
 @router.get("/api/unattended/stages")
@@ -62,6 +69,7 @@ async def list_unattended_stages(user: User = Depends(get_current_user_required)
 
 
 @router.post("/api/projects/{project_id}/unattended/start")
+@router.post("/api/projects/{project_id}/unattended/start-with-speech")
 async def start_unattended_run(
     project_id: str,
     request: UnattendedStartRequest,
@@ -75,6 +83,16 @@ async def start_unattended_run(
             raise HTTPException(status_code=404, detail="Project not found")
         if not project.confirmed_requirements:
             raise HTTPException(status_code=400, detail="项目需求尚未确认，无法启动无人值守任务")
+        if request.start_from and normalize_stop_after(request.stop_after) not in {
+            "speech_script", "narration_audio", "video",
+        }:
+            raise HTTPException(status_code=422, detail="从讲稿重做时请选择讲稿或更后阶段")
+        if (
+            not request.start_from
+            and (request.template_id or request.template_mode == "global")
+            and is_video_explainer(project.confirmed_requirements)
+        ):
+            raise HTTPException(status_code=422, detail="视频图解项目仅支持自由模板")
 
         project_language = "zh"
         if isinstance(project.project_metadata, dict):
@@ -154,6 +172,7 @@ async def get_unattended_status(
             "task_status": task_status,
             "status": run_status or ("running" if task_status == "running" else task_status),
             "stop_after": stop_after,
+            "request_id": config.get("request_id"),
             "topic": (snapshot or {}).get("topic") or metadata.get("project_topic") or project.topic,
             "language": config.get("language") or metadata.get("language") or "zh",
             "overall_progress": (snapshot or {}).get("overall_progress", task.progress),

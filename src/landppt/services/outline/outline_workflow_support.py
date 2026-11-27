@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict
 
+from ..audience_content import OUTLINE_COPY_RULE, OUTLINE_COPY_RULE_EN
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,6 +44,7 @@ def build_project_requirements_text(request: Any) -> str:
     if description and description not in requirements:
         parts.append(f"Additional user instructions:\n{description}")
 
+    parts.append(OUTLINE_COPY_RULE_EN if getattr(request, "language", "") == "en" else OUTLINE_COPY_RULE)
     return "\n\n".join(parts)
 
 

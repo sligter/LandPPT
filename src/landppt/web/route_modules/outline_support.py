@@ -660,6 +660,7 @@ async def _stream_outline_from_confirmed_sources_v2(
     confirmed_requirements: Dict[str, Any],
     *,
     user_id: int,
+    requirements_override: Optional[str] = None,
 ) -> Any:
     content_source = (confirmed_requirements or {}).get("content_source") or "file"
     status_message = {"mixed": "正在合并文件与网页资料...", "url": "正在抓取并分析 URL 内容..."}.get(
@@ -693,6 +694,7 @@ async def _stream_outline_from_confirmed_sources_v2(
                     project,
                     confirmed_requirements,
                     user_id=user_id,
+                    requirements_override=requirements_override,
                     event_callback=_research_event_cb,
                 )
             )
@@ -763,6 +765,7 @@ async def _stream_outline_from_confirmed_sources_v2(
                     project,
                     confirmed_requirements,
                     user_id=user_id,
+                    requirements_override=requirements_override,
                     event_callback=research_event_callback,
                 )
             )

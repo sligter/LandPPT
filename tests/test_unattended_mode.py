@@ -8,6 +8,8 @@ field plumbing, monitor markup).
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -156,6 +158,73 @@ async def test_runner_executes_planned_stages_in_order_and_skips_the_rest():
         "narration_audio": "skipped",
         "video": "skipped",
     }
+
+
+@pytest.mark.asyncio
+async def test_speech_restart_skips_outline_template_and_ppt(monkeypatch):
+    runner = _runner("video", start_from="speech_script", request_id="rewrite-1")
+    project = SimpleNamespace(
+        outline={"slides": [{"title": "A"}]}, slides_data=[{"html_content": "<p>A</p>"}]
+    )
+    monkeypatch.setattr(runner, "_load_project", AsyncMock(return_value=project))
+    order = []
+    _stub_stages(runner, order)
+    snapshot = await runner.run()
+    assert snapshot["success"] is True
+    assert snapshot["request_id"] == "rewrite-1"
+    assert order == ["speech_script", "narration_audio", "video"]
+    assert all(stage["status"] == "skipped" for stage in snapshot["stages"][:3])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [600, None])
+async def test_only_hard_duration_limit_stops_export(monkeypatch, limit):
+    from landppt.services import narration_service
+
+    audio = narration_service.NarrationAudioResult(
+        slide_index=0, language="zh", voice="voice", rate="+0%", audio_path="a.mp3",
+        duration_ms=744500, cached=False,
+    )
+    runner = _runner("video", start_from="speech_script", target_duration_seconds=600,
+                     max_duration_seconds=limit)
+    project = SimpleNamespace(
+        outline={"slides": [{"title": "A"}]}, slides_data=[{"html_content": "<p>A</p>"}]
+    )
+    monkeypatch.setattr(runner, "_load_project", AsyncMock(return_value=project))
+    monkeypatch.setattr(runner, "_count_narration_audios", AsyncMock(return_value=0))
+    monkeypatch.setattr(narration_service.NarrationService, "generate_project_slide_audios",
+                        AsyncMock(return_value=[audio]))
+    async def speech():
+        await runner._set_stage("speech_script", status="completed")
+
+    monkeypatch.setattr(runner, "_run_speech_script", speech)
+    export = AsyncMock()
+    monkeypatch.setattr(runner, "_run_video", export)
+    snapshot = await runner.run()
+    if limit is None:
+        assert snapshot["status"] == "completed"
+        export.assert_awaited_once()
+        assert runner._narration_audio == [audio]
+        return
+    assert snapshot["status"] == "failed"
+    assert snapshot["current_stage"] == "narration_audio"
+    assert "744.5 秒，超过上限 600 秒" in snapshot["error"]
+    assert runner.stages["narration_audio"].detail["duration_exceeded"] is True
+    export.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("strict", "guidance"), [(True, "66 秒以内"), (False, "约 66 秒")])
+def test_per_page_speech_budget_replaces_default_length_guideline(strict, guidance):
+    from landppt.services.prompts.speech_script_prompts import SpeechScriptPrompts
+
+    prompt = SpeechScriptPrompts.get_single_slide_script_prompt(
+        {"title": "A"}, 0, 8, {"topic": "A"}, "",
+        {"language": "zh", "target_seconds": 66, "strict_duration": strict,
+         "custom_style_prompt": "保留术语定义"},
+    )
+    assert guidance in prompt
+    assert "保留术语定义" in prompt
+    assert "1-3分钟" not in prompt
 
 
 @pytest.mark.asyncio
@@ -832,18 +901,26 @@ class TestTemplateModeResolution:
 
 
 @pytest.mark.asyncio
-async def test_template_stage_generates_and_confirms_a_free_template():
+@pytest.mark.parametrize("content_mode, template_mode", [
+    ("presentation", "free"),
+    ("video_explainer", "global"),
+])
+async def test_template_stage_generates_and_confirms_a_free_template(content_mode, template_mode):
     """Confirmation is normally a human step; the pipeline must do it itself or the
     slides stream refuses to start."""
-    project = _FakeProject(outline={"slides": [{"page_number": 1}]})
+    project = _FakeProject(
+        outline={"slides": [{"page_number": 1}]},
+        confirmed_requirements={"content_mode": content_mode},
+    )
     service = _FakeService(project)
-    runner = _runner("template", template_mode="free")
+    runner = _runner("template", template_mode=template_mode, template_id=42)
     _wire(runner, service, project)
 
     await runner._run_template()
 
     assert ("select_free_template_for_project", "project-1") in service.calls
     assert ("stream_free_template_generation", "project-1") in service.calls
+    assert ("select_global_template_for_project", "project-1", 42, 7) not in service.calls
     assert runner.stages["template"].status == "completed"
     assert runner.stages["template"].detail["template_mode"] == "free"
     # The metadata write the confirm endpoint would have made.

@@ -9,6 +9,7 @@ import time
 from contextlib import aclosing
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from ...api.models import FileOutlineGenerationRequest, PPTGenerationRequest
 from ...services.template_package.outline_reference import with_package_reference
@@ -30,6 +31,30 @@ from .support import (
 )
 
 router = APIRouter()
+
+
+class OutlineGenerationOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    network_mode: StrictBool | None = None
+    custom_requirements: str = Field(default="", max_length=4000)
+
+
+async def _collect_source_outline(project, requirements, user_id, custom_requirements):
+    outline = None
+    async with aclosing(_stream_outline_from_confirmed_sources_v2(
+        project.project_id, project, requirements, user_id=user_id,
+        requirements_override=custom_requirements,
+    )) as chunks:
+        async for chunk in chunks:
+            event = json.loads(chunk.removeprefix("data: ").strip())
+            if event.get("error"):
+                raise ValueError(event["error"])
+            if event.get("outline"):
+                outline = event["outline"]
+    if not outline or not outline.get("slides"):
+        raise ValueError("资料大纲生成未产生任何页面")
+    return outline
 
 
 @router.get("/projects/{project_id}/outline-stream")
@@ -201,9 +226,11 @@ async def stream_outline_generation(
 
 
 @router.post("/projects/{project_id}/generate-outline")
+@router.post("/projects/{project_id}/generate-outline-with-options")
 async def generate_outline(
     project_id: str,
-    user: User = Depends(get_current_user_required)
+    user: User = Depends(get_current_user_required),
+    options: OutlineGenerationOptions | None = None,
 ):
     """Generate outline for a project (non-streaming)"""
     try:
@@ -218,7 +245,8 @@ async def generate_outline(
                 "error": "项目需求尚未确认，请先完成需求确认步骤"
             }
 
-        if project.confirmed_requirements.get("content_source") == "mixed":
+        source_type = project.confirmed_requirements.get("content_source")
+        if source_type == "mixed" and options is None:
             return {"status": "success", "defer_generation": True, "message": "请通过大纲生成工作区合并文件与网页资料。"}
 
         # Check credits before generating outline
@@ -239,16 +267,20 @@ async def generate_outline(
         confirmed_requirements = project.confirmed_requirements
 
         # Extract network_mode and language from project metadata
-        network_mode = False
-        language = "zh"  # Default language
-        if project.project_metadata and isinstance(project.project_metadata, dict):
-            network_mode = project.project_metadata.get("network_mode", False)
-            language = project.project_metadata.get("language", "zh")
+        metadata = project.project_metadata or {}
+        network_mode = metadata.get("network_mode", False)
+        if options is not None and options.network_mode is not None:
+            network_mode = options.network_mode
+        language = metadata.get("language", "zh")
+        custom_requirements = options.custom_requirements.strip() if options else ""
+        requirements = confirmed_requirements.get("requirements") or project.requirements
+        if custom_requirements:
+            requirements = "\n\n".join(filter(None, (requirements, custom_requirements)))
 
         project_request = PPTGenerationRequest(
             scenario=project.scenario,
             topic=confirmed_requirements.get('topic', project.topic),
-            requirements=with_package_reference(project.requirements, confirmed_requirements),
+            requirements=with_package_reference(requirements, confirmed_requirements),
             language=language,
             network_mode=network_mode,
             target_audience=confirmed_requirements.get('target_audience', '普通大众'),
@@ -263,26 +295,26 @@ async def generate_outline(
         page_count_settings = confirmed_requirements.get('page_count_settings', {})
 
         # Generate outline using AI with page count settings
-        outline = await user_ppt_service.generate_outline(project_request, page_count_settings)
-
-        # Convert outline to dict format
-        outline_dict = {
-            "title": outline.title,
-            "slides": outline.slides,
-            "metadata": outline.metadata
-        }
+        if options is not None and source_type in {"file", "url", "mixed"}:
+            generation_project = project.model_copy(
+                update={"project_metadata": {**metadata, "network_mode": network_mode}}
+            )
+            outline_dict = await _collect_source_outline(
+                generation_project, confirmed_requirements, user.id, requirements
+            )
+            outline_llm_call_count = max(0, int(outline_dict["metadata"]["llm_call_count"]))
+        else:
+            outline = await user_ppt_service.generate_outline(project_request, page_count_settings)
+            outline_dict = {"title": outline.title, "slides": outline.slides, "metadata": outline.metadata}
+            await user_ppt_service._update_outline_generation_stage(project_id, outline_dict)
+            outline_llm_call_count = _resolve_outline_llm_call_count(outline, default=1)
 
         # Format as JSON
-        import json
         formatted_json = json.dumps(outline_dict, ensure_ascii=False, indent=2)
-
-        # Update outline generation stage
-        await user_ppt_service._update_outline_generation_stage(project_id, outline_dict)
 
         # Bill by actual LLM call count, matching the streaming route. A flat 1 here
         # meant the same file-based outline cost 4 credits via SSE but 1 via this
         # endpoint.
-        outline_llm_call_count = _resolve_outline_llm_call_count(outline, default=1)
         if outline_llm_call_count > 0:
             await consume_credits_for_operation(
                 user.id, "outline_generation", outline_llm_call_count,
@@ -293,6 +325,7 @@ async def generate_outline(
 
         return {
             "status": "success",
+            "network_mode": network_mode,
             "outline_content": formatted_json,
             "message": "Outline generated successfully"
         }

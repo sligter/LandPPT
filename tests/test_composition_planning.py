@@ -317,7 +317,9 @@ async def test_both_guidance_modes_pass_actual_page_plan_to_html(tmp_path, per_s
         slide, {}, 2, 2, "", result[0],
         global_constitution=result[1], current_page_brief=result[2],
     )
-    assert prompt.count("'layout_family': '流程'") == 1
+    visible, production = prompt.split("**仅供生成画面的制作备注**", 1)
+    assert '"layout_family"' not in visible
+    assert production.count('"layout_family": "流程"') == 1
     if per_slide:
         passed = service._generate_slide_creative_guide.call_args.kwargs["slide_data"]
         assert passed["composition_brief"] == PLAN[1]["composition_brief"]

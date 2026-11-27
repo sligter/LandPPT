@@ -24,6 +24,7 @@ from ...api.models import (
 )
 from ...ai import get_ai_provider, get_role_provider, AIMessage, MessageRole
 from ...ai.base import TextContent, ImageContent
+from ...ai.providers import strip_think_content
 from ...core.config import ai_config, app_config
 from ..runtime.ai_execution import (
     ExecutionContext,
@@ -34,6 +35,7 @@ from ..runtime.ai_execution import (
 )
 from ..prompts import prompts_manager
 from ..template_package.outline_reference import with_package_reference
+from ..video_explainer import is_video_explainer
 from ..research.enhanced_research_service import EnhancedResearchService
 from ..research.enhanced_report_generator import EnhancedReportGenerator
 from ..pyppeteer_pdf_converter import get_pdf_converter
@@ -95,6 +97,7 @@ class ProjectOutlineStreamingService:
         confirmed_requirements: Dict[str, Any],
     ) -> tuple[Dict[str, Any], bool]:
         """优先解析 JSON；若模型跑偏为文本说明，则退回文本大纲解析。"""
+        content = strip_think_content(content)
         json_parse_error: Exception | None = None
 
         try:
@@ -284,6 +287,17 @@ class ProjectOutlineStreamingService:
             except Exception as save_error:
                 logger.warning('Failed to save %s research report: %s', provider, save_error)
                 report_path = None
+        if is_video_explainer(confirmed_requirements):
+            yield {
+                "research_context": self._create_research_context(research_report),
+                "research_metadata": {
+                    "research_enhanced": is_enhanced,
+                    "research_provider": provider,
+                    "research_duration": getattr(research_report, "total_duration", None),
+                    "research_sources": len(getattr(research_report, "sources", []) or []),
+                },
+            }
+            return
         if not report_path:
             try:
                 research_context = self._create_research_context(research_report)
@@ -438,6 +452,9 @@ class ProjectOutlineStreamingService:
             yield f"data: {json.dumps({'ping': True})}\n\n"
             yield f"data: {json.dumps({'status': {'step': 'init', 'message': '正在准备大纲生成...', 'progress': 0.0}})}\n\n"
             confirmed_requirements = project.confirmed_requirements or {}
+            video_mode = is_video_explainer(confirmed_requirements)
+            research_context = ""
+            research_metadata = {}
             network_mode = False
             if project.project_metadata and isinstance(project.project_metadata, dict):
                 network_mode = project.project_metadata.get('network_mode', False)
@@ -455,6 +472,9 @@ class ProjectOutlineStreamingService:
                     if not isinstance(research_event, dict):
                         continue
 
+                    if video_mode and isinstance(research_event.get("research_context"), str):
+                        research_context = research_event["research_context"]
+                        research_metadata = research_event.get("research_metadata", {})
                     structured_outline = research_event.get('outline')
                     if structured_outline:
                         project.outline = structured_outline
@@ -496,7 +516,22 @@ class ProjectOutlineStreamingService:
             outline_language = 'zh'
             if getattr(project, 'project_metadata', None):
                 outline_language = project.project_metadata.get('language') or 'zh'
-            prompt = prompts_manager.get_streaming_outline_prompt(topic=topic, target_audience=target_audience, ppt_style=ppt_style, page_count_instruction=page_count_instruction, research_section='', include_transition_pages=bool(confirmed_requirements.get('include_transition_pages', False)), language=outline_language)
+            if video_mode:
+                prompt = prompts_manager.outline.get_video_storyboard_prompt(
+                    topic=topic,
+                    target_audience=target_audience,
+                    requirements=confirmed_requirements.get("requirements") or project.requirements or "",
+                    visual_style=confirmed_requirements.get("custom_style_prompt") or "",
+                    page_count_instruction=page_count_instruction.replace("的PPT", "").replace(
+                        "页数", "镜头数"
+                    ).replace("页", "镜"),
+                    research_context=research_context,
+                    language=outline_language,
+                )
+                system_prompt = "你为技术图解视频设计逐镜大纲，只输出合法的 JSON 代码块。"
+            else:
+                prompt = prompts_manager.get_streaming_outline_prompt(topic=topic, target_audience=target_audience, ppt_style=ppt_style, page_count_instruction=page_count_instruction, research_section='', include_transition_pages=bool(confirmed_requirements.get('include_transition_pages', False)), language=outline_language)
+                system_prompt = self._get_outline_streaming_system_prompt()
             prompt = with_package_reference(prompt, confirmed_requirements)
             yield f"data: {json.dumps({'status': {'step': 'generating', 'message': 'AI 正在构建大纲...', 'progress': 0.0}})}\n\n"
             try:
@@ -505,12 +540,13 @@ class ProjectOutlineStreamingService:
                 async for chunk in self._stream_text_completion_for_role(
                     'outline',
                     prompt=prompt,
-                    system_prompt=self._get_outline_streaming_system_prompt(),
+                    system_prompt=system_prompt,
                     temperature=ai_config.temperature,
                 ):
                     content += chunk
                     token_count += 1
-                    yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+                    if not video_mode:
+                        yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
                     if token_count % 50 == 0:
                         yield f"data: {json.dumps({'status': {'step': 'generating', 'message': f'AI 正在构建大纲... ({token_count} tokens)', 'progress': min(0.9, token_count / 500)}})}\n\n"
                 content = content.strip()
@@ -550,6 +586,7 @@ class ProjectOutlineStreamingService:
                         logger.warning(f'Generated outline has {actual_page_count} pages, but expected exactly {fixed_pages} pages')
                 yield f"data: {json.dumps({'status': {'step': 'validating', 'message': f'大纲验证完成，共 {actual_page_count} 页', 'progress': 1.0}})}\n\n"
                 structured_outline['metadata'] = {'generated_with_summeryfile': False, 'page_count_settings': page_count_settings, 'actual_page_count': actual_page_count, 'generated_at': time.time()}
+                structured_outline["metadata"].update(research_metadata)
                 project.outline = structured_outline
                 project.updated_at = time.time()
                 # A failed save must not be followed by a success event, or the user

@@ -1,4 +1,8 @@
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 from landppt.api.models import PPTProject
 from landppt.services.prompts.speech_script_prompts import SpeechScriptPrompts
@@ -139,6 +143,42 @@ def test_service_prompt_includes_previous_generated_script_context():
     assert "上一页内容概要：经营目标：本季度优先提升续费与复购。" in prompt
     assert "上一页演讲稿参考：上一页我们明确了目标：续费和复购是这次复盘的主线。" in prompt
     assert "下一页内容概要：成本结构: 获客成本下降，但交付成本上升。" in prompt
+
+
+@pytest.mark.asyncio
+async def test_video_narration_uses_outline_facts_and_retries_a_leaked_direction(monkeypatch):
+    service = SpeechScriptService(user_id=1)
+    spoken = "开票和收款是两个不同的事件，所以同一张表可以算出两种收入。"
+    provider = SimpleNamespace(text_completion=AsyncMock(side_effect=[
+        SimpleNamespace(content="制作说明：先画发票，再画收款。"),
+        SimpleNamespace(content=f"<think>草稿</think>{spoken}"),
+    ]))
+    monkeypatch.setattr(service, "ai_provider", provider)
+    project = PPTProject(
+        project_id="demo",
+        title="收入",
+        topic="为什么有两个收入数字？",
+        scenario="general",
+        confirmed_requirements={"content_mode": "video_explainer"},
+        outline={"slides": [{
+            "title": "为什么有两个收入数字？",
+            "content_points": ["已开票收入按发票统计，已收款收入按到款统计。"],
+            "production_notes": "上方绘制发票图标。",
+        }]},
+    )
+    slide = {
+        "title": project.topic,
+        "html_content": "<style>/* 渲染私有变量 */</style><p>画面说明：画发票图标。</p>",
+    }
+    script = await service._generate_script_for_slide(
+        slide, 0, 1, project, "", SpeechScriptCustomization(),
+    )
+    assert script == spoken
+    first_prompt = provider.text_completion.await_args_list[0].kwargs["prompt"]
+    assert "已开票收入按发票统计，已收款收入按到款统计。" in first_prompt
+    for leaked in ("渲染私有变量", "画发票图标", "上方绘制发票图标"):
+        assert leaked not in first_prompt
+    assert "上次输出有制作说明" in provider.text_completion.await_args.kwargs["prompt"]
 
 
 def test_speech_script_humanize_route_and_ui_are_wired():

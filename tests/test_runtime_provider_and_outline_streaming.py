@@ -375,6 +375,55 @@ class _OutlineStreamingFreshGenerationStubService:
 
 
 @pytest.mark.asyncio
+async def test_video_outline_stream_receives_research_and_visual_direction(monkeypatch):
+    project = SimpleNamespace(
+        topic="缓存一致性",
+        requirements="从库存读写讲起",
+        outline=None,
+        confirmed_requirements={
+            "content_mode": "video_explainer",
+            "custom_style_prompt": "浅底色和青蓝细线",
+            "page_count_settings": {"mode": "fixed", "fixed_pages": 1},
+        },
+        project_metadata={"network_mode": True},
+        todo_board=None,
+    )
+    stub = _OutlineStreamingFreshGenerationStubService(project)
+    service = ProjectOutlineStreamingService(stub)
+    prompts = []
+
+    async def research(*args):
+        yield {"research_context": "缓存一致性研究", "research_metadata": {"research_sources": 1}}
+
+    async def stream(role, *, prompt, system_prompt, temperature):
+        prompts.append((role, prompt, system_prompt))
+        yield '{"title":"缓存一致性","slides":[{"page_number":1,"title":"为什么读到旧值？","slide_type":"content"}]}'
+
+    async def parse(content, current_project, requirements):
+        import json
+        return json.loads(content), False
+
+    class FakeDatabaseProjectManager:
+        async def save_project_outline(self, project_id, outline):
+            return True
+
+    monkeypatch.setattr("landppt.services.db_project_manager.DatabaseProjectManager", FakeDatabaseProjectManager)
+    monkeypatch.setattr(service, "_run_streaming_outline_research", research)
+    monkeypatch.setattr(service, "_stream_text_completion_for_role", stream, raising=False)
+    monkeypatch.setattr(service, "_parse_streaming_outline_content", parse)
+    events = [event async for event in service.generate_outline_streaming("project-1")]
+
+    role, prompt, system_prompt = prompts[0]
+    assert role == "outline"
+    for context in ("从库存读写讲起", "浅底色和青蓝细线", "缓存一致性研究", "恰好1镜"):
+        assert context in prompt
+    assert "技术图解视频" in system_prompt
+    assert project.outline["metadata"]["research_sources"] == 1
+    assert all('"content":' not in event for event in events)
+    assert any('"done": true' in event for event in events)
+
+
+@pytest.mark.asyncio
 async def test_generate_outline_streaming_force_regenerate_skips_saved_outline(monkeypatch):
     project = SimpleNamespace(
         topic="fresh topic",

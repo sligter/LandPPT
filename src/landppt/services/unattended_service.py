@@ -22,9 +22,11 @@ import json
 import logging
 import time
 from contextlib import aclosing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+from .video_explainer import is_video_explainer
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,11 @@ def build_config(raw: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "embed_subtitles": _flag("embed_subtitles", True),
         "notify_in_app": _flag("notify_in_app", True),
         "notify_email": _flag("notify_email", False),
+        "speech_requirements": str(raw.get("speech_requirements") or "").strip(),
+        "target_duration_seconds": raw.get("target_duration_seconds"),
+        "max_duration_seconds": raw.get("max_duration_seconds"),
+        "start_from": raw.get("start_from"),
+        "request_id": raw.get("request_id"),
     }
 
 
@@ -275,6 +282,8 @@ class UnattendedPipelineRunner:
         self.language = self.config["language"]
         self._progress_callback = progress_callback
         self.planned = planned_stage_ids(self.stop_after)
+        if self.config["start_from"] == "speech_script":
+            self.planned = [stage for stage in self.planned if stage in STAGE_IDS[3:]]
         self.stages: Dict[str, StageState] = {
             spec.id: StageState(
                 id=spec.id,
@@ -289,6 +298,7 @@ class UnattendedPipelineRunner:
         self.status = "running"
         self.error: Optional[str] = None
         self.artifact_id: Optional[str] = None
+        self._narration_audio = None
         self.topic: str = ""
         # Set when a stage ends the run, so current_stage_id keeps naming it.
         self._terminal_stage_id: Optional[str] = None
@@ -307,6 +317,7 @@ class UnattendedPipelineRunner:
             "topic": self.topic,
             "status": self.status,
             "stop_after": self.stop_after,
+            "request_id": self.config["request_id"],
             "stop_after_name": STAGE_NAMES.get(self.stop_after, self.stop_after),
             "language": self.language,
             "planned_stages": list(self.planned),
@@ -434,7 +445,9 @@ class UnattendedPipelineRunner:
             await self._check_cancelled()
             # Resolve the topic up front so progress payloads and the terminal
             # notification can name the project even if stage 1 fails immediately.
-            await self._load_project()
+            project = await self._load_project()
+            if self.config["start_from"] == "speech_script":
+                self._verify_rendered_pages(project)
             await self._publish()
 
             for stage_id in self.planned:
@@ -476,6 +489,17 @@ class UnattendedPipelineRunner:
         return self.snapshot()
 
     # ------------------------------------------------------------ stage impls
+
+    @staticmethod
+    def _verify_rendered_pages(project) -> None:
+        outline = project.outline if isinstance(project.outline, dict) else {}
+        expected = len(outline.get("slides") or [])
+        rendered = project.slides_data or []
+        if not expected or len(rendered) != expected or any(
+            not slide.get("html_content") or slide.get("generation_failed")
+            for slide in rendered
+        ):
+            raise RuntimeError("从讲稿重做需要完整的已生成幻灯片")
 
     def _service(self):
         from .service_instances import get_ppt_service_for_user
@@ -628,6 +652,8 @@ class UnattendedPipelineRunner:
         metadata = project.project_metadata or {}
 
         mode = self.config.get("template_mode") or "auto"
+        if is_video_explainer(getattr(project, "confirmed_requirements", None)):
+            mode = "free"
         # A project already switched to free mode keeps that choice unless the run
         # explicitly asked for a global template.
         if mode == "auto" and metadata.get("template_mode") == "free":
@@ -804,7 +830,8 @@ class UnattendedPipelineRunner:
         finally:
             repo.close()
 
-        missing = [index for index in range(len(slides)) if index not in covered]
+        rewriting = self.config["start_from"] == "speech_script"
+        missing = [index for index in range(len(slides)) if rewriting or index not in covered]
         if not missing:
             await self._set_stage(
                 "speech_script",
@@ -822,12 +849,21 @@ class UnattendedPipelineRunner:
         speech_provider = (speech_service.provider_settings or {}).get("provider")
         await self._require_credits("ai_other", len(missing), speech_provider)
 
+        duration_limit = self.config["max_duration_seconds"]
+        duration_target = self.config["target_duration_seconds"] or duration_limit
+        if duration_target and duration_limit:
+            duration_target = min(duration_target, max(1, int(duration_limit * 0.88)))
         customization = SpeechScriptCustomization(
             language=self.language,
             tone=SpeechTone.CONVERSATIONAL,
             target_audience=TargetAudience.GENERAL_PUBLIC,
             language_complexity=LanguageComplexity.MODERATE,
             speaking_pace="normal",
+            custom_style_prompt=self.config["speech_requirements"] or None,
+            target_seconds=(
+                max(1, duration_target // len(slides)) if duration_target else None
+            ),
+            strict_duration=duration_limit is not None,
         )
 
         total_missing = len(missing)
@@ -872,6 +908,12 @@ class UnattendedPipelineRunner:
             "speaking_pace": customization.speaking_pace,
         }
 
+        generated_indices = {script.slide_index for script in scripts}
+        if rewriting and set(missing) - generated_indices:
+            await self._charge_credits(
+                "ai_other", len(scripts), speech_provider, f"演讲稿生成(无人值守): {len(scripts)}页"
+            )
+            raise RuntimeError("讲稿重写结果不完整，原讲稿已保留")
         repo = SpeechScriptRepository()
         try:
             for script in scripts:
@@ -883,6 +925,7 @@ class UnattendedPipelineRunner:
                     script_content=script.script_content,
                     generation_params=generation_params,
                     estimated_duration=script.estimated_duration,
+                    **({"commit": False} if rewriting else {}),
                 )
             repo.db.commit()
         finally:
@@ -933,7 +976,7 @@ class UnattendedPipelineRunner:
                 pass
 
     async def _run_narration_audio(self) -> None:
-        from .narration_service import NarrationService, is_ffmpeg_available
+        from .narration_service import NarrationService, ffprobe_duration_ms, is_ffmpeg_available
 
         project = await self._load_project()
         slides = project.slides_data or []
@@ -990,6 +1033,25 @@ class UnattendedPipelineRunner:
                 + " 页"
             )
 
+        limit = self.config["max_duration_seconds"]
+        if limit is not None and self.stop_after == "video":
+            duration_ms = 0
+            measured_items = []
+            for item in items:
+                measured = item.duration_ms or await ffprobe_duration_ms(item.audio_path)
+                if not measured or measured <= 0:
+                    raise RuntimeError(f"无法核验第 {item.slide_index + 1} 页配音时长")
+                duration_ms += measured
+                measured_items.append(replace(item, duration_ms=measured))
+            if duration_ms > limit * 1000:
+                await self._set_stage("narration_audio", detail={
+                    "duration_exceeded": True, "duration_seconds": duration_ms / 1000,
+                    "max_duration_seconds": limit,
+                })
+                raise RuntimeError(f"配音总时长 {duration_ms / 1000:.1f} 秒，超过上限 {limit} 秒")
+            items = measured_items
+        self._narration_audio = items
+
         await self._set_stage(
             "narration_audio",
             status="completed",
@@ -1018,6 +1080,7 @@ class UnattendedPipelineRunner:
             subtitle_style=None,
             render_mode=self.config["render_mode"],
             uploads_dir="uploads",
+            narration_audio=self._narration_audio,
         )
 
         if not isinstance(result, dict) or not result.get("success"):

@@ -14,6 +14,7 @@ from ...api.models import PPTGenerationRequest
 from ...auth.middleware import get_current_user_required
 from ...database.models import User
 from ...services.slide.svg_page.render_mode import normalize_render_mode
+from ...services.video_explainer import VIDEO_EXPLAINER, ContentMode
 from ...services.template_package.outline_reference import (
     PREFERENCE_KEY, REFERENCE_KEY, load_package_preference,
 )
@@ -231,6 +232,7 @@ async def web_create_project_and_confirm(
     scenario: str = Form("general"),
     topic: str = Form(...),
     requirements: str = Form(None),
+    content_mode: ContentMode = Form("presentation"),
     language: str = Form("zh"),
     render_mode: str = Form("html"),
     generation_mode: str = Form("freeform"),
@@ -271,6 +273,15 @@ async def web_create_project_and_confirm(
         package_preference, package_reference = None, None
         if generation_mode not in {"freeform", "package"}:
             return JSONResponse({"status": "error", "message": "无效的生成方式"}, status_code=422)
+        if content_mode == VIDEO_EXPLAINER and (
+            generation_mode != "freeform"
+            or content_source != "manual"
+            or normalize_render_mode(render_mode) != "html"
+        ):
+            return JSONResponse(
+                {"status": "error", "message": "视频图解模式使用主题和制作要求生成 HTML 镜头"},
+                status_code=422,
+            )
         if generation_mode == "package":
             try:
                 package_preference, package_reference = await load_package_preference(user.id, package_version_id)
@@ -320,6 +331,7 @@ async def web_create_project_and_confirm(
         confirmed_requirements: Dict[str, Any] = {
             "topic": topic,
             "requirements": requirements,
+            "content_mode": content_mode,
             "target_audience": target_audience,
             "audience_type": audience_type,
             "custom_audience": custom_audience if audience_type == "自定义" else None,

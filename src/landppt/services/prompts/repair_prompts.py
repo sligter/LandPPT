@@ -5,6 +5,8 @@ PPT修复和验证相关提示词
 
 import json
 from typing import Dict, Any, List
+from ..audience_content import OUTLINE_COPY_RULE
+from ..video_explainer import is_video_explainer
 
 
 class RepairPrompts:
@@ -43,6 +45,11 @@ class RepairPrompts:
             if confirmed_requirements.get("include_transition_pages")
             else "- 未开启章节过渡页：不要新增 transition 类型页面。"
         )
+        if is_video_explainer(confirmed_requirements):
+            transition_instruction = (
+                '第一镜用 content 直接展示问题，后续只用 content 或 conclusion；'
+                '将封面、目录、转场和致谢改成有实际图解内容的镜头。'
+            )
 
         return f"""作为专业的PPT大纲修复助手，请修复以下PPT大纲JSON数据中的错误。
 
@@ -65,11 +72,12 @@ class RepairPrompts:
 修复要求：
 1. 修复所有发现的错误
 2. 确保JSON格式正确且完整
-3. 保持原有内容
+3. 保留原有事实、案例、来源和适用边界，重写混入的制作说明
 4. 严格遵守页数要求
 5. 确保所有必需字段都存在且格式正确
 6. 首尾页保持精简和聚焦，不要把普通内容页的要点密度直接套到这些页面
 7. {transition_instruction}
+8. {OUTLINE_COPY_RULE}
 
 请输出修复后的完整JSON数据，使用```json```代码块包裹："""
 

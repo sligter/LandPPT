@@ -30,6 +30,8 @@ from ..runtime.ai_execution import (
     scoped_ai_conversation,
 )
 from ..prompts import prompts_manager
+from ..audience_content import is_production_direction
+from ..video_explainer import VIDEO_SCENE_TYPES, is_video_explainer
 from ..research.enhanced_research_service import EnhancedResearchService
 from ..research.enhanced_report_generator import EnhancedReportGenerator
 from ..pyppeteer_pdf_converter import get_pdf_converter
@@ -108,6 +110,8 @@ class ProjectOutlineRepairService:
                 return errors
             if 'title' not in outline_data:
                 errors.append('缺少必需字段: title')
+            elif isinstance(outline_data["title"], str) and is_production_direction(outline_data["title"]):
+                errors.append("大纲标题含制作说明，请改成主题本身")
             slides = outline_data.get('slides', [])
             if not isinstance(slides, list):
                 errors.append('slides字段必须是列表格式')
@@ -136,6 +140,12 @@ class ProjectOutlineRepairService:
             for i, slide in enumerate(slides):
                 slide_errors = self._validate_slide_structure(slide, i + 1)
                 errors.extend(slide_errors)
+            if is_video_explainer(confirmed_requirements):
+                for i, slide in enumerate(slides):
+                    if isinstance(slide, dict) and slide.get("slide_type") not in VIDEO_SCENE_TYPES:
+                        errors.append(f"第{i + 1}镜：用有实质内容的 content 或 conclusion 镜头")
+                if isinstance(slides[0], dict) and slides[0].get("slide_type") == "conclusion":
+                    errors.append("第一镜必须是直接展示问题的 content 镜头")
             page_numbers = [slide.get('page_number', 0) for slide in slides]
             expected_numbers = list(range(1, len(slides) + 1))
             if page_numbers != expected_numbers:
@@ -166,6 +176,11 @@ class ProjectOutlineRepairService:
                 title = slide['title']
                 if not isinstance(title, str) or not title.strip():
                     errors.append(f'第{slide_index}页：title必须是非空字符串')
+                elif is_production_direction(title):
+                    errors.append(f"第{slide_index}页：标题含制作说明，请写主题相关的问题或结论")
+            description = slide.get("description")
+            if isinstance(description, str) and is_production_direction(description):
+                errors.append(f"第{slide_index}页：description 含制作说明，请移入 production_notes")
             if 'content_points' in slide:
                 content_points = slide['content_points']
                 if not isinstance(content_points, list):
@@ -176,6 +191,10 @@ class ProjectOutlineRepairService:
                     for j, point in enumerate(content_points):
                         if not isinstance(point, str) or not point.strip():
                             errors.append(f'第{slide_index}页：content_points[{j}]必须是非空字符串')
+                        elif is_production_direction(point):
+                            errors.append(
+                                f"第{slide_index}页：content_points[{j}] 含制作说明，请写主题本身的事实或结论"
+                            )
             if 'slide_type' in slide:
                 slide_type = slide['slide_type']
                 valid_types = ['title', 'content', 'agenda', 'transition', 'thankyou', 'conclusion']

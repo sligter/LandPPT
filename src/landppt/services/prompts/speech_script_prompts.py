@@ -5,6 +5,8 @@ Contains all prompt templates for generating speech scripts from PPT slides
 
 from typing import Dict, Any, List
 from ..speech_script_service import SpeechTone, TargetAudience, LanguageComplexity
+from ..video_explainer import is_video_explainer, video_cue_labels
+from ..audience_content import is_production_direction, slide_text_blocks
 
 
 class SpeechScriptPrompts:
@@ -157,9 +159,11 @@ class SpeechScriptPrompts:
         slide_title = slide_data.get('title', f'第{slide_index + 1}页')
         slide_content = slide_data.get('html_content', '')
 
-        import re
-        text_content = re.sub(r'<[^>]+>', '', slide_content)
-        text_content = re.sub(r'\s+', ' ', text_content).strip()
+        visible_text = " ".join(
+            text for text in slide_text_blocks(slide_content)
+            if not is_production_direction(text)
+        )
+        text_content = project_info.get("audience_outline") or visible_text
 
         context_info = f"""项目信息：
 - 演示主题：{project_info.get('topic', '')}
@@ -200,6 +204,17 @@ class SpeechScriptPrompts:
 
         if customization.get('custom_style_prompt'):
             context_info += f"\n自定义风格要求：{customization['custom_style_prompt']}"
+        seconds = customization.get("target_seconds")
+        strict_duration = customization.get("strict_duration")
+        if seconds and language == "en":
+            instruction = "within" if strict_duration else "around"
+            length_guidance = f"Aim for {instruction} {seconds} seconds ({int(seconds * 2)} spoken words)."
+        elif seconds:
+            timing = f"{seconds} 秒以内" if strict_duration else f"约 {seconds} 秒"
+            length_guidance = f"本页旁白{timing}，参考 {int(seconds * 3.5)} 个汉字。"
+        else:
+            length_guidance = ("Keep reasonably concise (1–3 minutes)." if language == "en"
+                               else "控制篇幅，确保演讲时长适中（1-3分钟）")
 
         tone_desc = SpeechScriptPrompts._get_tone_description(
             customization.get('tone', 'conversational'), language=language)
@@ -208,6 +223,26 @@ class SpeechScriptPrompts:
         complexity_desc = SpeechScriptPrompts._get_complexity_description(
             customization.get('language_complexity', 'moderate'), language=language)
         tts_rules = SpeechScriptPrompts._tts_output_rules(language)
+        if is_video_explainer(project_info):
+            cue_labels = " → ".join(
+                label for label in video_cue_labels(slide_content)
+                if not is_production_direction(label)
+            )
+            return f"""为技术图解视频的当前镜头写可直接配音的旁白。
+
+{context_info}
+
+内部口播要求：{project_info.get("video_requirements") or "用同一个例子讲清机制"}
+用于同步画面的术语顺序：{cue_labels or "按当前图解顺序"}
+
+第一镜直接说出具体问题，其余镜头承接上一句的悬念或结论。
+沿图中对象和连线解释为什么发生变化，把关键机制和例子讲出来。短句，自然停顿，删去致意和翻页话术。
+术语与主题内容相关时按给定顺序自然说出。只讲主题本身，不念制作要求、画面调度、时间戳、思考或调研步骤。
+有实质意义的来源归属、不确定性和适用边界继续保留。
+根据整片时长和镜头数控制本镜头篇幅，给观众留出读图时间；以 {language} 输出。
+{length_guidance if seconds else ""}
+{tts_rules}
+只输出本镜头实际说出口的文字。"""
         include_transitions = bool(customization.get('include_transitions', True))
         transition_guidance = SpeechScriptPrompts._get_transition_guidance(
             include_transitions,
@@ -231,8 +266,9 @@ Guidelines:
 - Stay faithful to the slide content, but do not simply repeat it.
 - Use natural spoken English for live narration.
 - Start directly with the slide's substance—no filler lead-ins like "Okay,", "So,", "Now,", "Next," unless context truly requires a transition.
+- Speak to the audience about the subject. Omit production instructions, stage directions, timestamps, and reasoning about how to write the script.
 - Keep this slide on the same narrative line as adjacent slides; do not make it feel like a separate speech.
-- Keep reasonably concise (1–3 minutes).
+- {length_guidance}
 - {tts_rules}
 
 Return ONLY the script content."""
@@ -253,8 +289,9 @@ Return ONLY the script content."""
 - 内容与幻灯片紧密相关，但不简单重复
 - 自然口语化，适合现场演讲
 - 开头直接进入当前页核心内容，不要先说“好”“好的”“那么”“接下来”“下面我来讲”等口头起手式
+- 直接讲主题本身的事实、例子和结论，省去制作要求、画面调度、时间戳和写作过程
 - 与前后页保持同一条叙述线，不要把本页写成孤立段落
-- 控制篇幅，确保演讲时长适中（1-3分钟）
+- {length_guidance}
 - 可适当添加例子、类比或互动元素
 - {tts_rules}
 

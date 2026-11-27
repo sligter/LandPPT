@@ -16,6 +16,30 @@ class TemplatePrompts:
     """模板生成提示词构建器。"""
 
     @staticmethod
+    def build_video_explainer_template_prompt(
+        project: Any,
+        outline: Dict[str, Any],
+        requirements: Dict[str, Any],
+    ) -> str:
+        slides = outline.get("slides", [])
+        topic = getattr(project, "topic", "") or outline.get("title", "")
+        style = requirements.get("custom_style_prompt") or "浅暖底色、石墨色字、低饱和青蓝细线"
+        audience = requirements.get("target_audience", "")
+        return f"""为技术图解视频制作一张可复用的 1280×720 镜头母版。
+
+主题：{topic}
+受众：{audience}
+设计要求：{style}
+镜头顺序：
+{TemplatePrompts._build_compact_outline_summary(slides)}
+
+每个镜头共享固定标题锚点和尽可能大的连续图解区。底部留出约 15% 的字幕安全区。
+让图中的对象、标签和连线承载叙事，母版只提供底色、字号、色板和间距。省去页码、横幅、徽章与装饰区块。
+输出自包含的 HTML 和 CSS，根容器使用 position:relative 和 overflow:hidden。
+标题和图解区分别使用 `{{{{ page_title }}}}` 和 `{{{{ page_content }}}}` 占位，只放一份，不写示例文案或模板控制语法。
+只输出 HTML 代码块。"""
+
+    @staticmethod
     def build_outline_slide_lines(slides: List[Dict[str, Any]]) -> List[str]:
         """从大纲中提取少量摘要行，用于感知内容类型。"""
         slide_lines: List[str] = []

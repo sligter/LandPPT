@@ -5,10 +5,53 @@ PPT大纲生成相关提示词
 
 from datetime import datetime
 from typing import Dict, Any, List
+from ..audience_content import OUTLINE_COPY_RULE, OUTLINE_COPY_RULE_EN
 
 
 class OutlinePrompts:
     """PPT大纲生成相关的提示词集合"""
+
+    @staticmethod
+    def get_video_storyboard_prompt(
+        topic: str,
+        target_audience: str,
+        requirements: str,
+        visual_style: str,
+        page_count_instruction: str,
+        research_context: str,
+        language: str = "zh",
+    ) -> str:
+        return f"""为 16:9 技术图解视频写逐镜大纲，每一页对应一个可播放的镜头。
+
+主题：{topic}
+受众：{target_audience}
+制作要求：{requirements}
+画面风格：{visual_style}
+{page_count_instruction}
+参考资料：{research_context or "暂无额外调研资料"}
+当前时间：{OutlinePrompts._build_current_time_context_zh()}
+
+第一镜直接展示可辨识的场景和一个具体问题，使用 content 类型。沿同一个例子解释问题、机制、应用结果，
+最后讲清边界。只使用 content 或 conclusion。跳过独立封面、目录、转场页和致谢页。
+{OUTLINE_COPY_RULE}
+每镜围绕一个可理解的关系或变化。production_notes 仅在需要时写底图对象或依次出现的连线，
+相邻镜头可沿用同一个图。主题例子若只是示意，说明其性质；引用调研事实时保留来源。
+{OutlinePrompts._build_streaming_language_instruction(language)}
+
+只返回 JSON 代码块，字段如下：
+{{
+  "title": "视频标题",
+  "slides": [
+    {{
+      "page_number": 1,
+      "title": "具体问题或判断",
+      "slide_type": "content",
+      "content_points": ["对象或事实"],
+      "description": "有必要时补充一条观众需要知道的事实或边界",
+      "production_notes": "可选的绘图备注，留在制作流程内"
+    }}
+  ]
+}}"""
 
     # ----------------------------------------------------------------
     # 时间上下文
@@ -107,6 +150,7 @@ class OutlinePrompts:
    - {transition_inst}
 
 3. **内容点控制**：
+   - {OUTLINE_COPY_RULE}
    - 封面页 content_points 只放核心标题信息（主标题、副标题、作者/日期）。
    - 目录页 content_points 列出后续章节标题作为导航索引。
    - 过渡页 content_points 只保留章节名和转场提示。
@@ -141,7 +185,8 @@ class OutlinePrompts:
       "content_points": ["要点1", "要点2", "要点3"],
       "slide_type": "title",
       "type": "title",
-      "description": "此页的简要说明",
+      "description": "观众需要知道的补充事实，可留空",
+      "production_notes": "可选的绘图备注",
       "chart_config": null
     }}
   ],
@@ -205,6 +250,7 @@ chart_config 仅在需要图表时填写，含 type、data、options；不需要
    - {transition_inst}
 
 3. **Content Density**:
+   - {OUTLINE_COPY_RULE_EN}
    - Cover: content_points only for core title info.
    - Agenda: content_points list subsequent chapter titles.
    - Transition: content_points limited to section title and bridge cues.
@@ -239,7 +285,8 @@ Exact JSON format, wrapped in ```json``` code block:
       "content_points": ["Point 1", "Point 2", "Point 3"],
       "slide_type": "title",
       "type": "title",
-      "description": "Brief description",
+      "description": "Optional extra fact for the audience",
+      "production_notes": "Optional private drawing notes",
       "chart_config": null
     }}
   ],
@@ -316,7 +363,8 @@ slide_type 可选值：title / content / agenda / transition / conclusion / than
 6. 页面标题简洁明确，内容要点具体实用
 7. 每页只承担一个核心任务；标题串联多个独立主题时优先拆页，不要一页多主题
 8. 时间语义以上述当前时间为准；若输入信息已给出明确时间，以输入信息为准
-9. {language_instruction}"""
+9. {language_instruction}
+10. {OUTLINE_COPY_RULE}"""
 
     _LANGUAGE_DISPLAY_NAMES = {
         "zh": "中文（简体）",
@@ -376,6 +424,7 @@ slide_type 可选值：title / content / agenda / transition / conclusion / than
 4. 每页的内容重点
 5. 根据页数要求合理安排内容分布
 6. 首尾页保持精简和聚焦，避免像正文页一样堆叠过多要点
+7. {OUTLINE_COPY_RULE}
 
 请以JSON格式返回大纲，使用```json```代码块包裹，格式如下：
 
@@ -390,7 +439,8 @@ slide_type 可选值：title / content / agenda / transition / conclusion / than
             "title": "页面标题",
             "content_points": ["要点1", "要点2", "要点3"],
             "slide_type": "title|agenda|transition|content|conclusion|thankyou",
-            "description": "页面内容描述"
+            "description": "观众需要知道的补充事实，可留空",
+            "production_notes": "可选的绘图备注"
         }}
     ]
 }}

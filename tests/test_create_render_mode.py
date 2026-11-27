@@ -58,6 +58,7 @@ def test_create_persists_renderer_and_preserves_metadata_before_workflow(
         )
         # Renderer metadata must not alter the shared semantic guidance inputs.
         assert "render_mode" not in requirements
+        assert requirements["content_mode"] == "presentation"
         return True
 
     creation.service.confirm_requirements_and_update_workflow.side_effect = confirm
@@ -74,6 +75,34 @@ def test_create_persists_renderer_and_preserves_metadata_before_workflow(
     assert response.json()["redirect_url"] == "/projects/new-project/todo"
     creation.service.confirm_requirements_and_update_workflow.assert_awaited_once()
     creation.launch.assert_awaited_once()
+
+
+def test_create_persists_explainer_mode_and_visual_style(creation):
+    with TestClient(creation.app) as client:
+        response = client.post("/projects/create-and-confirm", data={
+            "topic": "缓存一致性",
+            "content_mode": "video_explainer",
+            "ppt_style": "custom",
+            "custom_style_prompt": "青蓝细线",
+            "include_page_numbers": "false",
+            "network_mode": "true",
+        })
+    assert response.status_code == 200
+    _, confirmed = creation.service.confirm_requirements_and_update_workflow.await_args.args
+    assert confirmed["content_mode"] == "video_explainer"
+    assert confirmed["custom_style_prompt"] == "青蓝细线"
+    assert confirmed["include_page_numbers"] is False
+
+
+def test_create_rejects_incompatible_explainer_renderer_before_saving(creation):
+    with TestClient(creation.app) as client:
+        response = client.post("/projects/create-and-confirm", data={
+            "topic": "缓存一致性",
+            "content_mode": "video_explainer",
+            "render_mode": "svg",
+        })
+    assert response.status_code == 422
+    creation.manager.create_project.assert_not_awaited()
 
 
 def test_create_does_not_start_generation_when_renderer_cannot_be_saved(creation):

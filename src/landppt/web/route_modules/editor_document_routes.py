@@ -55,13 +55,16 @@ class BatchOutlineChanges(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     title: str | None = Field(default=None, min_length=1, max_length=255)
     slide_type: str | None = Field(default=None, min_length=1, max_length=50)
+    content_points: list[Annotated[str, Field(min_length=1, max_length=2000)]] | None = Field(
+        default=None, max_length=100
+    )
 
     @model_validator(mode="after")
     def require_changes(self):
         if not self.model_fields_set or any(
             getattr(self, name) is None for name in self.model_fields_set
         ):
-            raise ValueError("Provide a non-empty title or page type")
+            raise ValueError("Provide a title, page type, or content points")
         return self
 
 

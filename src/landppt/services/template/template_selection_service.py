@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ..prompts.template_prompts import TemplatePrompts
 from ..prompts.prompt_utils import should_include_page_numbers
+from ..video_explainer import is_video_explainer
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,8 @@ class TemplateSelectionService:
             enriched["requirements"] = project.requirements or ""
         if not enriched.get("description") and hasattr(project, "description"):
             enriched["description"] = getattr(project, "description", "") or ""
+        if is_video_explainer(enriched):
+            return TemplatePrompts.build_video_explainer_template_prompt(project, outline, enriched)
         user_prompt = TemplatePrompts.build_free_template_user_prompt(project, outline, enriched)
         return TemplatePrompts.build_template_generation_prompt(
             user_prompt,

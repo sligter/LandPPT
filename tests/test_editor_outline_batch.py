@@ -118,6 +118,31 @@ async def test_one_conflicting_page_prevents_every_write(batches):
 
 
 @pytest.mark.asyncio
+async def test_outline_only_batch_edits_points_without_creating_slides(batches):
+    async with batches.factory() as session:
+        await session.execute(delete(SlideData))
+        await session.execute(update(Project).values(slides_data=[]))
+        await session.commit()
+    before = await read(batches)
+    assert all(page["slide_id"] is None for page in before["pages"])
+    payload = patch(before)
+    payload["pages"][0]["changes"] = {"content_points": ["新要点"]}
+    payload["pages"][1]["changes"] = {"title": "新标题"}
+    response = await batches.client.patch(URL, json=payload)
+    assert response.status_code == 200, response.text
+    async with batches.factory() as session:
+        project = await session.scalar(select(Project))
+        assert project.outline["slides"][0] == {
+            **batches.original["slides"][0], "content_points": ["新要点"],
+        }
+        assert project.outline["slides"][1] == {
+            **batches.original["slides"][1], "title": "新标题",
+        }
+        assert project.slides_data == []
+        assert (await session.scalars(select(SlideData))).all() == []
+
+
+@pytest.mark.asyncio
 async def test_project_conflict_after_other_window_saves_preserves_that_write(batches):
     body = patch(await read(batches))
     await save(

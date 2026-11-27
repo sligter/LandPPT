@@ -27,6 +27,8 @@ def outline_design_data(slides):
     fields = (
         "title",
         "subtitle",
+        "description",
+        "production_notes",
         "slide_type",
         "type",
         "content_points",

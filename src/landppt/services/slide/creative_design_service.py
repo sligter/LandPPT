@@ -10,6 +10,7 @@ from ...core.config import ai_config, resolve_timeout_seconds
 from ..prompt_asset_service import materialize_base64_image_data_urls_for_prompt
 from ..prompts import prompts_manager
 from ..prompts.prompt_utils import should_include_page_numbers
+from ..video_explainer import is_video_explainer
 from .composition_planning_service import (
     CompositionPlanningService, guidance_fingerprint, outline_design_data,
 )
@@ -259,6 +260,8 @@ class CreativeDesignService:
             global_constitution=global_constitution,
             current_page_brief=current_page_brief,
             include_page_numbers=should_include_page_numbers(confirmed_requirements),
+            content_mode=confirmed_requirements.get("content_mode", "presentation"),
+            custom_style_prompt=confirmed_requirements.get("custom_style_prompt") or "",
         )
 
     async def _extract_style_genes(self, template_html: str) -> str:
@@ -564,6 +567,8 @@ class CreativeDesignService:
         self,
         confirmed_requirements: Optional[Dict[str, Any]] = None,
     ) -> str:
+        if is_video_explainer(confirmed_requirements):
+            return "- 沿用镜头母版的配色、字体、标题锚点和字幕留白\n- 图中对象与连线随旁白推进"
         if should_include_page_numbers(confirmed_requirements):
             return "- 使用模板配色和字体体系\n- 普通内容页保持模板标题锚点与页码锚点\n- 首尾页可自由设计"
         return "- 使用模板配色和字体体系\n- 普通内容页保持模板标题锚点\n- 首尾页可自由设计"
@@ -1043,7 +1048,7 @@ class CreativeDesignService:
                 all_slides=all_slides,
                 template_html=template_html,
             )
-        else:
+        elif not is_video_explainer(confirmed_requirements):
             page_creative_briefs = await self._get_or_generate_page_creative_briefs(
                 project_id,
                 confirmed_requirements=confirmed_requirements,

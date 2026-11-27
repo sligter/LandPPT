@@ -24,6 +24,7 @@ from ...api.models import (
 from ...ai import get_ai_provider, get_role_provider, AIMessage, MessageRole
 from ...ai.base import TextContent, ImageContent
 from ...core.config import ai_config, app_config
+from ..audience_content import is_production_direction, slide_text_blocks
 from ..runtime.ai_execution import ExecutionContext
 from ..prompts import prompts_manager
 from ..research.enhanced_research_service import EnhancedResearchService
@@ -52,12 +53,15 @@ class SlideHtmlRecoveryService:
     async def _generate_html_with_retry(self, context: str, system_prompt: str, slide_data: Dict[str, Any], page_number: int, total_pages: int, max_retries: int=3) -> str:
         """Generate HTML with retry mechanism for incomplete responses"""
         slide_data.pop("_generation_degraded", None)
+        leaked_directions = False
         for attempt in range(max_retries):
             try:
                 logger.info(f'Generating HTML for slide {page_number}, attempt {attempt + 1}/{max_retries}')
                 retry_context = context
                 if attempt > 0:
                     retry_context += f'\n\n    **重要提醒（第{attempt + 1}次尝试）：**\n    - 前面的尝试可能生成了不完整的HTML，请确保这次生成完整的HTML文档\n    - 必须包含完整的HTML结构：<!DOCTYPE html>, <html>, <head>, <body>等标签\n    - 确保所有标签都正确闭合\n    - 使用markdown代码块格式：```html\n[完整HTML代码]\n```\n    - 不要截断HTML代码，确保以</html>结束\n    '
+                if leaked_directions:
+                    retry_context += "\n上次画面出现了制作说明。仅保留面向观众的主题文案与必要图例。"
                 brief = slide_data.get("composition_brief")
                 composition_in_prompt = bool(brief) and (
                     json.dumps(brief, ensure_ascii=False) in retry_context
@@ -81,6 +85,10 @@ class SlideHtmlRecoveryService:
                     html_content = self._inject_anti_overflow_css(html_content)
                     if not html_content or len(html_content.strip()) < 50:
                         logger.warning(f'AI returned empty or too short HTML content for slide {page_number}')
+                        continue
+                    if any(is_production_direction(line) for line in slide_text_blocks(html_content)):
+                        leaked_directions = True
+                        logger.warning("Rejecting slide %s with visible production directions", page_number)
                         continue
                 except Exception as e:
                     logger.error(f'Error cleaning HTML response for slide {page_number}: {e}')

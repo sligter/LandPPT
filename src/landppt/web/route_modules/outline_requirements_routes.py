@@ -244,6 +244,9 @@ async def confirm_project_requirements(
         confirmed_requirements = {
             "topic": topic,
             "requirements": project.requirements,  # 使用项目创建时的具体要求
+            "content_mode": (project.confirmed_requirements or {}).get(
+                "content_mode", "presentation"
+            ),
             "target_audience": target_audience,
             "audience_type": audience_type,
             "custom_audience": custom_audience if audience_type == "自定义" else None,

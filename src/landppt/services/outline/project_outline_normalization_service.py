@@ -4,6 +4,8 @@ import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from ...api.models import PPTProject
+from ...ai.providers import strip_think_content
+from ..audience_content import is_production_direction
 
 
 logger = logging.getLogger(__name__)
@@ -479,6 +481,7 @@ class ProjectOutlineNormalizationService:
 
     def _parse_outline_content(self, content: str, project: PPTProject) -> Dict[str, Any]:
         """从文本中解析大纲，不再退回默认三页兜底。"""
+        content = strip_think_content(content)
         parsed_outline = self._parse_json_like_outline(content)
         if parsed_outline is not None:
             standardized_data = self._standardize_outline_format(parsed_outline)
@@ -537,6 +540,14 @@ class ProjectOutlineNormalizationService:
             ).strip() or f"第{index}页"
 
             description = str(slide.get("description") or "").strip()
+            production_notes = slide.get("production_notes")
+            if not isinstance(production_notes, str):
+                production_notes = ""
+            source_points = self._coerce_content_points(slide)
+            description_is_direction = is_production_direction(description)
+            if description_is_direction:
+                production_notes = "\n".join(dict.fromkeys(filter(None, (production_notes, description))))
+                description = ""
             page_number = self._normalize_page_number(slide.get("page_number"), index)
             slide_type = self._normalize_slide_type(
                 slide.get("slide_type", slide.get("type")),
@@ -545,7 +556,7 @@ class ProjectOutlineNormalizationService:
                 total_slides,
             )
             content_points = self._normalize_content_points_for_slide(
-                content_points=self._coerce_content_points(slide),
+                content_points=source_points,
                 slide_type=slide_type,
                 page_number=page_number,
                 total_slides=total_slides,
@@ -556,12 +567,14 @@ class ProjectOutlineNormalizationService:
             standardized_slide = {
                 "page_number": index,
                 "title": title_text,
-                "content_points": content_points,
+                "content_points": [] if description_is_direction and not source_points else content_points,
                 "slide_type": slide_type,
                 "type": slide_type,
                 "description": description,
             }
 
+            if production_notes.strip():
+                standardized_slide["production_notes"] = production_notes.strip()
             if slide.get("chart_config"):
                 standardized_slide["chart_config"] = slide["chart_config"]
             # Fast-mode outlines name the package layout chosen for the page.

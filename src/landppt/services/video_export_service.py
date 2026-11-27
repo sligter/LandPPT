@@ -18,7 +18,10 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from .narration_service import NarrationAudioResult
 
 from .export_infra.ffmpeg_runner import (
     ffprobe_duration_ms as _ffprobe_duration_ms_impl,
@@ -40,8 +43,16 @@ from .export_infra.subtitle_mux_service import (
 from .export_infra.temp_artifact_manager import TempArtifactManager
 from .subtitle_service import SubtitleCue, build_slide_cues, build_srt
 from .pyppeteer_pdf_converter import get_pdf_converter
+from .video_explainer import build_reveal_schedule, is_video_explainer
 
 logger = logging.getLogger(__name__)
+
+EXPLAINER_SUBTITLE_DEFAULTS = {
+    "bold": 0,
+    "primaryColor": "&H00F2F6FA&",
+    "outlineColor": "&H00353128&",
+    "outline": 1,
+}
 
 
 def is_ffmpeg_available() -> bool:
@@ -340,6 +351,7 @@ class NarrationVideoExportService:
         subtitle_style: Optional[Dict[str, Any]] = None,
         render_mode: str = "live",
         uploads_dir: str = "uploads",
+        narration_audio: list[NarrationAudioResult] | None = None,
     ) -> Dict[str, Any]:
         language = (language or "zh").strip().lower()
         fps = 60 if int(fps) == 60 else 30
@@ -356,6 +368,9 @@ class NarrationVideoExportService:
             return {"success": False, "error": "Playwright is not available for slide rendering"}
 
         if render_mode not in {"live", "static"}:
+            render_mode = "live"
+        video_mode = is_video_explainer(getattr(project, "confirmed_requirements", None))
+        if video_mode:
             render_mode = "live"
 
         if render_mode == "live" and fps == 60:
@@ -384,11 +399,17 @@ class NarrationVideoExportService:
                     embed_subtitles=embed_subtitles,
                     subtitle_style=subtitle_style,
                     uploads_dir=uploads_dir,
+                    narration_audio=narration_audio,
                 )
                 if result.get("success"):
                     return result
+                if video_mode:
+                    return result
                 logger.warning(f"Live narration video export failed, fallback to static: {result.get('error')}")
             except Exception as e:
+                if video_mode:
+                    logger.exception("Live explainer video export failed")
+                    return {"success": False, "error": f"图解视频实时录制失败：{e}"}
                 logger.warning(f"Live narration video export crashed, fallback to static: {e}")
 
         return await self._export_project_video_static(
@@ -400,6 +421,7 @@ class NarrationVideoExportService:
             embed_subtitles=embed_subtitles,
             subtitle_style=subtitle_style,
             uploads_dir=uploads_dir,
+            narration_audio=narration_audio,
         )
 
     async def _export_project_video_live(
@@ -413,6 +435,7 @@ class NarrationVideoExportService:
         embed_subtitles: bool,
         subtitle_style: Optional[Dict[str, Any]],
         uploads_dir: str,
+        narration_audio: list[NarrationAudioResult] | None = None,
     ) -> Dict[str, Any]:
         """
         Render video by recording a real slideshow playback (preserves CSS/JS animations).
@@ -429,16 +452,19 @@ class NarrationVideoExportService:
         narration_service = NarrationService(user_id=getattr(project, "user_id", None))
         speech_repo = SpeechScriptRepository()
         audio_repo = NarrationAudioRepository()
+        video_mode = is_video_explainer(getattr(project, "confirmed_requirements", None))
 
         temp_artifacts = TempArtifactManager(prefix="landppt_video_live_")
         tmp_dir = temp_artifacts.create()
         try:
             # 1) Ensure audio per slide
-            audios = await narration_service.generate_project_slide_audios(
-                project_id=project.project_id,
-                language=language,
-                uploads_dir=uploads_dir,
-            )
+            audios = narration_audio
+            if audios is None:
+                audios = await narration_service.generate_project_slide_audios(
+                    project_id=project.project_id,
+                    language=language,
+                    uploads_dir=uploads_dir,
+                )
             audio_by_index = {a.slide_index: a for a in audios}
 
             slide_count = len(project.slides_data)
@@ -467,9 +493,11 @@ class NarrationVideoExportService:
                 subtitle_cues_by_audio_path = {}
 
             all_cues: List[SubtitleCue] = []
+            slide_cues: List[List[Tuple[int, str]]] = []
             cursor_ms = 0
             for i in range(slide_count):
                 duration_ms = durations_ms[i]
+                first_cue = len(all_cues)
                 audio = audio_by_index.get(i)
                 audio_key = _normalize_audio_cache_path(getattr(audio, "audio_path", None))
                 cues_json = subtitle_cues_by_audio_path.get(audio_key)
@@ -507,6 +535,10 @@ class NarrationVideoExportService:
                         )
                     )
 
+                if video_mode:
+                    slide_cues.append([
+                        (cue.start_ms - cursor_ms, cue.text) for cue in all_cues[first_cue:]
+                    ])
                 cursor_ms += duration_ms
 
             srt = build_srt(all_cues)
@@ -547,6 +579,8 @@ class NarrationVideoExportService:
             # This avoids stretching incomplete/blank frames (e.g., during initial animations or slow loads).
 
             record_mode = (os.environ.get("LANDPPT_NARRATION_VIDEO_RECORD_MODE", "pad") or "pad").strip().lower()
+            if video_mode:
+                record_mode = "full"
             if record_mode not in {"pad", "full"}:
                 record_mode = "pad"
 
@@ -558,6 +592,8 @@ class NarrationVideoExportService:
                 os.environ.get("LANDPPT_NARRATION_VIDEO_RECORD_START_DELAY_MS", "0") or 0
             )
             record_start_delay_ms = max(0, min(60_000, record_start_delay_ms))
+            if video_mode:
+                record_start_delay_ms = 0
 
             max_record_ms = int(os.environ.get("LANDPPT_NARRATION_VIDEO_MAX_RECORD_MS", "10000") or 10000)
             max_record_ms = max(600, max_record_ms)
@@ -617,10 +653,16 @@ class NarrationVideoExportService:
 
             sem = asyncio.Semaphore(parallelism)
 
-            async def _record_one(i: int, record_ms: int) -> Tuple[int, str, int, str, str]:
+            async def _record_one(i: int, record_ms: int) -> Tuple[int, str, int]:
                 html_path = os.path.join(html_dir, f"slide_{i}.html")
+                reveal_schedule = (
+                    build_reveal_schedule(slides_payload[i], slide_cues[i], durations_ms[i])
+                    if video_mode else None
+                )
                 with open(html_path, "w", encoding="utf-8") as f:
-                    f.write(self._build_live_single_slide_html(slides_payload[i], width=width, height=height))
+                    f.write(self._build_live_single_slide_html(
+                        slides_payload[i], width=width, height=height, reveal_schedule=reveal_schedule,
+                    ))
                 out_path = os.path.join(raw_dir, f"slide_{i}.webm")
                 async with sem:
                     ok = await render_service.record_html_video(
@@ -676,7 +718,7 @@ class NarrationVideoExportService:
                     extra_trim_ms = int(os.environ.get("LANDPPT_NARRATION_VIDEO_EXTRA_TRIM_MS", "0") or 0)
                 except Exception:
                     extra_trim_ms = 0
-                extra_trim_ms = max(0, min(5000, extra_trim_ms))
+                extra_trim_ms = 0 if video_mode else max(0, min(5000, extra_trim_ms))
                 trim_sec = max(0.0, float(trim_ms + extra_trim_ms) / 1000.0)
                 dur_sec = max(0.1, float(dur_ms) / 1000.0)
                 usable_sec = max(0.1, float(usable_ms) / 1000.0)
@@ -783,6 +825,8 @@ class NarrationVideoExportService:
             output_srt = os.path.join(out_dir_abs, f"{topic_stem}_{language}.srt")
             shutil.copyfile(srt_path, output_srt)
 
+            if video_mode:
+                subtitle_style = {**EXPLAINER_SUBTITLE_DEFAULTS, **(subtitle_style or {})}
             style = _resolve_subtitle_style(subtitle_style, height=height, render_mode="live")
             if embed_subtitles:
                 vf = _build_subtitle_filter(subtitle_path=srt_path, width=width, height=height, style=style)
@@ -875,7 +919,14 @@ class NarrationVideoExportService:
             audio_repo.close()
             temp_artifacts.cleanup()
 
-    def _build_live_single_slide_html(self, slide_html: str, *, width: int, height: int) -> str:
+    def _build_live_single_slide_html(
+        self,
+        slide_html: str,
+        *,
+        width: int,
+        height: int,
+        reveal_schedule: Dict[int, int] | None = None,
+    ) -> str:
         slide_json = json.dumps(slide_html or "", ensure_ascii=False).replace("</", "<\\/")
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -927,6 +978,7 @@ class NarrationVideoExportService:
     const STABLE_CHECKS = 3;
     const STABLE_INTERVAL_MS = 200;
     const SLIDE = {slide_json};
+    const REVEAL_SCHEDULE = {json.dumps(reveal_schedule or {})};
     const frame = document.getElementById('frame');
     
     function applyScale() {{
@@ -1159,11 +1211,35 @@ class NarrationVideoExportService:
         }}
       }}
 
+      function prepareExplainerReveals(doc) {{
+        if (!doc || !Object.keys(REVEAL_SCHEDULE).length) return;
+        const reveals = [];
+        for (const [step, delay] of Object.entries(REVEAL_SCHEDULE)) {{
+          if (delay <= 0) continue;
+          const nodes = Array.from(doc.querySelectorAll('[data-video-step="' + step + '"]'));
+          for (const node of nodes) {{
+            const visibility = node.style.visibility;
+            node.style.visibility = 'hidden';
+            reveals.push(() => setTimeout(() => {{
+              node.style.visibility = visibility;
+              node.animate([{{opacity: 0}}, {{opacity: 1}}], {{duration: 200, easing: 'ease-out'}});
+            }}, delay));
+          }}
+        }}
+        window.__lpStartExplainerReveals = () => {{
+          window.__lpStartExplainerReveals = null;
+          const startsAt = Math.floor(performance.now());
+          reveals.forEach(reveal => reveal());
+          return startsAt;
+        }};
+      }}
+
       frame.onload = async () => {{
         applyScale();
         
         // Wait for everything to fully load
         await waitFullyLoaded();
+        prepareExplainerReveals(frame.contentDocument);
         
         // Now make page visible
         document.documentElement.classList.add('ready');
@@ -1319,6 +1395,7 @@ class NarrationVideoExportService:
         embed_subtitles: bool,
         subtitle_style: Optional[Dict[str, Any]],
         uploads_dir: str,
+        narration_audio: list[NarrationAudioResult] | None = None,
     ) -> Dict[str, Any]:
         """Static fallback: screenshot each slide and stitch into a video."""
         render_service = self._get_html_render_service()
@@ -1335,11 +1412,13 @@ class NarrationVideoExportService:
         tmp_dir = temp_artifacts.create()
         try:
             # 1) Ensure audio per slide
-            audios = await narration_service.generate_project_slide_audios(
-                project_id=project.project_id,
-                language=language,
-                uploads_dir=uploads_dir,
-            )
+            audios = narration_audio
+            if audios is None:
+                audios = await narration_service.generate_project_slide_audios(
+                    project_id=project.project_id,
+                    language=language,
+                    uploads_dir=uploads_dir,
+                )
             audio_by_index = {a.slide_index: a for a in audios}
 
             # 2) Get speech scripts to build subtitles

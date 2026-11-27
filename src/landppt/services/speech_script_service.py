@@ -17,6 +17,8 @@ from ..api.models import PPTProject
 from .prompts.system_prompts import SystemPrompts
 from .progress_tracker import progress_tracker
 from .runtime.ai_execution import scoped_ai_conversation
+from .audience_content import audience_slide_copy, is_production_direction, slide_text_blocks
+from .video_explainer import is_video_explainer
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,8 @@ class SpeechScriptCustomization:
     include_transitions: bool = True
     include_timing_notes: bool = False
     speaking_pace: str = "normal"  # slow, normal, fast
+    target_seconds: Optional[int] = None
+    strict_duration: bool = False
 
 
 @dataclass
@@ -709,16 +713,16 @@ class SpeechScriptService:
         )
         
         # Generate using AI
-        response = await self.ai_provider.text_completion(
-            prompt=SystemPrompts.with_text_cache_prefix(prompt),
-            **self._build_request_kwargs(
-                temperature=0.7
+        for _ in range(2):
+            response = await self.ai_provider.text_completion(
+                prompt=SystemPrompts.with_text_cache_prefix(prompt),
+                **self._build_request_kwargs(temperature=0.7),
             )
-        )
-
-        # Safety net: strip any leaked model reasoning/think blocks. Not all providers
-        # (e.g. Ollama/Google) filter these, and reasoning must never enter the script.
-        return strip_think_content(response.content or "")
+            script = strip_think_content(response.content or "")
+            if not any(is_production_direction(line) for line in script.splitlines()):
+                return script
+            prompt += "\n上次输出有制作说明。只输出观众实际会听到的主题正文。"
+        raise RuntimeError("口播稿含制作说明，无法生成配音")
 
     async def humanize_script(
         self,
@@ -773,6 +777,17 @@ class SpeechScriptService:
             'previous_script_context': self._trim_context_text(previous_script_context, max_chars=1200),
             'next_slide_context': next_slide_context
         }
+        confirmed_requirements = project.confirmed_requirements or {}
+        if is_video_explainer(confirmed_requirements):
+            project_info["content_mode"] = confirmed_requirements["content_mode"]
+            project_info["video_requirements"] = confirmed_requirements.get("requirements") or ""
+            outline = getattr(project, "outline", None) or {}
+            scenes = outline.get("slides") or []
+            if slide_index < len(scenes) and isinstance(scenes[slide_index], dict):
+                audience_copy = audience_slide_copy(scenes[slide_index])
+                points = audience_copy.get("content_points") or []
+                extra = [audience_copy[key] for key in ("description", "content") if key in audience_copy]
+                project_info["audience_outline"] = "\n".join([*points, *extra])
 
         customization_dict = {
             'language': getattr(customization, "language", "zh"),
@@ -781,7 +796,9 @@ class SpeechScriptService:
             'language_complexity': customization.language_complexity.value,
             'custom_style_prompt': customization.custom_style_prompt,
             'include_transitions': customization.include_transitions,
-            'speaking_pace': customization.speaking_pace
+            'speaking_pace': customization.speaking_pace,
+            'target_seconds': customization.target_seconds,
+            'strict_duration': customization.strict_duration,
         }
 
         return SpeechScriptPrompts.get_single_slide_script_prompt(
@@ -853,10 +870,10 @@ class SpeechScriptService:
         title = slide.get('title', '')
         content = slide.get('html_content', '')
 
-        # Extract text content from HTML
-        import re
-        text_content = re.sub(r'<[^>]+>', '', content)
-        text_content = re.sub(r'\s+', ' ', text_content).strip()
+        text_content = " ".join(
+            text for text in slide_text_blocks(content)
+            if not is_production_direction(text)
+        )
 
         # Create a brief summary
         if len(text_content) > 200:

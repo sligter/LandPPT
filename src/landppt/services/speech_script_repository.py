@@ -30,7 +30,9 @@ class SpeechScriptRepository:
         script_content: str,
         generation_params: Dict[str, Any],
         estimated_duration: Optional[str] = None,
-        speaker_notes: Optional[str] = None
+        speaker_notes: Optional[str] = None,
+        *,
+        commit: bool = True,
     ) -> SpeechScript:
         """保存演讲稿到数据库，如果已存在则覆盖"""
 
@@ -66,8 +68,9 @@ class SpeechScriptRepository:
                     existing_script.include_timing_notes = generation_params.get('include_timing_notes', False)
                     existing_script.updated_at = time.time()
 
-                    self.db.commit()
-                    self.db.refresh(existing_script)
+                    if commit:
+                        self.db.commit()
+                        self.db.refresh(existing_script)
                     return existing_script
                 else:
                     # 创建新记录
@@ -93,13 +96,14 @@ class SpeechScriptRepository:
                     )
 
                     self.db.add(speech_script)
-                    self.db.commit()
-                    self.db.refresh(speech_script)
+                    if commit:
+                        self.db.commit()
+                        self.db.refresh(speech_script)
                     return speech_script
 
             except Exception as e:
                 self.db.rollback()
-                if "database is locked" in str(e) and attempt < max_retries - 1:
+                if commit and "database is locked" in str(e) and attempt < max_retries - 1:
                     import asyncio
                     await asyncio.sleep(retry_delay * (attempt + 1))
                     continue
