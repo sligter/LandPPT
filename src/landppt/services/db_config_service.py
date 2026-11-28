@@ -381,20 +381,32 @@ class DatabaseConfigService:
             if self.config_schema.get(key, {}).get("category") == category
         }
     
-    async def update_config(self, config: Dict[str, Any], user_id: Optional[int] = None) -> bool:
-        """Update configuration values for a user"""
+    async def update_config(
+        self,
+        config: Dict[str, Any],
+        user_id: Optional[int] = None,
+        *,
+        allow_admin_only: bool = False,
+    ) -> bool:
+        """Update configuration values for a user
+
+        admin_only keys are system-wide (user_id=None). They are written only through an
+        explicit system-scope update (user_id=None) or when the caller has verified admin
+        rights and passes allow_admin_only=True. A per-user update never promotes them to
+        system scope on its own.
+        """
         from ..database.database import AsyncSessionLocal
         from ..database.repositories import UserConfigRepository
-        
+
         try:
             # Track which categories were updated for selective reload
             updated_categories = set()
             updated_system_scope = False
             system_only_updates: Dict[str, Any] = {}
-             
+
             async with AsyncSessionLocal() as session:
                 repo = UserConfigRepository(session)
-                 
+
                 for key, value in config.items():
                     if key in self.SYSTEM_ONLY_KEYS:
                         # Some system-only keys are designed to be updated via admin UI, but must be persisted
@@ -407,14 +419,18 @@ class DatabaseConfigService:
 
                         logger.warning(f"Skipping system-only key: {key}")
                         continue
-                     
+
                     if key in self.config_schema:
                         schema = self.config_schema[key]
-                        
+
                         # For admin_only keys, always save to system-level config (user_id=None)
                         # This ensures keys like landppt_api_key are accessible to all users
                         effective_user_id = user_id
                         if schema.get("admin_only", False):
+                            if user_id is not None and not allow_admin_only:
+                                # Never let a per-user update escalate to system scope.
+                                logger.warning(f"Skipping admin-only key '{key}' in per-user config update")
+                                continue
                             effective_user_id = None
                             logger.info(f"Saving admin-only key '{key}' to system-level config")
                             updated_system_scope = True

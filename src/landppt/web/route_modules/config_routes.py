@@ -255,6 +255,9 @@ async def update_ai_providers_config(
 
     - Normal users can only update their own provider keys.
     - Admin-only keys (e.g. LandPPT API key/base URL) are accepted only for admins and are stored at system scope.
+
+    NOTE: the generic POST /api/config/{category} in api/config_api.py is registered first (see main.py)
+    and currently serves this path. Keep the admin_only policy identical in both handlers.
     """
     from ...services.db_config_service import get_db_config_service
 
@@ -296,7 +299,9 @@ async def update_ai_providers_config(
             "errors": errors or None,
         }
 
-    success = await config_service.update_config(filtered_config, user_id=user.id)
+    success = await config_service.update_config(
+        filtered_config, user_id=user.id, allow_admin_only=user.is_admin
+    )
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update AI provider configuration")
 
@@ -405,7 +410,11 @@ async def _update_config_category(
             raise HTTPException(status_code=500, detail=f"Failed to update {category} configuration")
 
     if user_scoped:
-        ok = await config_service.update_config(user_scoped, user_id=user.id)
+        ok = await config_service.update_config(
+            user_scoped,
+            user_id=user.id,
+            allow_admin_only=getattr(user, "is_admin", False),
+        )
         if not ok:
             raise HTTPException(status_code=500, detail=f"Failed to update {category} configuration")
 

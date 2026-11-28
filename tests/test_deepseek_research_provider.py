@@ -510,8 +510,10 @@ async def test_deepseek_key_save_uses_correct_scope(monkeypatch, is_admin):
         assert update.await_args_list[0].args == ({"deepseek_api_key": "sk-new"},)
         assert update.await_args_list[0].kwargs == {"user_id": None}
         assert update.await_args_list[1].args == ({"research_provider": "deepseek"},)
-        assert update.await_args_list[1].kwargs == {"user_id": 7}
+        assert update.await_args_list[1].kwargs == {"user_id": 7, "allow_admin_only": True}
     else:
         update.assert_awaited_once_with(
-            {"deepseek_api_key": "sk-new", "research_provider": "deepseek"}, user_id=7
+            {"deepseek_api_key": "sk-new", "research_provider": "deepseek"},
+            user_id=7,
+            allow_admin_only=False,
         )

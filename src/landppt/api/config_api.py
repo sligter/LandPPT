@@ -104,7 +104,9 @@ async def update_user_config(
                 if key not in admin_only_keys
             }
 
-        success = await config_service.update_config(filtered_config, user_id=user.id)
+        success = await config_service.update_config(
+            filtered_config, user_id=user.id, allow_admin_only=user.is_admin
+        )
         
         if success:
             return {
@@ -143,7 +145,9 @@ async def update_user_config_by_category(
             and (user.is_admin or not schema[key].get("admin_only", False))
         }
         
-        success = await config_service.update_config(filtered_config, user_id=user.id)
+        success = await config_service.update_config(
+            filtered_config, user_id=user.id, allow_admin_only=user.is_admin
+        )
         
         if success:
             return {
@@ -460,7 +464,11 @@ async def update_all_config(
 
         success = True
         if user_scoped:
-            success = await config_service.update_config(user_scoped, user_id=user.id)
+            success = await config_service.update_config(
+                user_scoped,
+                user_id=user.id,
+                allow_admin_only=getattr(user, "is_admin", False),
+            )
         
         if success:
             return {
@@ -664,18 +672,37 @@ async def update_config_by_category(
     user: User = Depends(get_current_user_required)
 ):
     """Update configuration values for a specific category for current user"""
+    # NOTE: config_router is registered before web_router (see main.py), so this generic route
+    # also serves paths that have dedicated handlers in web/route_modules/config_routes.py
+    # (e.g. POST /api/config/ai_providers). Both places must keep the same admin_only policy.
     try:
         config_service = get_db_config_service()
         if not user.is_admin and category in getattr(config_service, "ADMIN_ONLY_CATEGORIES", set()):
             raise HTTPException(status_code=403, detail="Forbidden")
-         
-        # Filter config to only include keys from the specified category
+        
+        # Filter config to only include keys from the specified category.
+        # admin_only keys are stored at system scope and shared by every user, so non-admins
+        # must never be able to write them through this endpoint (same rule as /api/config/user/{category}).
         schema = config_service.get_config_schema()
         filtered_config = {
             key: value
             for key, value in request.config.items()
-            if key in schema and schema[key].get("category") == category
+            if key in schema
+            and schema[key].get("category") == category
+            and (user.is_admin or not schema[key].get("admin_only", False))
         }
+        if not user.is_admin:
+            rejected_keys = sorted(
+                key for key in request.config
+                if key in schema
+                and schema[key].get("category") == category
+                and schema[key].get("admin_only", False)
+            )
+            if rejected_keys:
+                logger.warning(
+                    f"Non-admin user {user.id} tried to update admin-only config keys {rejected_keys} "
+                    f"in category {category}; request ignored for those keys"
+                )
 
         # For sensitive settings (e.g. Tavily key), admins set the system default.
         system_scoped = {}
@@ -692,7 +719,9 @@ async def update_config_by_category(
 
         success = True
         if user_scoped:
-            success = await config_service.update_config(user_scoped, user_id=user.id)
+            success = await config_service.update_config(
+                user_scoped, user_id=user.id, allow_admin_only=user.is_admin
+            )
         
         if success:
             return {
@@ -702,6 +731,8 @@ async def update_config_by_category(
         else:
             raise HTTPException(status_code=500, detail=f"Failed to update configuration for {category}")
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to update configuration for category {category}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update configuration for {category}")
